@@ -1,6 +1,8 @@
 // HS256 JWTs via Web Crypto. No jsonwebtoken — this runs on Workers.
 
-const TTL_SECONDS = 60 * 60 * 12 // 12 hours
+// Access tokens are short-lived by design — the refresh cookie is what keeps a
+// session alive, so a stolen access token is only useful for minutes.
+const TTL_SECONDS = 15 * 60
 
 function b64urlEncode(bytes) {
   let bin = ''

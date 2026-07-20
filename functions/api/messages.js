@@ -1,5 +1,6 @@
-import { query } from '../_lib/db.js'
+import { getDb, unwrap } from '../_lib/db.js'
 import { requireAuth, requireConversationAccess } from '../_lib/auth.js'
+import { MESSAGE_COLUMNS } from '../_lib/storage.js'
 import { json, badRequest, serverError } from '../_lib/respond.js'
 
 export async function onRequestGet({ request, env }) {
@@ -16,21 +17,24 @@ export async function onRequestGet({ request, env }) {
     const access = await requireConversationAccess(env, auth.user, conversationId)
     if (access.response) return access.response
 
-    const messages = await query(
-      env,
-      `select id, conversation_id, direction, from_number, to_number, body,
-              whapi_message_id, status, error_code, is_read, sent_by, created_at
-         from wp_chat_messages
-        where conversation_id = $1
-        order by created_at asc, id asc`,
-      [conversationId]
-    )
+    const db = getDb(env)
+
+    const messages =
+      unwrap(
+        await db
+          .from('wp_chat_messages')
+          .select(MESSAGE_COLUMNS)
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+      ) || []
 
     // Opening a thread marks it read.
-    await query(
-      env,
-      `update wp_chat_conversations set unread_count = 0, updated_at = now() where id = $1`,
-      [conversationId]
+    unwrap(
+      await db
+        .from('wp_chat_conversations')
+        .update({ unread_count: 0, updated_at: new Date().toISOString() })
+        .eq('id', conversationId)
     )
 
     return json({ ok: true, conversation: access.conversation, messages })

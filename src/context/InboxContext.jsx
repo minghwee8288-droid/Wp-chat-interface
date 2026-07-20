@@ -12,6 +12,7 @@ import { displayName } from '../lib/format.js'
 import { playChime } from '../lib/chime.js'
 import { useToast } from './ToastContext.jsx'
 import { useTheme } from './ThemeContext.jsx'
+import { setAppBadge, ensurePushSubscription } from '../lib/push.js'
 
 const CONVERSATION_POLL_MS = 5000
 
@@ -51,6 +52,31 @@ export function InboxProvider({ children }) {
   useEffect(() => {
     document.title = totalUnread > 0 ? `(${totalUnread}) ${BASE_TITLE}` : BASE_TITLE
   }, [totalUnread])
+
+  // Home-screen badge tracks the same count. The in-app count stays the source
+  // of truth — push delivery is best-effort and may never arrive.
+  useEffect(() => {
+    setAppBadge(totalUnread)
+  }, [totalUnread])
+
+  // iOS can silently discard a push subscription while leaving permission
+  // granted, so re-assert it on every start rather than trusting permission.
+  useEffect(() => {
+    ensurePushSubscription().catch(() => {})
+  }, [])
+
+  // Notification tap: the service worker focuses this window and posts the
+  // conversation to open.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined
+    const onMessage = (event) => {
+      if (event.data?.type !== 'OPEN_CONVERSATION') return
+      const id = event.data.conversationId
+      if (id != null) onOpenRef.current?.(id)
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
+  }, [])
 
   /** Diff this poll against the last one and toast + chime on new inbound. */
   const announce = useCallback(

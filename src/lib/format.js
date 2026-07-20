@@ -67,6 +67,23 @@ export const dayKey = (value) => {
   return Number.isNaN(date.getTime()) ? '' : date.toDateString()
 }
 
+/** 4096 -> "4.0 KB". Documents show size under the filename. */
+export function formatBytes(bytes) {
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Label for a media message with no caption. */
+export function mediaLabel(mediaType) {
+  if (mediaType === 'image') return '📷 Photo'
+  if (mediaType === 'video') return '🎥 Video'
+  if (mediaType === 'audio') return '🎵 Audio'
+  return '📄 Document'
+}
+
 /**
  * Live filter: case-insensitive substring on the name, OR a digits-only
  * substring on the number so "732" matches "917326198427".

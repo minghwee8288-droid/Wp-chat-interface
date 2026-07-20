@@ -5,8 +5,9 @@ conversation and replies from the browser.
 
 - **Frontend** — React + Vite SPA on Cloudflare Pages
 - **Backend** — Cloudflare Pages Functions (`/functions/api/*`) on the Workers runtime
-- **Database** — Supabase Postgres over a direct Postgres connection
-- **Messaging** — n8n handles Whapi send/receive; this app never calls Whapi directly
+- **Database** — Supabase, via `@supabase/supabase-js` over HTTPS
+- **Messaging** — the app talks to **Whapi directly**: it calls Whapi's send API for
+  outbound, and receives inbound messages on its own webhook endpoint
 
 Text messages only. No media handling.
 
@@ -15,12 +16,12 @@ Text messages only. No media handling.
 ## Architecture
 
 ```
-INBOUND   Customer WhatsApp → Whapi → n8n → Supabase
+INBOUND   Customer WhatsApp → Whapi → POST /api/whapi/webhook/<secret> → Supabase
                                             (wp_chat_conversations + wp_chat_messages)
 
 APP       React (Pages) → Pages Functions /api/* → Supabase
 
-OUTBOUND  app POST /api/send → n8n webhook → Whapi → Customer WhatsApp
+OUTBOUND  app POST /api/send → Whapi /messages/text → Customer WhatsApp
 ```
 
 The browser never holds database credentials. The Functions hold them as encrypted
@@ -32,8 +33,14 @@ Pages Functions run on the Workers edge, not Node. So:
 
 - Passwords use **PBKDF2 via `crypto.subtle`** (100k iterations, SHA-256) — no bcrypt.
 - JWTs are **HMAC-SHA256 via Web Crypto** — no `jsonwebtoken`.
-- The Postgres driver is [`postgres`](https://github.com/porsager/postgres), which runs on
-  Workers with the `nodejs_compat` compatibility flag (already set in `wrangler.toml`).
+- Database access goes through **`@supabase/supabase-js`**, which talks to Supabase over
+  HTTPS/`fetch`. Do **not** swap this for a raw Postgres driver: raw TCP sockets to Postgres
+  hang on the Workers runtime — requests never complete and the Worker is eventually killed
+  with "your Worker's code had hung", and `connect_timeout` does not fire.
+
+Because the Functions use the **service role key**, they bypass row-level security. All
+access control is therefore enforced in the endpoint code itself, and the key must never
+reach the browser.
 
 ---
 
@@ -50,7 +57,8 @@ It reads and writes three tables, all prefixed `wp_chat_`:
 
 Phone numbers are stored as digits — E.164 without the plus, e.g. `919669229223`.
 
-All SQL is parameterized; values are never interpolated into query strings.
+Queries go through the Supabase query builder, so values are always sent as bound
+parameters — never interpolated into a query string.
 
 ---
 
@@ -60,17 +68,18 @@ Set these in **Cloudflare Pages → Settings → Environment variables**, all en
 
 | Variable | What it is |
 | --- | --- |
-| `DATABASE_URL` | Supabase Postgres connection string — use the **pooled / session-pooler** string with `sslmode=require` |
+| `SUPABASE_URL` | The project URL, e.g. `https://your-project-ref.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | The **service role** key — secret, server-side only |
 | `JWT_SECRET` | A long random string used to sign auth tokens |
-| `N8N_OUTBOUND_WEBHOOK_URL` | The n8n webhook that sends the message via Whapi |
+| `WHAPI_TOKEN` | Whapi channel API token, sent as `Authorization: Bearer` |
+| `WHAPI_API_URL` | Whapi base URL — `https://gate.whapi.cloud` |
+| `WHAPI_WEBHOOK_SECRET` | A long random string that forms the inbound webhook URL |
+| `BUSINESS_NUMBER` | Your WhatsApp business number, digits only (e.g. `919000000000`) |
 
-The `DATABASE_URL` looks like:
-
-```
-postgresql://postgres.PROJECTREF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres?sslmode=require
-```
-
-Find it in Supabase under **Project Settings → Database → Connection string → Session pooler**.
+Both Supabase values are in **Project Settings → API**. The service role key is the one
+under "Project API keys" marked `service_role` — it bypasses row-level security, so it
+belongs only in the Pages Functions environment. It must never appear anywhere in `/src`,
+in the built bundle, or in the browser.
 
 Generate a `JWT_SECRET` with:
 
@@ -111,7 +120,7 @@ fail until you switch back to the Wrangler command above.
 3. Build settings:
    - Build command: `npm run build`
    - Build output directory: `dist`
-4. Add the three environment variables above as **encrypted** values, for both
+4. Add the four environment variables above as **encrypted** values, for both
    Production and Preview.
 5. Deploy.
 
@@ -177,30 +186,68 @@ All endpoints live under `/api` and take `Authorization: Bearer <token>` except 
 | POST | `/api/login` | public | `{email, password}` → `{token, user}` |
 | GET | `/api/conversations` | any | Admin: all. Agent: assigned only |
 | GET | `/api/messages?conversation_id=N` | any | Thread, ascending. Also marks it read |
-| POST | `/api/send` | any | `{conversation_id, body}` → queues the row, then calls n8n |
+| POST | `/api/send` | any | `{conversation_id, body}` → queues the row, then calls Whapi |
 | POST | `/api/assign` | admin | `{conversation_id, assigned_user_id}` (null unassigns) |
 | GET | `/api/users` | any | Roster for the assign dropdown — never returns password hashes |
 | POST | `/api/users/create` | admin | `{name, email, password, role}` |
 | POST | `/api/password/change` | any | `{current_password, new_password}` |
 | POST | `/api/password/reset` | admin | `{user_id, new_password?}` — omit to get a temp password back |
+| POST | `/api/whapi/webhook/<secret>` | **public** | Inbound messages from Whapi |
 
-### Outbound webhook contract
+---
 
-`POST /api/send` sends this to `N8N_OUTBOUND_WEBHOOK_URL`:
+## Whapi
 
-```json
-{
-  "conversation_id": 12,
-  "to_number": "919669229223",
-  "body": "Hello there",
-  "message_id": 481
-}
+### Outbound
+
+`POST /api/send` writes the message row as `status='queued'` first, updates the
+conversation preview, then calls Whapi:
+
+```
+POST {WHAPI_API_URL}/messages/text
+Authorization: Bearer {WHAPI_TOKEN}
+Content-Type: application/json
+Accept: application/json
+
+{ "to": "13135555657", "body": "Hello there" }
 ```
 
-The message row is written as `status='queued'` first. If the webhook call throws or
-returns non-2xx, the row is flipped to `status='send_failed'` so the failure is visible
-in the thread rather than silently lost. n8n should update the row with the Whapi message
-id once it has one.
+`to` is sent as bare digits. On a 2xx the row flips to `status='sent'` and the returned
+message id is stored in `whapi_message_id` when the response includes one. On a non-2xx or
+a network failure the row flips to `status='send_failed'` with a short reason in
+`error_code`, and the endpoint still returns 200 — the message is already persisted, so the
+failure shows up in the thread instead of vanishing.
+
+### Inbound
+
+Paste this into Whapi's **incoming webhook** setting:
+
+```
+https://<your-domain>/api/whapi/webhook/<WHAPI_WEBHOOK_SECRET>
+```
+
+> **The secret path segment is the only thing protecting this endpoint.** Whapi supports
+> neither signed webhooks nor custom auth headers, so the URL itself is the credential.
+> Treat it like a password: make it long and random, never commit it, and rotate it by
+> changing `WHAPI_WEBHOOK_SECRET` and updating the URL in Whapi. A request with the wrong
+> secret gets a 404, so the route's existence is not advertised.
+
+The endpoint always answers **200** for a valid secret — even for a payload it skips or
+cannot parse — because any other status makes Whapi retry indefinitely. Problems are logged
+instead.
+
+Per message in the `messages` array:
+
+- `from_me: true` is **skipped** — these are echoes of the team's own replies, which
+  `/api/send` has already written. Without this every outgoing message would be duplicated.
+- Non-`text` types are skipped; media is out of scope.
+- The conversation is found or created by `customer_number`. An existing blank
+  `customer_name` is filled from `from_name`, but an existing name is never overwritten —
+  a human may have corrected it.
+- The message is inserted with `direction='inbound'`, `status='received'`, `is_read=false`.
+  `whapi_message_id` is UNIQUE, so a Whapi retry is dropped rather than duplicated.
+- The conversation preview is updated and `unread_count` incremented — only for messages
+  actually inserted, so retries don't inflate the badge.
 
 ---
 
@@ -227,7 +274,8 @@ No `localStorage` anywhere — session state lives in memory and `sessionStorage
 functions/
   _lib/
     auth.js         requireAuth / requireAdmin / conversation access checks
-    db.js           Postgres connection + parameterized query helpers
+    db.js           Memoized Supabase client + error unwrapping + email lookup
+    whapi.js        Whapi send-text call + number normalization
     hash.js         PBKDF2 hash + verify + temp-password generator
     jwt.js          HS256 sign / verify via Web Crypto
     respond.js      JSON response helpers
@@ -247,5 +295,5 @@ public/
 
 ## Out of scope
 
-The n8n workflows, direct Whapi calls, media/attachments, and database migrations are all
-handled outside this repository.
+Media/attachments (text messages only) and database migrations are out of scope — the
+schema already exists and is managed outside this repository.

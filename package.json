@@ -11,8 +11,8 @@
     "make-hash": "node scripts/make-hash.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.47.10",
     "lucide-react": "^0.468.0",
-    "postgres": "^3.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"

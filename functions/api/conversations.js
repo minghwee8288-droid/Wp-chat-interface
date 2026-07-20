@@ -1,23 +1,12 @@
-import { query } from '../_lib/db.js'
+import { getDb, unwrap } from '../_lib/db.js'
 import { requireAuth } from '../_lib/auth.js'
 import { json, serverError } from '../_lib/respond.js'
 
-const SELECT = `
-  select c.id,
-         c.customer_number,
-         c.business_number,
-         c.customer_name,
-         c.last_message_body,
-         c.last_message_at,
-         c.last_direction,
-         c.unread_count,
-         c.status,
-         c.assigned_user_id,
-         coalesce(u.name, c.assigned_to) as assigned_to,
-         c.created_at,
-         c.updated_at
-    from wp_chat_conversations c
-    left join wp_chat_users u on u.id = c.assigned_user_id
+const COLUMNS = `
+  id, customer_number, business_number, customer_name,
+  last_message_body, last_message_at, last_direction,
+  unread_count, status, assigned_user_id, assigned_to,
+  created_at, updated_at
 `
 
 export async function onRequestGet({ request, env }) {
@@ -25,17 +14,43 @@ export async function onRequestGet({ request, env }) {
   if (auth.response) return auth.response
 
   try {
-    const isAdmin = auth.user.role === 'admin'
+    const db = getDb(env)
 
-    const rows = isAdmin
-      ? await query(env, `${SELECT} order by c.last_message_at desc nulls last`)
-      : await query(
-          env,
-          `${SELECT} where c.assigned_user_id = $1 order by c.last_message_at desc nulls last`,
-          [auth.user.id]
-        )
+    let builder = db
+      .from('wp_chat_conversations')
+      .select(COLUMNS)
+      // DESC NULLS LAST
+      .order('last_message_at', { ascending: false, nullsFirst: false })
 
-    return json({ ok: true, conversations: rows })
+    if (auth.user.role !== 'admin') {
+      builder = builder.eq('assigned_user_id', auth.user.id)
+    }
+
+    const conversations = unwrap(await builder) || []
+
+    // Resolve assignee names in one extra round trip rather than an embedded
+    // select, so this doesn't depend on PostgREST inferring the FK relationship.
+    const assigneeIds = [
+      ...new Set(conversations.map((c) => c.assigned_user_id).filter((id) => id != null)),
+    ]
+
+    let names = new Map()
+    if (assigneeIds.length) {
+      const users =
+        unwrap(
+          await db.from('wp_chat_users').select('id, name').in('id', assigneeIds)
+        ) || []
+      names = new Map(users.map((u) => [String(u.id), u.name]))
+    }
+
+    return json({
+      ok: true,
+      conversations: conversations.map((c) => ({
+        ...c,
+        // Prefer the live name, fall back to the denormalized copy.
+        assigned_to: names.get(String(c.assigned_user_id)) ?? c.assigned_to ?? null,
+      })),
+    })
   } catch (err) {
     return serverError(err.message || 'Failed to load conversations')
   }

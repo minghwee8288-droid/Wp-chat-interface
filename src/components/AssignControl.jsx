@@ -55,7 +55,6 @@ export default function AssignControl({ conversation, users, onAssigned }) {
             </option>
           ))}
       </select>
-      {saving ? <span className="spinner" style={{ color: 'var(--text-3)' }} /> : null}
     </div>
   )
 }

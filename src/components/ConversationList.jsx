@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Search, X, Inbox as InboxIcon, User } from 'lucide-react'
-import { displayName, formatNumber, relativeStamp, matchesQuery } from '../lib/format.js'
+import { displayName, formatNumber, relativeStamp, matchesQuery, initials } from '../lib/format.js'
 
 export default function ConversationList({ conversations, openId, onOpen, loading }) {
   const [query, setQuery] = useState('')
@@ -14,7 +14,7 @@ export default function ConversationList({ conversations, openId, onOpen, loadin
     <>
       <div className="search-wrap">
         <div className="search">
-          <Search size={15} className="search-icon" />
+          <Search size={16} className="search-icon" />
           <input
             className="input"
             type="search"
@@ -57,6 +57,9 @@ export default function ConversationList({ conversations, openId, onOpen, loadin
           filtered.map((conversation) => {
             const unread = Number(conversation.unread_count) || 0
             const isActive = String(conversation.id) === String(openId)
+            const name = displayName(conversation)
+            // Whitespace-only bodies count as empty too.
+            const preview = String(conversation.last_message_body || '').trim()
 
             return (
               <button
@@ -66,18 +69,23 @@ export default function ConversationList({ conversations, openId, onOpen, loadin
                 aria-current={isActive ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
               >
+                <span className="conv-avatar" aria-hidden="true">
+                  {initials(name)}
+                </span>
+
                 <div className="conv-body">
                   <div className="conv-top">
-                    <span className="conv-name">{displayName(conversation)}</span>
+                    <span className="conv-name">{name}</span>
                     <span className="conv-time">
                       {relativeStamp(conversation.last_message_at)}
                     </span>
                   </div>
 
                   <div className="conv-preview">
-                    <span className="conv-snippet">
-                      {conversation.last_direction === 'outbound' ? 'You: ' : ''}
-                      {conversation.last_message_body || 'No messages yet'}
+                    <span className={`conv-snippet${preview ? '' : ' is-empty'}`}>
+                      {preview
+                        ? `${conversation.last_direction === 'outbound' ? 'You: ' : ''}${preview}`
+                        : 'No messages yet'}
                     </span>
                     {unread > 0 ? (
                       <span className="conv-badge" aria-label={`${unread} unread`}>

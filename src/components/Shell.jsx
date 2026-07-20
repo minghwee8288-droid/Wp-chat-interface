@@ -18,6 +18,7 @@ import { useInbox } from '../context/InboxContext.jsx'
 import { initials } from '../lib/format.js'
 import { armAudio } from '../lib/chime.js'
 import ChangePasswordModal from './ChangePasswordModal.jsx'
+import AccountMenuExtras from './AccountMenuExtras.jsx'
 
 export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
@@ -143,6 +144,8 @@ export default function Shell() {
                   <KeyRound size={15} />
                   Change password
                 </button>
+
+                <AccountMenuExtras onAction={() => setMenuOpen(false)} />
 
                 <button
                   type="button"

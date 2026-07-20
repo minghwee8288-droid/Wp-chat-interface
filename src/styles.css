@@ -320,6 +320,19 @@ button {
   }
 }
 
+/* Off-screen but still focusable/clickable — used for the file input. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .empty {
   display: flex;
   flex-direction: column;
@@ -408,6 +421,52 @@ button {
   display: flex;
   height: 100dvh;
   overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ *
+ * Standalone (installed to the home screen)
+ *
+ * With viewport-fit=cover the page extends under the notch and the home
+ * indicator. In a browser tab the chrome covers those, so the insets only
+ * need honouring once installed — hence the scoping. Both selectors are
+ * needed: older iOS exposes only navigator.standalone (which sets the
+ * attribute in JS), newer iOS matches the media query.
+ *
+ * Padding sits on .shell, which is border-box, so 100dvh still resolves to
+ * the full screen and the inner flex column keeps working unchanged.
+ * ------------------------------------------------------------------ */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .shell {
+    padding-top: env(safe-area-inset-top);
+    /* Matches the topbar so the notch strip is not a different colour. */
+    background: var(--surface);
+  }
+
+  .login-page {
+    padding-top: calc(24px + env(safe-area-inset-top));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+}
+
+:root[data-standalone='true'] .shell {
+  padding-top: env(safe-area-inset-top);
+  background: var(--surface);
+}
+
+:root[data-standalone='true'] .login-page {
+  padding-top: calc(24px + env(safe-area-inset-top));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+/* Overlays are fixed to the viewport, so they need the insets themselves. */
+:root[data-standalone='true'] .toast-stack {
+  top: calc(14px + env(safe-area-inset-top));
+}
+
+:root[data-standalone='true'] .overlay,
+:root[data-standalone='true'] .lightbox {
+  padding-top: calc(20px + env(safe-area-inset-top));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
 }
 
 .rail {
@@ -605,6 +664,58 @@ button {
   background: var(--danger-soft);
 }
 
+.menu-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Right-aligned state label, e.g. Notifications · On */
+.menu-item-state {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+/* Explanatory note inside the menu — not actionable, so not a button. */
+.menu-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 4px 2px;
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.menu-hint svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--text-3);
+}
+
+.menu-hint strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.menu-hint-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.menu-hint-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------------ *
  * Inbox layout
  * ------------------------------------------------------------------ */
@@ -652,17 +763,25 @@ button {
 .search svg.search-icon {
   position: absolute;
   left: 10px;
+  /* Optically centered regardless of the input's line box. */
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--text-3);
   pointer-events: none;
 }
 
 .search .input {
-  height: 38px;
-  padding-left: 33px;
+  height: 36px;
+  padding-left: 34px;
   padding-right: 32px;
-  font-size: 16px;
+  font-size: 14px;
+  border-radius: var(--r-md);
   background: var(--surface-2);
   border-color: transparent;
+}
+
+.search .input::placeholder {
+  color: var(--text-3);
 }
 .search .input:focus {
   background: var(--surface);
@@ -697,9 +816,10 @@ button {
 
 .conv-row {
   display: flex;
-  gap: 11px;
+  align-items: flex-start;
+  gap: 12px;
   width: 100%;
-  padding: 11px 13px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   transition: background 0.1s ease;
@@ -707,8 +827,26 @@ button {
 .conv-row:hover {
   background: var(--surface-2);
 }
+/* Selected = subtle wash + a 3px brand accent bar. inset box-shadow draws the
+   bar without a pseudo-element or any layout shift. */
 .conv-row.is-active {
-  background: var(--brand-soft);
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.conv-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .conv-body {
@@ -726,7 +864,7 @@ button {
   flex: 1;
   min-width: 0;
   font-size: 14px;
-  font-weight: 550;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -734,7 +872,7 @@ button {
 
 .conv-time {
   flex-shrink: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -754,6 +892,12 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Placeholder for a conversation with no message body yet. */
+.conv-snippet.is-empty {
+  font-style: italic;
+  color: var(--text-3);
 }
 
 .conv-badge {
@@ -776,8 +920,8 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 5px;
-  font-size: 11.5px;
+  margin-top: 4px;
+  font-size: 12px;
   color: var(--text-3);
 }
 
@@ -793,22 +937,29 @@ button {
 .thread-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
   flex: 0 0 auto;
-  min-height: var(--bar-h);
-  padding: 10px 16px;
+  height: 64px;
+  padding: 0 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 
+/* Stacked name/number, vertically centered against the dropdown. */
 .thread-id {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
   flex: 1;
   min-width: 0;
 }
 
 .thread-name {
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 1.2;
   letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -816,26 +967,48 @@ button {
 }
 
 .thread-number {
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 1.2;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
 
+/* Outer scroller stays full width so the scrollbar sits at the pane edge,
+   not at the content's 760px boundary. The flex column plus margin-top:auto
+   on the list is what bottom-anchors a short thread. */
+/* Deliberately NOT a flex container: bottom-anchoring a flex scroller with
+   margin-top:auto lets overflowing content escape upward out of the scroll
+   range. The anchoring lives on .msg-list instead. */
 .thread-scroll {
   flex: 1;
   /* min-height:0 is what lets this scroll instead of pushing the reply bar off-screen. */
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 18px 16px;
+  padding: 0;
+  /* A classic scrollbar eats width from this box only, which would centre the
+     thread ~7.5px left of the composer. Reserving the gutter on BOTH edges
+     keeps the content box concentric with the pane; .reply mirrors it below so
+     the two columns share one axis at every width. */
+  scrollbar-gutter: stable both-edges;
 }
 
+/* Inner wrapper carries the measure. Its CONTENT box (760 minus the 20px
+   padding) is the shared column axis — .reply-inner below uses exactly the
+   same box so bubbles and the composer line up. */
 .msg-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  max-width: 780px;
+  align-items: stretch;
+  /* Fill the scroller and pack to the bottom, so a short thread sits at the
+     bottom and grows upward. Once content exceeds the viewport there is no
+     free space left and this behaves like normal flow. */
+  justify-content: flex-end;
+  min-height: 100%;
+  width: 100%;
+  max-width: 760px;
   margin: 0 auto;
+  padding: 24px 20px;
 }
 
 .day-sep {
@@ -853,20 +1026,62 @@ button {
   font-weight: 600;
 }
 
+/* Alignment lives here and only here — no auto margins on the row or bubble. */
 .msg-row {
   display: flex;
-  margin-top: 5px;
+  /* Avatar sits on the bubble's last line. */
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 8px;
+  /* Tight within a run from one sender... */
+  margin-top: 4px;
 }
 .msg-row.out {
   justify-content: flex-end;
 }
+/* ...and open where the sender changes. */
+.msg-row.run-start {
+  margin-top: 16px;
+}
+.msg-list > div:first-child .msg-row {
+  margin-top: 0;
+}
+
+/* 28px avatar, outside the bubble's 65% but inside the 760px measure. */
+.msg-avatar,
+.msg-spacer {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.msg-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+/* In dark, --surface-3 and --bubble-in are the same value, so an avatar beside
+   an inbound bubble would read as one blob. Step it down a level. */
+[data-theme='dark'] .msg-avatar {
+  background: var(--surface-2);
+}
 
 .bubble {
-  max-width: min(78%, 540px);
-  padding: 8px 12px 6px;
+  width: fit-content;
+  max-width: 65%;
+  padding: 8px 12px;
   border-radius: var(--r-xl);
-  font-size: 14.5px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .bubble-in {
@@ -886,22 +1101,40 @@ button {
   word-break: break-word;
 }
 
-.bubble-foot {
-  display: flex;
+/* The stamp floats onto the LAST line of text rather than taking a line of
+   its own — that is what drops a one-word bubble from 53px to ~36px. */
+.bubble-meta {
+  float: right;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
-  margin-top: 3px;
-  font-size: 10.5px;
+  gap: 4px;
+  margin-left: 8px;
+  /* Nudges the stamp onto the text baseline without inflating the line box. */
+  padding-top: 5px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
   opacity: 0.72;
 }
 
-.bubble-out .bubble-foot {
+.bubble-out .bubble-meta {
   color: var(--brand-contrast);
 }
-.bubble-in .bubble-foot {
+.bubble-in .bubble-meta {
   color: var(--text-3);
+}
+
+/* Chips and failed media have no text line to ride on. */
+.bubble-meta-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+.bubble-meta-row .bubble-meta {
+  float: none;
+  margin-left: 0;
+  padding-top: 0;
 }
 
 .bubble-failed {
@@ -910,35 +1143,377 @@ button {
 }
 
 /* ------------------------------------------------------------------ *
+ * Media in bubbles
+ * ------------------------------------------------------------------ */
+/* Media-only bubbles get tight padding so the image nearly fills them. */
+.bubble.is-media-only {
+  padding: 4px;
+}
+
+/* A media bubble is capped at the image measure (320px + 4px padding each
+   side). Without a definite cap here the image's percentage max-width is
+   circular during intrinsic sizing, so the bubble falls back to the generic
+   65% and leaves dead space beside the image. */
+.bubble.has-media {
+  max-width: min(328px, 65%);
+}
+
+.bubble.has-media .bubble-text {
+  margin-top: 6px;
+}
+
+/* fit-content, not 100% — a full-width child would force the bubble out to its
+   65% max and leave dead space beside the image. */
+.media-image {
+  display: block;
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  line-height: 0;
+  background: var(--surface-3);
+}
+
+.media-image img {
+  display: block;
+  width: auto;
+  /* Resolves against the bubble's definite max-width above. */
+  max-width: 100%;
+  /* Tall portraits crop rather than dominating the thread; the lightbox
+     still shows the whole image. */
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: var(--r-md);
+}
+
+/* Stamp over the image, on a scrim so it stays legible on any photo and in
+   either theme (the scrim is fixed dark by design, like the lightbox). */
+.media-stamp {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: rgba(8, 11, 16, 0.55);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.media-stamp .bubble-meta {
+  float: none;
+  margin-left: 0;
+  padding-top: 0;
+  color: #fff;
+  opacity: 1;
+}
+
+/* Holds the bubble's shape until the bytes land. */
+.media-skeleton {
+  display: block;
+  width: 240px;
+  max-width: 100%;
+  height: 160px;
+  border-radius: var(--r-md);
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 25%,
+    var(--surface-2) 37%,
+    var(--surface-3) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton 1.3s ease-in-out infinite;
+}
+
+@keyframes skeleton {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+.media-doc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  text-decoration: none;
+  color: inherit;
+  background: var(--surface-3);
+  transition: background 0.12s ease;
+}
+.media-doc:hover {
+  background: var(--surface-2);
+}
+.media-doc[aria-disabled='true'] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* On a brand-coloured outbound bubble the chip sits on a translucent wash so
+   it reads in both themes without a second hardcoded colour. */
+.bubble-out .media-doc {
+  background: rgba(255, 255, 255, 0.16);
+}
+.bubble-out .media-doc:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.media-doc-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.bubble-out .media-doc-icon {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--brand-contrast);
+}
+
+.media-doc-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.media-doc-name {
+  font-size: 13.5px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-doc-meta {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.media-doc-dl {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.media-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Lightbox
+ * ------------------------------------------------------------------ */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(8, 11, 16, 0.86);
+  animation: fade 0.14s ease-out;
+}
+
+.lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--r-md);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  transition: background 0.12s ease;
+}
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+/* ------------------------------------------------------------------ *
  * Reply box
  * ------------------------------------------------------------------ */
+/* Pinned to the bottom of the thread pane as a flex sibling of .thread-scroll —
+   it can never overlap the last message. Surface, not thread grey. */
+/* Horizontal padding lives on the inner wrappers, not here, so their content
+   boxes match .msg-list exactly (760px cap, 20px inset). */
 .reply {
   flex: 0 0 auto;
-  padding: 11px 16px calc(11px + env(safe-area-inset-bottom));
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
   background: var(--surface);
   border-top: 1px solid var(--border);
+  /* Mirrors .thread-scroll's reserved gutter so both content boxes are the
+     same width — without this the composer sits half a scrollbar to the right.
+     overflow:hidden makes this a scroll container so the gutter applies, and
+     costs nothing since the composer never scrolls. */
+  overflow: hidden;
+  scrollbar-gutter: stable both-edges;
 }
 
 .reply-inner {
   display: flex;
   align-items: flex-end;
-  gap: 9px;
-  max-width: 780px;
+  gap: 8px;
+  width: 100%;
+  max-width: 760px;
   margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* Ghost paperclip, matching the textarea's resting height. */
+.reply-attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  flex-shrink: 0;
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.reply-attach-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.reply-attach-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Preview strip above the textarea. */
+/* calc(100% - 40px) capped at 720 reproduces .msg-list's content box at every
+   width: 720px centered when the pane is wide, 20px inset when it is not. */
+.reply-attach {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 40px);
+  max-width: 720px;
+  margin: 0 auto 8px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.reply-attach-thumb {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+}
+
+.reply-attach-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.reply-attach-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.reply-attach-name {
+  font-size: 13.5px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-attach-size {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.reply-attach-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.reply-attach-remove:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* Inline upload/send failure — never a thrown exception. */
+.reply-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: calc(100% - 40px);
+  max-width: 720px;
+  margin: 0 auto 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 13px;
 }
 
 .reply-input {
   flex: 1;
+  min-width: 0;
   min-height: 40px;
-  max-height: 150px;
+  /* 5 rows at 1.45 line-height + vertical padding. */
+  max-height: 122px;
   padding: 9px 12px;
-  /* 16px stops iOS zoom on focus. */
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.45;
   resize: none;
+  overflow-y: auto;
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-xl);
+  border-radius: var(--r-md);
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .reply-input:focus {
@@ -948,6 +1523,7 @@ button {
   box-shadow: 0 0 0 3px var(--brand-soft);
 }
 
+/* Flush-right rectangle, matching the textarea's resting height. */
 .reply-send {
   display: flex;
   align-items: center;
@@ -956,7 +1532,7 @@ button {
   height: 40px;
   min-width: 40px;
   flex-shrink: 0;
-  border-radius: var(--r-full);
+  border-radius: var(--r-md);
   background: var(--brand);
   color: var(--brand-contrast);
   transition: background 0.12s ease, opacity 0.12s ease;
@@ -969,11 +1545,16 @@ button {
   cursor: not-allowed;
 }
 
+/* Plain muted text — no kbd/mark/background anywhere in this chain. */
 .reply-hint {
-  max-width: 780px;
+  width: calc(100% - 40px);
+  max-width: 720px;
   margin: 6px auto 0;
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
   color: var(--text-3);
+  background: none;
 }
 
 /* ------------------------------------------------------------------ *
@@ -986,23 +1567,35 @@ button {
   flex-shrink: 0;
 }
 
+/* Light-touch control, not a heavy select box. */
 .assign .select {
-  height: 36px;
-  min-width: 168px;
-  font-size: 13.5px;
-  background-color: var(--surface-2);
+  height: 32px;
+  min-width: 150px;
+  padding: 0 26px 0 9px;
+  font-size: 13px;
+  color: var(--text-2);
+  background-color: transparent;
+  background-position: right 8px center;
   border-color: var(--border);
+}
+.assign .select:hover:not(:disabled) {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+.assign .select:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 .assign-static {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: 32px;
   padding: 0 10px;
-  border-radius: var(--r-full);
+  border-radius: var(--r-md);
   background: var(--surface-2);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -1387,20 +1980,85 @@ button {
   }
 
   .thread-head {
-    padding: 9px 11px;
+    height: 56px;
+    padding: 0 11px;
     gap: 8px;
   }
 
-  .thread-scroll {
-    padding: 14px 11px;
+  .msg-list {
+    padding: 14px 12px;
   }
 
+  /* Narrow panes need more of the width than the 65% desktop measure. */
   .bubble {
-    max-width: 86%;
+    max-width: 82%;
   }
 
   .reply {
-    padding: 9px 11px calc(9px + env(safe-area-inset-bottom));
+    padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+  }
+
+  /* Mobile inset drops to 12px — keep every wrapper on the same axis. */
+  .reply-inner {
+    padding: 0 12px;
+  }
+
+  .reply-attach,
+  .reply-error,
+  .reply-hint {
+    width: calc(100% - 24px);
+  }
+
+  /* Too tight for avatars at this width — drop them and their spacers. */
+  .msg-avatar,
+  .msg-spacer {
+    display: none;
+  }
+
+  /* Back to 16px on phones — anything smaller makes iOS zoom the viewport on
+     focus, which the 14px desktop sizing above would otherwise trigger. */
+  .reply-input,
+  .search .input {
+    font-size: 16px;
+  }
+
+  /* At 16px the textarea's natural single-row height is ~43px, so pin both it
+     and the send button to 44 — they stay flush, and it clears the 40px tap
+     target minimum. */
+  .reply-input {
+    min-height: 44px;
+    /* 5 rows at 16px/1.45 + padding. */
+    max-height: 134px;
+  }
+
+  .reply-send,
+  .reply-attach-btn {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  /* Keep the composer usable at 390px: the two buttons plus a workable input. */
+  .reply-inner {
+    gap: 6px;
+  }
+
+  .bubble.has-media {
+    max-width: min(328px, 82%);
+  }
+
+  .media-doc {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .media-skeleton {
+    width: 200px;
+    height: 140px;
+  }
+
+  .lightbox {
+    padding: 16px;
   }
 
   .assign .select {

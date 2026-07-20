@@ -1,4 +1,4 @@
-import { query, queryOne } from '../../_lib/db.js'
+import { getDb, unwrap } from '../../_lib/db.js'
 import { requireAuth } from '../../_lib/auth.js'
 import { hashPassword, verifyPassword } from '../../_lib/hash.js'
 import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
@@ -17,19 +17,26 @@ export async function onRequestPost({ request, env }) {
   }
 
   try {
-    const row = await queryOne(
-      env,
-      `select password_hash from wp_chat_users where id = $1`,
-      [auth.user.id]
+    const db = getDb(env)
+
+    const row = unwrap(
+      await db
+        .from('wp_chat_users')
+        .select('password_hash')
+        .eq('id', auth.user.id)
+        .maybeSingle()
     )
+
     if (!row || !(await verifyPassword(current_password, row.password_hash))) {
       return badRequest('Current password is incorrect')
     }
 
-    await query(env, `update wp_chat_users set password_hash = $1 where id = $2`, [
-      await hashPassword(new_password),
-      auth.user.id,
-    ])
+    unwrap(
+      await db
+        .from('wp_chat_users')
+        .update({ password_hash: await hashPassword(new_password) })
+        .eq('id', auth.user.id)
+    )
 
     return json({ ok: true })
   } catch (err) {

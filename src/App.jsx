@@ -10,6 +10,15 @@ import Login from './pages/Login.jsx'
 import Inbox from './pages/Inbox.jsx'
 import Team from './pages/Team.jsx'
 
+/** Cold-start placeholder. Reuses existing classes — no new UI. */
+function Booting() {
+  return (
+    <div className="login-page">
+      <span className="spinner" style={{ color: 'var(--text-3)' }} />
+    </div>
+  )
+}
+
 function RequireAuth({ children }) {
   const { isAuthenticated } = useAuth()
   const location = useLocation()
@@ -21,6 +30,13 @@ function RequireAuth({ children }) {
 }
 
 function AppRoutes() {
+  const { isLoading } = useAuth()
+
+  // Hold every route until the refresh resolves, otherwise RequireAuth would
+  // bounce an authenticated user to /login for a frame — the flash that makes
+  // this feel broken.
+  if (isLoading) return <Booting />
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

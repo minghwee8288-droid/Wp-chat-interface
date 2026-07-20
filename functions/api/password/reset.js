@@ -1,4 +1,4 @@
-import { queryOne } from '../../_lib/db.js'
+import { getDb, unwrap } from '../../_lib/db.js'
 import { requireAdmin } from '../../_lib/auth.js'
 import { hashPassword, generateTempPassword } from '../../_lib/hash.js'
 import { json, badRequest, notFound, serverError, readJson } from '../../_lib/respond.js'
@@ -20,11 +20,15 @@ export async function onRequestPost({ request, env }) {
   }
 
   try {
-    const updated = await queryOne(
-      env,
-      `update wp_chat_users set password_hash = $1 where id = $2 returning id, name, email`,
-      [await hashPassword(password), userId]
+    const updated = unwrap(
+      await getDb(env)
+        .from('wp_chat_users')
+        .update({ password_hash: await hashPassword(password) })
+        .eq('id', userId)
+        .select('id, name, email')
+        .maybeSingle()
     )
+
     if (!updated) return notFound('User not found')
 
     // Only echo the password back when we generated it — the admin has to

@@ -1,5 +1,5 @@
 import { verifyJWT } from './jwt.js'
-import { queryOne } from './db.js'
+import { getDb, unwrap } from './db.js'
 
 /**
  * Resolves the caller from the Authorization header.
@@ -16,13 +16,14 @@ export async function requireAuth(request, env) {
     return { response: unauth() }
   }
 
-  const user = await queryOne(
-    env,
-    `select id, name, email, role, is_active
-       from wp_chat_users
-      where id = $1`,
-    [payload.sub]
+  const user = unwrap(
+    await getDb(env)
+      .from('wp_chat_users')
+      .select('id, name, email, role, is_active')
+      .eq('id', payload.sub)
+      .maybeSingle()
   )
+
   if (!user || !user.is_active) {
     return { response: unauth() }
   }
@@ -49,12 +50,12 @@ export async function requireAdmin(request, env) {
  * conversation row, or {response} with a 403/404 to return instead.
  */
 export async function requireConversationAccess(env, user, conversationId) {
-  const conversation = await queryOne(
-    env,
-    `select id, customer_number, business_number, customer_name, assigned_user_id
-       from wp_chat_conversations
-      where id = $1`,
-    [conversationId]
+  const conversation = unwrap(
+    await getDb(env)
+      .from('wp_chat_conversations')
+      .select('id, customer_number, business_number, customer_name, assigned_user_id')
+      .eq('id', conversationId)
+      .maybeSingle()
   )
 
   if (!conversation) {

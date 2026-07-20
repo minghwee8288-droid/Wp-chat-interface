@@ -1,6 +1,7 @@
-import { queryOne } from '../_lib/db.js'
+import { findUserByEmail } from '../_lib/db.js'
 import { verifyPassword } from '../_lib/hash.js'
 import { signJWT } from '../_lib/jwt.js'
+import { issueRefreshToken, refreshCookie } from '../_lib/tokens.js'
 import { json, badRequest, unauthorized, serverError, readJson } from '../_lib/respond.js'
 
 export async function onRequestPost({ request, env }) {
@@ -11,16 +12,11 @@ export async function onRequestPost({ request, env }) {
       return badRequest('Email and password are required')
     }
 
-    const user = await queryOne(
-      env,
-      `select id, name, email, role, password_hash
-         from wp_chat_users
-        where lower(email) = lower($1) and is_active = true`,
-      [email.trim()]
-    )
+    const user = await findUserByEmail(env, email, 'id, name, email, role, password_hash, is_active')
 
-    // Same message for unknown user and wrong password — don't leak which.
-    if (!user || !(await verifyPassword(password, user.password_hash))) {
+    // Same message for unknown user, inactive user and wrong password —
+    // don't leak which one it was.
+    if (!user || !user.is_active || !(await verifyPassword(password, user.password_hash))) {
       return unauthorized('Invalid email or password')
     }
 
@@ -29,11 +25,19 @@ export async function onRequestPost({ request, env }) {
       env
     )
 
-    return json({
-      ok: true,
-      token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
-    })
+    // The refresh token goes out as an HttpOnly cookie and is never included
+    // in the body, so JavaScript cannot read it.
+    const refresh = await issueRefreshToken(env, user.id, request)
+
+    return json(
+      {
+        ok: true,
+        token,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      },
+      200,
+      { 'Set-Cookie': refreshCookie(refresh) }
+    )
   } catch (err) {
     return serverError(err.message || 'Login failed')
   }

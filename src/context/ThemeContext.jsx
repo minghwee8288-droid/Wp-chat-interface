@@ -5,9 +5,13 @@ const SOUND_KEY = 'wpchat.sound'
 
 const ThemeContext = createContext(null)
 
+// localStorage so preferences survive a session ending — notably when iOS
+// evicts the home-screen PWA, which previously reset the theme on every
+// relaunch. Auth tokens deliberately stay in memory; only these preferences
+// are persisted.
 function readStored(key, fallback) {
   try {
-    return sessionStorage.getItem(key) ?? fallback
+    return localStorage.getItem(key) ?? fallback
   } catch {
     return fallback
   }
@@ -15,7 +19,7 @@ function readStored(key, fallback) {
 
 function store(key, value) {
   try {
-    sessionStorage.setItem(key, value)
+    localStorage.setItem(key, value)
   } catch {
     /* private mode — in-memory state still applies */
   }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, MessagesSquare } from 'lucide-react'
 import { api } from '../lib/api.js'
-import { displayName, formatNumber } from '../lib/format.js'
+import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useInbox } from '../context/InboxContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
@@ -108,17 +108,18 @@ export default function Inbox() {
     }
   }, [openId, conversation, loading, setOpenId])
 
-  const send = async (body) => {
+  const send = async (body, media = null) => {
     if (!conversation) return
     try {
-      const data = await api.send(conversation.id, body)
+      const data = await api.send(conversation.id, body, media)
       setMessages((current) => [...current, data.message])
-      applyOutbound(conversation.id, body)
+      applyOutbound(conversation.id, body || (media ? mediaLabel(media.media_type) : ''))
 
       if (data.message.status === 'send_failed') {
-        toast.error('Message not delivered', 'The send webhook did not accept it.')
+        toast.error('Message not delivered', 'Whapi did not accept it.')
       }
     } catch (err) {
+      // Rethrown so the composer can surface it inline as well.
       toast.error('Could not send', err.message)
       throw err
     }
@@ -180,9 +181,17 @@ export default function Inbox() {
               />
             </header>
 
-            <Thread messages={messages} loading={threadLoading} />
+            <Thread
+              messages={messages}
+              loading={threadLoading}
+              conversation={conversation}
+            />
 
-            <ReplyBox onSend={send} disabled={!isAdmin && !conversation.assigned_user_id} />
+            <ReplyBox
+              conversationId={conversation.id}
+              onSend={send}
+              disabled={!isAdmin && !conversation.assigned_user_id}
+            />
           </>
         )}
       </section>

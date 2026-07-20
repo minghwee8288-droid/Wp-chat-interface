@@ -1,4 +1,4 @@
-import { queryOne } from '../_lib/db.js'
+import { getDb, unwrap } from '../_lib/db.js'
 import { requireAdmin } from '../_lib/auth.js'
 import { json, badRequest, notFound, serverError, readJson } from '../_lib/respond.js'
 
@@ -13,34 +13,42 @@ export async function onRequestPost({ request, env }) {
     return badRequest('conversation_id is required')
   }
 
-  const unassign = assigned_user_id === null || assigned_user_id === undefined || assigned_user_id === ''
+  const unassign =
+    assigned_user_id === null || assigned_user_id === undefined || assigned_user_id === ''
   const userId = unassign ? null : Number(assigned_user_id)
   if (!unassign && (!Number.isInteger(userId) || userId <= 0)) {
     return badRequest('assigned_user_id must be a user id or null')
   }
 
   try {
+    const db = getDb(env)
+
     let assignedName = null
     if (!unassign) {
-      const agent = await queryOne(
-        env,
-        `select id, name from wp_chat_users where id = $1 and is_active = true`,
-        [userId]
+      const agent = unwrap(
+        await db
+          .from('wp_chat_users')
+          .select('id, name')
+          .eq('id', userId)
+          .eq('is_active', true)
+          .maybeSingle()
       )
       if (!agent) return badRequest('That user does not exist or is inactive')
       assignedName = agent.name
     }
 
-    // assigned_to is denormalized for n8n's convenience — keep it in step.
-    const conversation = await queryOne(
-      env,
-      `update wp_chat_conversations
-          set assigned_user_id = $1,
-              assigned_to = $2,
-              updated_at = now()
-        where id = $3
-       returning id, assigned_user_id, assigned_to`,
-      [userId, assignedName, conversationId]
+    // assigned_to is a denormalized copy of the agent's name — keep it in step.
+    const conversation = unwrap(
+      await db
+        .from('wp_chat_conversations')
+        .update({
+          assigned_user_id: userId,
+          assigned_to: assignedName,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', conversationId)
+        .select('id, assigned_user_id, assigned_to')
+        .maybeSingle()
     )
 
     if (!conversation) return notFound('Conversation not found')
