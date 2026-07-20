@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node -v)",
+      "PowerShell(npm -v)",
+      "PowerShell(npm install --no-audit --no-fund)",
+      "PowerShell(npm run build)",
+      "PowerShell(node \"C:\\\\Users\\\\GROWWS~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Growwstacks-Desktop-Thomas-Chat-interface\\\\c3f958ea-8255-4ad2-8f07-640dbf7edf03\\\\scratchpad\\\\check.mjs\")",
+      "PowerShell(npx wrangler pages functions build --outdir=\"C:\\\\Users\\\\GROWWS~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Growwstacks-Desktop-Thomas-Chat-interface\\\\c3f958ea-8255-4ad2-8f07-640dbf7edf03\\\\scratchpad\\\\fnbuild\" 2>&1)",
+      "PowerShell($p=\"C:\\\\Users\\\\GROWWS~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Growwstacks-Desktop-Thomas-Chat-interface\\\\c3f958ea-8255-4ad2-8f07-640dbf7edf03\\\\scratchpad\\\\fnbuild\"; Get-ChildItem $p -Recurse -File | Select-Object -ExpandProperty Name; Get-Content \\(Join-Path $p \"index.js\"\\) | Select-String -Pattern 'routePath|\"/api' | Select-Object -First 30)"
+    ]
+  }
+}

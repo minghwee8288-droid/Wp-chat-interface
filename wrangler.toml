@@ -1,0 +1,13 @@
+name = "whatsapp-team-inbox"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-11-06"
+
+# nodejs_compat is required for the `postgres` driver to open a TCP socket
+# to Supabase from the Workers runtime.
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets are NOT stored here. Set them in the Cloudflare Pages dashboard
+# (Settings -> Environment variables -> Encrypted), or in a local .dev.vars file:
+#   DATABASE_URL
+#   JWT_SECRET
+#   N8N_OUTBOUND_WEBHOOK_URL
