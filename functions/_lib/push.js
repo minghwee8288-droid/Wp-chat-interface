@@ -39,15 +39,94 @@ function concat(...parts) {
 }
 
 // ---------------------------------------------------------------- VAPID
+/**
+ * Apple validates the `sub` claim far more strictly than the other push
+ * services, and rejects the whole token with 403 {"reason":"BadJwtToken"} when
+ * it does not like it. It must be a well-formed `mailto:` address or an
+ * `https:` URL — no angle brackets, no space after `mailto:`, no localhost or
+ * other undeliverable host.
+ *
+ * Returns {ok, subject, reason, warnings}. Normalizes the recoverable
+ * mistakes rather than shipping a token Apple will silently refuse.
+ */
+export function normalizeVapidSubject(raw) {
+  const warnings = []
+  let subject = String(raw ?? '').trim()
+
+  if (!subject) return { ok: false, reason: 'VAPID_SUBJECT is empty' }
+
+  // "mailto:<ops@x.com>" and "mailto: ops@x.com" are both rejected by Safari.
+  if (/[<>]/.test(subject)) {
+    subject = subject.replace(/[<>]/g, '').trim()
+    warnings.push('stripped angle brackets')
+  }
+  if (/^mailto:\s+/i.test(subject)) {
+    subject = subject.replace(/^mailto:\s+/i, 'mailto:')
+    warnings.push('removed space after "mailto:"')
+  }
+
+  // A bare address is the most common misconfiguration — add the scheme.
+  if (!/^(mailto:|https?:\/\/)/i.test(subject)) {
+    if (/^[^\s@]+@[^\s@]+$/.test(subject)) {
+      subject = `mailto:${subject}`
+      warnings.push('added missing "mailto:" scheme')
+    } else {
+      return {
+        ok: false,
+        reason: `VAPID_SUBJECT must be a mailto: address or https: URL, got "${subject}"`,
+      }
+    }
+  }
+
+  // Normalize the scheme's case; the address itself is left alone.
+  subject = subject.replace(/^MAILTO:/i, 'mailto:').replace(/^HTTP(S?):\/\//i, (m) => m.toLowerCase())
+
+  if (/^mailto:/i.test(subject)) {
+    const address = subject.slice('mailto:'.length)
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(address)) {
+      return { ok: false, reason: `VAPID_SUBJECT is not a valid email address: "${address}"` }
+    }
+    if (/(^|\.)localhost$|\.local$|\.invalid$|\.test$/i.test(address.split('@')[1] || '')) {
+      return {
+        ok: false,
+        reason: `Apple rejects undeliverable VAPID_SUBJECT domains, got "${address}"`,
+      }
+    }
+  } else {
+    if (!/^https:\/\//i.test(subject)) {
+      return { ok: false, reason: 'VAPID_SUBJECT must use https, not http' }
+    }
+    try {
+      const host = new URL(subject).hostname
+      if (/(^|\.)localhost$|\.local$|\.invalid$|\.test$/i.test(host)) {
+        return { ok: false, reason: `Apple rejects localhost VAPID_SUBJECT, got "${host}"` }
+      }
+    } catch {
+      return { ok: false, reason: `VAPID_SUBJECT is not a valid URL: "${subject}"` }
+    }
+  }
+
+  return { ok: true, subject, warnings }
+}
+
 export function vapidConfig(env) {
   const publicKey = env?.VAPID_PUBLIC_KEY
   const privateKey = env?.VAPID_PRIVATE_KEY
-  const subject = env?.VAPID_SUBJECT
 
-  if (!publicKey || !privateKey || !subject) {
+  if (!publicKey || !privateKey || !env?.VAPID_SUBJECT) {
     throw new Error('VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT are not configured')
   }
-  return { publicKey, privateKey, subject }
+
+  const normalized = normalizeVapidSubject(env.VAPID_SUBJECT)
+  if (!normalized.ok) {
+    // Fail loudly here rather than letting Apple answer 403 BadJwtToken.
+    throw new Error(`Invalid VAPID_SUBJECT — ${normalized.reason}`)
+  }
+  if (normalized.warnings.length) {
+    console.warn('VAPID_SUBJECT normalized:', normalized.warnings.join('; '))
+  }
+
+  return { publicKey, privateKey, subject: normalized.subject }
 }
 
 /**
@@ -212,8 +291,25 @@ export async function sendPush(env, subscription, payload, { ttl = 86400 } = {})
       body,
     })
 
+    // On rejection, read the body — Apple and the other push services put the
+    // actual reason there, and it was previously discarded. Success bodies are
+    // empty, so this only runs on failure.
+    let failureBody = null
+    if (!res.ok) {
+      try {
+        failureBody = (await res.text()).slice(0, 300) || null
+      } catch {
+        failureBody = null
+      }
+    }
+
     // 404/410 are the standard "this subscription is dead" signals.
-    return { ok: res.ok, status: res.status, gone: res.status === 404 || res.status === 410 }
+    return {
+      ok: res.ok,
+      status: res.status,
+      gone: res.status === 404 || res.status === 410,
+      body: failureBody,
+    }
   } catch (err) {
     return { ok: false, status: 0, gone: false, error: String(err?.message || err) }
   }

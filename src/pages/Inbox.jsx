@@ -27,7 +27,10 @@ export default function Inbox() {
     registerOpenHandler,
   } = useInbox()
 
-  const [messages, setMessages] = useState([])
+  // Messages are stored WITH the conversation they belong to. Clearing them in
+  // an effect is not enough: effects run after paint, so a switch from A to B
+  // would still render one frame of A's messages under B's header.
+  const [thread, setThread] = useState({ conversationId: null, messages: [] })
   const [threadLoading, setThreadLoading] = useState(false)
   const [users, setUsers] = useState([])
   // On phones only one pane is visible at a time.
@@ -35,6 +38,17 @@ export default function Inbox() {
 
   const openIdRef = useRef(null)
   openIdRef.current = openId
+
+  // Monotonic request counter: a slow poll must never overwrite the result of
+  // a newer one, even within the same conversation.
+  const seqRef = useRef(0)
+
+  /**
+   * Render-time guard. If the stored messages belong to a different
+   * conversation than the one selected, they simply do not exist as far as
+   * this render is concerned — no stale frame is possible.
+   */
+  const messages = String(thread.conversationId) === String(openId) ? thread.messages : []
 
   const open = useCallback(
     (conversationId) => {
@@ -66,7 +80,8 @@ export default function Inbox() {
   // Poll the open thread every ~4s.
   useEffect(() => {
     if (!openId) {
-      setMessages([])
+      setThread({ conversationId: null, messages: [] })
+      setThreadLoading(false)
       return undefined
     }
 
@@ -75,11 +90,17 @@ export default function Inbox() {
     setThreadLoading(true)
 
     const load = async () => {
+      const seq = ++seqRef.current
       try {
         const data = await api.messages(openId, controller.signal)
-        // Guard against a slow response for a thread the user already left.
-        if (cancelled || String(openIdRef.current) !== String(openId)) return
-        setMessages(data.messages || [])
+        // Three independent guards, cheapest first:
+        if (cancelled) return
+        // ...the user left this thread while the request was in flight,
+        if (String(openIdRef.current) !== String(openId)) return
+        // ...or a newer poll has already answered and this one is stale.
+        if (seq !== seqRef.current) return
+
+        setThread({ conversationId: openId, messages: data.messages || [] })
       } catch (err) {
         if (cancelled || err.name === 'AbortError' || err.status === 401) return
         toast.error('Could not load messages', err.message)
@@ -112,7 +133,12 @@ export default function Inbox() {
     if (!conversation) return
     try {
       const data = await api.send(conversation.id, body, media)
-      setMessages((current) => [...current, data.message])
+      // Only append if that conversation is still the one on screen.
+      setThread((current) =>
+        String(current.conversationId) === String(conversation.id)
+          ? { ...current, messages: [...current.messages, data.message] }
+          : current
+      )
       applyOutbound(conversation.id, body || (media ? mediaLabel(media.media_type) : ''))
 
       if (data.message.status === 'send_failed') {

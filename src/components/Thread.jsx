@@ -45,11 +45,27 @@ export default function Thread({ messages, loading, conversation }) {
     lastIdRef.current = null
   }, [messages[0]?.conversation_id])
 
+  // Shown while a thread loads. Because Inbox only hands over messages that
+  // belong to the selected conversation, this can never be masked by stale
+  // content from the previous one.
   if (loading && !messages.length) {
     return (
-      <div className="thread-scroll">
-        <div className="empty">
-          <span className="spinner" />
+      <div className="thread-scroll" aria-busy="true" aria-label="Loading messages">
+        <div className="msg-list">
+          {[
+            { out: false, w: 42 },
+            { out: false, w: 68 },
+            { out: true, w: 55 },
+            { out: false, w: 34 },
+            { out: true, w: 62 },
+            { out: true, w: 40 },
+          ].map((row, i) => (
+            <div className={`msg-row ${row.out ? 'out' : 'in'}`} key={i}>
+              {!row.out ? <span className="msg-spacer" /> : null}
+              <div className="bubble-skeleton" style={{ width: `${row.w}%` }} />
+              {row.out ? <span className="msg-spacer" /> : null}
+            </div>
+          ))}
         </div>
       </div>
     )

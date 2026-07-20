@@ -6,6 +6,7 @@ import {
   BellOff,
   BellRing,
   Info,
+  Stethoscope,
   X,
 } from 'lucide-react'
 import {
@@ -22,7 +23,7 @@ const IOS_HINT_KEY = 'wpchat.iosInstallHintDismissed'
  * The PWA + notification items inside the account menu. Kept separate from
  * Shell so the menu markup stays readable.
  */
-export default function AccountMenuExtras({ onAction }) {
+export default function AccountMenuExtras({ onAction, onOpenDiagnostics }) {
   const toast = useToast()
   const [canInstall, setCanInstall] = useState(false)
   const [permission, setPermission] = useState(() => pushState())
@@ -79,8 +80,13 @@ export default function AccountMenuExtras({ onAction }) {
         toast.error('Add to Home Screen first', 'Push only works from the installed app.')
       } else if (result.reason === 'not-configured') {
         toast.error('Not available', 'Push is not configured on the server yet.')
-      } else if (result.reason !== 'default') {
-        toast.error('Could not enable notifications', 'This device may not support them.')
+      } else {
+        // Verbatim reason — the generic message used to hide the cause, and
+        // 'default' produced no toast at all.
+        toast.error(
+          `Could not enable notifications (${result.reason})`,
+          result.error || 'No further detail was reported.'
+        )
       }
     } finally {
       setBusy(false)
@@ -122,6 +128,20 @@ export default function AccountMenuExtras({ onAction }) {
           </span>
         </button>
       ) : null}
+
+      {/* TEMPORARY — remove with the push diagnostics panel. */}
+      <button
+        type="button"
+        className="menu-item"
+        role="menuitem"
+        onClick={() => {
+          onAction?.()
+          onOpenDiagnostics?.()
+        }}
+      >
+        <Stethoscope size={15} />
+        Push diagnostics
+      </button>
 
       {showIosHint ? (
         <div className="menu-hint">

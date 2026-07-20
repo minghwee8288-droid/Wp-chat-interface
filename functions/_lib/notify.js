@@ -50,8 +50,36 @@ async function recipientIds(env, conversation) {
   return users.map((u) => u.id)
 }
 
+/** Host only — the endpoint path contains the device token. */
+function endpointHost(endpoint) {
+  try {
+    return new URL(endpoint).host
+  } catch {
+    return 'unknown-host'
+  }
+}
+
 /** Records the outcome of one delivery, pruning subscriptions that are dead. */
 async function recordOutcome(db, subscription, result) {
+  if (!result.ok) {
+    // Every rejection is logged, not just thrown ones — a non-2xx from the
+    // push service previously left no trace at all in the tail.
+    console.error(
+      'push send failed:',
+      JSON.stringify({
+        subscription_id: subscription.id,
+        user_id: subscription.user_id,
+        host: endpointHost(subscription.endpoint),
+        status: result.status,
+        gone: Boolean(result.gone),
+        error: result.error || null,
+        // Body of the rejection — Apple returns the actual reason here.
+        response: result.body || null,
+        failure_count_before: Number(subscription.failure_count) || 0,
+      })
+    )
+  }
+
   if (result.ok) {
     await db
       .from('wp_chat_push_subscriptions')
@@ -90,7 +118,10 @@ export async function notifyNewMessage(env, { conversation, message, title }) {
     const db = getDb(env)
 
     const userIds = await recipientIds(env, conversation)
-    if (!userIds.length) return { sent: 0 }
+    if (!userIds.length) {
+      console.log(`push fan-out: conversation ${conversation.id} · no recipients`)
+      return { sent: 0 }
+    }
 
     const subscriptions =
       unwrap(
@@ -100,7 +131,12 @@ export async function notifyNewMessage(env, { conversation, message, title }) {
           .in('user_id', userIds)
       ) || []
 
-    if (!subscriptions.length) return { sent: 0 }
+    if (!subscriptions.length) {
+      console.log(
+        `push fan-out: conversation ${conversation.id} · 0 subscription(s) found for ${userIds.length} recipient(s)`
+      )
+      return { sent: 0 }
+    }
 
     const payload = {
       title: title || 'New message',
@@ -117,7 +153,14 @@ export async function notifyNewMessage(env, { conversation, message, title }) {
       })
     )
 
-    return { sent: results.filter(Boolean).length, total: subscriptions.length }
+    const sent = results.filter(Boolean).length
+    const failed = results.length - sent
+
+    console.log(
+      `push fan-out: conversation ${conversation.id} · ${subscriptions.length} subscription(s) found · ${sent} sent · ${failed} failed`
+    )
+
+    return { sent, total: subscriptions.length, failed }
   } catch (err) {
     console.error('push fan-out failed:', err?.message || err)
     return { sent: 0, error: String(err?.message || err) }

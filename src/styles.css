@@ -142,7 +142,7 @@ button {
   padding: 0 14px;
   border-radius: var(--r-md);
   border: 1px solid transparent;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 550;
   white-space: nowrap;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
@@ -191,7 +191,7 @@ button {
 .btn-sm {
   height: 32px;
   padding: 0 11px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .icon-btn {
@@ -217,7 +217,7 @@ button {
 }
 
 .label {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-2);
   letter-spacing: 0.01em;
@@ -532,7 +532,7 @@ button {
   border-radius: var(--r-full);
   background: var(--danger);
   color: #fff;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 700;
   line-height: 1;
   border: 2px solid var(--surface);
@@ -561,7 +561,7 @@ button {
 }
 
 .topbar-title {
-  font-size: 15.5px;
+  font-size: 16.5px;
   font-weight: 650;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -605,7 +605,7 @@ button {
 }
 
 .user-name {
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 600;
   max-width: 130px;
   overflow: hidden;
@@ -618,7 +618,7 @@ button {
   top: calc(100% + 6px);
   right: 0;
   z-index: 60;
-  min-width: 218px;
+  min-width: 244px;
   padding: 5px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -632,11 +632,11 @@ button {
   margin-bottom: 5px;
 }
 .menu-head-name {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 650;
 }
 .menu-head-email {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -649,7 +649,7 @@ button {
   width: 100%;
   padding: 8px 10px;
   border-radius: var(--r-sm);
-  font-size: 13.5px;
+  font-size: 15px;
   text-align: left;
   color: var(--text);
   transition: background 0.12s ease;
@@ -671,7 +671,7 @@ button {
 
 /* Right-aligned state label, e.g. Notifications · On */
 .menu-item-state {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3);
   font-weight: 600;
 }
@@ -685,7 +685,7 @@ button {
   padding: 9px 10px;
   border-radius: var(--r-sm);
   background: var(--surface-2);
-  font-size: 12.5px;
+  font-size: 13.5px;
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -774,7 +774,7 @@ button {
   height: 36px;
   padding-left: 34px;
   padding-right: 32px;
-  font-size: 14px;
+  font-size: 15px;
   border-radius: var(--r-md);
   background: var(--surface-2);
   border-color: transparent;
@@ -844,7 +844,7 @@ button {
   border-radius: var(--r-full);
   background: var(--surface-3);
   color: var(--text-2);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1;
 }
@@ -863,7 +863,7 @@ button {
 .conv-name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -872,7 +872,7 @@ button {
 
 .conv-time {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -887,7 +887,7 @@ button {
 .conv-snippet {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -911,7 +911,7 @@ button {
   border-radius: var(--r-full);
   background: var(--danger);
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
 }
@@ -921,7 +921,7 @@ button {
   align-items: center;
   gap: 6px;
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3);
 }
 
@@ -957,7 +957,7 @@ button {
 }
 
 .thread-name {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.01em;
@@ -967,7 +967,7 @@ button {
 }
 
 .thread-number {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.2;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
@@ -1022,8 +1022,24 @@ button {
   border-radius: var(--r-full);
   background: var(--surface-3);
   color: var(--text-2);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 600;
+}
+
+/* Placeholder bubbles shown while a thread loads, so switching conversations
+   never shows an empty pane or the previous thread's content. */
+.bubble-skeleton {
+  height: 40px;
+  max-width: 65%;
+  border-radius: var(--r-xl);
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 25%,
+    var(--surface-2) 37%,
+    var(--surface-3) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton 1.3s ease-in-out infinite;
 }
 
 /* Alignment lives here and only here — no auto margins on the row or bubble. */
@@ -1063,7 +1079,7 @@ button {
   border-radius: var(--r-full);
   background: var(--surface-3);
   color: var(--text-2);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   user-select: none;
@@ -1080,8 +1096,8 @@ button {
   max-width: 65%;
   padding: 8px 12px;
   border-radius: var(--r-xl);
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 16px;
+  line-height: 1.45;
 }
 
 .bubble-in {
@@ -1110,8 +1126,8 @@ button {
   gap: 4px;
   margin-left: 8px;
   /* Nudges the stamp onto the text baseline without inflating the line box. */
-  padding-top: 5px;
-  font-size: 11px;
+  padding-top: 6px;
+  font-size: 12px;
   line-height: 1;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1292,7 +1308,7 @@ button {
 }
 
 .media-doc-name {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1300,7 +1316,7 @@ button {
 }
 
 .media-doc-meta {
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0.72;
 }
 
@@ -1317,7 +1333,7 @@ button {
   border-radius: var(--r-md);
   background: var(--surface-3);
   color: var(--text-3);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1457,7 +1473,7 @@ button {
 }
 
 .reply-attach-name {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1465,7 +1481,7 @@ button {
 }
 
 .reply-attach-size {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3);
 }
 
@@ -1497,7 +1513,7 @@ button {
   background: var(--danger-soft);
   border: 1px solid var(--danger);
   color: var(--danger);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .reply-input {
@@ -1505,9 +1521,9 @@ button {
   min-width: 0;
   min-height: 40px;
   /* 5 rows at 1.45 line-height + vertical padding. */
-  max-height: 122px;
+  max-height: 136px;
   padding: 9px 12px;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.45;
   resize: none;
   overflow-y: auto;
@@ -1550,7 +1566,7 @@ button {
   width: calc(100% - 40px);
   max-width: 720px;
   margin: 6px auto 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   text-align: center;
   color: var(--text-3);
@@ -1572,7 +1588,7 @@ button {
   height: 32px;
   min-width: 150px;
   padding: 0 26px 0 9px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-2);
   background-color: transparent;
   background-position: right 8px center;
@@ -1595,7 +1611,7 @@ button {
   padding: 0 10px;
   border-radius: var(--r-md);
   background: var(--surface-2);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -1784,6 +1800,65 @@ button {
 }
 
 /* ------------------------------------------------------------------ *
+ * Push diagnostics (TEMPORARY — remove with PushDiagnostics.jsx)
+ * ------------------------------------------------------------------ */
+.diag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.diag-block {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  /* Selectable so it can be copied by hand if the clipboard API is blocked. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.diag-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.diag-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.diag-row:last-child {
+  border-bottom: none;
+}
+
+.diag-key {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text-3);
+}
+
+.diag-value,
+.diag-trace {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.diag-trace {
+  padding: 2px 0;
+  color: var(--text-2);
+}
+
+/* ------------------------------------------------------------------ *
  * Team page
  * ------------------------------------------------------------------ */
 .page-scroll {
@@ -1821,7 +1896,7 @@ button {
   flex: 1;
   min-width: 140px;
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 650;
 }
 
@@ -1847,12 +1922,12 @@ button {
 }
 
 .user-row-name {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
 .user-row-email {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-3);
   overflow-wrap: anywhere;
 }
@@ -2028,7 +2103,7 @@ button {
   .reply-input {
     min-height: 44px;
     /* 5 rows at 16px/1.45 + padding. */
-    max-height: 134px;
+    max-height: 136px;
   }
 
   .reply-send,

@@ -19,6 +19,7 @@ import { initials } from '../lib/format.js'
 import { armAudio } from '../lib/chime.js'
 import ChangePasswordModal from './ChangePasswordModal.jsx'
 import AccountMenuExtras from './AccountMenuExtras.jsx'
+import PushDiagnostics from './PushDiagnostics.jsx'
 
 export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
@@ -28,6 +29,8 @@ export default function Shell() {
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
+  // TEMPORARY — remove with the push diagnostics panel.
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
   const menuRef = useRef(null)
 
   useEffect(() => {
@@ -145,7 +148,10 @@ export default function Shell() {
                   Change password
                 </button>
 
-                <AccountMenuExtras onAction={() => setMenuOpen(false)} />
+                <AccountMenuExtras
+                  onAction={() => setMenuOpen(false)}
+                  onOpenDiagnostics={() => setShowDiagnostics(true)}
+                />
 
                 <button
                   type="button"
@@ -166,6 +172,10 @@ export default function Shell() {
 
       {changingPassword ? (
         <ChangePasswordModal onClose={() => setChangingPassword(false)} />
+      ) : null}
+
+      {showDiagnostics ? (
+        <PushDiagnostics onClose={() => setShowDiagnostics(false)} />
       ) : null}
     </div>
   )
