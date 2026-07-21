@@ -229,9 +229,11 @@ export default function Inbox() {
                   <div className="thread-name">{displayName(conversation)}</div>
                   <div className="thread-number">
                     <Users size={11} />
-                    {conversation.member_count
-                      ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
-                      : 'Group'}
+                    <span className="thread-sub-label">
+                      {conversation.member_count
+                        ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
+                        : 'Group'}
+                    </span>
                   </div>
                 </button>
               ) : (

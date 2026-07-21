@@ -1321,6 +1321,10 @@ button {
   line-height: 1.2;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Outer scroller stays full width so the scrollbar sits at the pane edge,
@@ -1556,7 +1560,14 @@ button {
 .thread-id-button {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  /* NOT align-items: flex-start. This is a COLUMN flex container, so
+     align-items governs the cross axis — i.e. width. flex-start sizes children
+     to their content, so a long name became a 372px box inside a 207px
+     container and painted straight under the assign control; overflow:hidden
+     never engaged because the element itself was as wide as its text.
+     stretch (the default) makes children fill the column, which is what lets
+     the ellipsis work. */
+  align-items: stretch;
   justify-content: center;
   gap: 2px;
   flex: 1;
@@ -1575,6 +1586,18 @@ button {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+
+.thread-id-button .thread-number svg {
+  flex-shrink: 0;
+}
+
+.thread-sub-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------------ *
@@ -2090,7 +2113,10 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
+  /* Fixed side of the header: it never shrinks, so the name must be the
+     part that yields. */
   flex-shrink: 0;
+  min-width: 0;
 }
 
 /* Light-touch control, not a heavy select box. */
@@ -2730,9 +2756,16 @@ button {
     padding: 16px;
   }
 
+  /* A native <select> sizes to its widest option, so a long agent name grew
+     this to 47.9% of a 390px header and squeezed the group name to 129px.
+     Capping it holds the worst case near 30% while keeping a real select —
+     which is worth more than an icon here: it shows WHO is assigned at a
+     glance and gets iOS's native picker for free. 116px fits "Unassigned"
+     exactly; longer names truncate. */
   .assign .select {
     min-width: 0;
-    width: 100%;
+    width: auto;
+    max-width: 116px;
   }
 
   .toast-stack {
