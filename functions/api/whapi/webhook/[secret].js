@@ -7,6 +7,7 @@ import {
   MAX_UPLOAD_BYTES,
 } from '../../../_lib/storage.js'
 import { notifyNewMessage } from '../../../_lib/notify.js'
+import { ingestAvatar } from '../../../_lib/avatar.js'
 
 // Public endpoint — called by Whapi, not by a logged-in user. Whapi supports
 // neither signed webhooks nor custom auth headers, so the secret path segment
@@ -132,6 +133,12 @@ async function handleMessage(env, msg, pending = []) {
     businessNumber,
     customerName
   )
+
+  // On creation only — no refresh, no backfill. Fire-and-forget via the same
+  // waitUntil the push fan-out uses, so it can never delay the 200.
+  if (conversation.__created) {
+    pending.push(ingestAvatar(env, conversation.id, customerNumber))
+  }
 
   // Pull the bytes into our own bucket. A failure here must degrade to a
   // "Media unavailable" bubble, never drop the message.
@@ -342,7 +349,8 @@ async function findOrCreateConversation(db, customerNumber, businessNumber, cust
 
   if (created.error) {
     // customer_number is UNIQUE: another delivery for a brand-new number raced
-    // us. Re-read and use theirs.
+    // us. Re-read and use theirs — and do NOT claim creation, or both racers
+    // would fetch the same avatar.
     if (created.error.code === UNIQUE_VIOLATION) {
       const row = unwrap(
         await db
@@ -356,5 +364,5 @@ async function findOrCreateConversation(db, customerNumber, businessNumber, cust
     throw new Error(created.error.message)
   }
 
-  return created.data
+  return { ...created.data, __created: true }
 }

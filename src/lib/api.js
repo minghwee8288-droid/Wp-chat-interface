@@ -194,6 +194,8 @@ export const api = {
   pushUnsubscribe: (endpoint) =>
     request('/push/unsubscribe', { method: 'POST', body: { endpoint } }),
 
+  channelStatus: (signal) => request('/channel/status', { signal }),
+
   users: (signal) => request('/users', { signal }),
 
   createUser: (payload) => request('/users/create', { method: 'POST', body: payload }),

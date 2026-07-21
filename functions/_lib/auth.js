@@ -53,7 +53,7 @@ export async function requireConversationAccess(env, user, conversationId) {
   const conversation = unwrap(
     await getDb(env)
       .from('wp_chat_conversations')
-      .select('id, customer_number, business_number, customer_name, assigned_user_id')
+      .select('id, customer_number, business_number, customer_name, assigned_user_id, avatar_path, avatar_error')
       .eq('id', conversationId)
       .maybeSingle()
   )

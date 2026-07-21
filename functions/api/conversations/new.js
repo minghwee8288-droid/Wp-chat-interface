@@ -2,6 +2,7 @@ import { getDb, unwrap, UNIQUE_VIOLATION } from '../../_lib/db.js'
 import { requireAuth } from '../../_lib/auth.js'
 import { sendText, toDigits } from '../../_lib/whapi.js'
 import { MESSAGE_COLUMNS } from '../../_lib/storage.js'
+import { ingestAvatar } from '../../_lib/avatar.js'
 import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
 
 /**
@@ -16,7 +17,8 @@ import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
  * is UNIQUE, so the find-or-create below is the only writer of that column
  * besides the webhook.
  */
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost(context) {
+  const { request, env } = context
   const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
@@ -145,6 +147,12 @@ export async function onRequestPost({ request, env }) {
         })
         .eq('id', conversation.id)
     )
+
+    // Creation only, and fire-and-forget — the send has already succeeded, so
+    // a slow profile fetch must not hold up the response.
+    if (createdConversation && typeof context.waitUntil === 'function') {
+      context.waitUntil(ingestAvatar(env, conversation.id, customerNumber))
+    }
 
     return json({
       ok: true,

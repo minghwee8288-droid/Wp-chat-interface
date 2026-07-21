@@ -15,3 +15,24 @@ compatibility_date = "2024-11-06"
 #   WHAPI_API_URL
 #   WHAPI_WEBHOOK_SECRET
 #   BUSINESS_NUMBER
+
+# NOTE: no [triggers] block here — Cloudflare Pages rejects it outright
+# ("Configuration file for Pages projects does not support triggers"). Cron is
+# a Workers-only feature.
+#
+# functions/_lib/channel-monitor.js therefore has NO caller today. Its
+# transition detection is complete and tested; it just needs a scheduler. To
+# reconnect it, deploy a separate Worker with its own wrangler.toml:
+#
+#   [triggers]
+#   crons = ["*/5 * * * *"]
+#
+#   export default {
+#     async scheduled(event, env, ctx) {
+#       ctx.waitUntil(monitorChannel(env))
+#     },
+#   }
+#
+# That Worker needs the same env vars this project uses: SUPABASE_URL,
+# SUPABASE_SERVICE_ROLE_KEY, WHAPI_TOKEN, WHAPI_API_URL, VAPID_PUBLIC_KEY,
+# VAPID_PRIVATE_KEY, VAPID_SUBJECT.

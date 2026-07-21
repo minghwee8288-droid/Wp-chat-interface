@@ -10,6 +10,7 @@ import Thread from '../components/Thread.jsx'
 import ReplyBox from '../components/ReplyBox.jsx'
 import AssignControl from '../components/AssignControl.jsx'
 import NewMessageModal from '../components/NewMessageModal.jsx'
+import ContactAvatar from '../components/ContactAvatar.jsx'
 
 const THREAD_POLL_MS = 4000
 
@@ -204,6 +205,8 @@ export default function Inbox() {
               >
                 <ArrowLeft size={18} />
               </button>
+
+              <ContactAvatar conversation={conversation} size={36} className="thread-avatar" />
 
               <div className="thread-id">
                 <div className="thread-name">{displayName(conversation)}</div>

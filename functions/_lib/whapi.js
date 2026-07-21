@@ -130,3 +130,103 @@ async function post(env, endpointPath, payload) {
     return { ok: false, error: String(err?.message || 'whapi_request_failed') }
   }
 }
+
+/**
+ * Contact profile picture.
+ *
+ * Whapi returns temporary pps.whatsapp.net URLs carrying an `oe=` expiry, so
+ * the bytes must be downloaded and re-hosted — never stored or hotlinked.
+ * We take `icon` (96x96) rather than `icon_full`: avatars render at 42px.
+ *
+ * Resolves to {ok, bytes, mime, error} — never throws. A disconnected channel
+ * answers 401 "need channel authorization", which is a normal failure here.
+ */
+export async function fetchProfilePicture(env, chatId, maxBytes = 2 * 1024 * 1024) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const id = toDigits(chatId)
+    if (!id) return { ok: false, error: 'profile_no_id' }
+
+    const res = await fetch(`${apiUrl}/contacts/${encodeURIComponent(id)}/profile`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 120)
+      return { ok: false, error: `profile_${res.status}${detail ? `: ${detail}` : ''}` }
+    }
+
+    const data = await res.json().catch(() => null)
+    const icon = data?.icon
+    // No picture set is the common case, not an error worth shouting about.
+    if (!icon || typeof icon !== 'string') return { ok: false, error: 'profile_no_icon' }
+
+    const img = await fetch(icon)
+    if (!img.ok) return { ok: false, error: `profile_image_${img.status}` }
+
+    const declared = Number(img.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      return { ok: false, error: 'profile_too_large' }
+    }
+
+    const bytes = await img.arrayBuffer()
+    if (bytes.byteLength === 0) return { ok: false, error: 'profile_empty' }
+    if (bytes.byteLength > maxBytes) return { ok: false, error: 'profile_too_large' }
+
+    const mime = String(img.headers.get('content-type') || '').split(';')[0].trim()
+    return { ok: true, bytes, mime: mime || 'image/jpeg' }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'profile_fetch_failed') }
+  }
+}
+
+/**
+ * Channel health.
+ *
+ * Keys on status.text === 'AUTH', NOT the numeric code: Whapi's live response
+ * reports AUTH as code 4 while their documentation lists it as 5 (and lists 5
+ * as ERROR elsewhere). The text is the only field both agree on. Anything we
+ * cannot positively identify as AUTH counts as disconnected.
+ *
+ * Never throws — an unreachable Whapi is itself a disconnected state.
+ */
+export async function checkHealth(env) {
+  const checkedAt = new Date().toISOString()
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+
+    const res = await fetch(`${apiUrl}/health`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+
+    if (!res.ok) {
+      return {
+        connected: false,
+        status: `http_${res.status}`,
+        uptime: null,
+        checked_at: checkedAt,
+        error: `health_${res.status}`,
+      }
+    }
+
+    const data = await res.json().catch(() => null)
+    const text = data?.status?.text ? String(data.status.text).toUpperCase() : null
+
+    return {
+      connected: text === 'AUTH',
+      status: text || 'UNKNOWN',
+      code: data?.status?.code ?? null,
+      uptime: Number.isFinite(Number(data?.uptime)) ? Number(data.uptime) : null,
+      channel_id: data?.channel_id ?? null,
+      checked_at: checkedAt,
+    }
+  } catch (err) {
+    return {
+      connected: false,
+      status: 'UNREACHABLE',
+      uptime: null,
+      checked_at: checkedAt,
+      error: String(err?.message || 'health_failed'),
+    }
+  }
+}

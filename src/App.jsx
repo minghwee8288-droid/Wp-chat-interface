@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx'
 import { ThemeProvider } from './context/ThemeContext.jsx'
 import { ToastProvider } from './context/ToastContext.jsx'
 import { InboxProvider } from './context/InboxContext.jsx'
+import { ChannelProvider } from './context/ChannelContext.jsx'
 import { listenForInteraction } from './lib/chime.js'
 import Shell from './components/Shell.jsx'
 import Login from './pages/Login.jsx'
@@ -43,9 +44,11 @@ function AppRoutes() {
       <Route
         element={
           <RequireAuth>
-            <InboxProvider>
-              <Shell />
-            </InboxProvider>
+            <ChannelProvider>
+              <InboxProvider>
+                <Shell />
+              </InboxProvider>
+            </ChannelProvider>
           </RequireAuth>
         }
       >

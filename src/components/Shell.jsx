@@ -10,10 +10,14 @@ import {
   VolumeX,
   KeyRound,
   LogOut,
+  AlertTriangle,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
 import { useInbox } from '../context/InboxContext.jsx'
+import { useChannel, formatUptime } from '../context/ChannelContext.jsx'
 import { initials } from '../lib/format.js'
 import { armAudio } from '../lib/chime.js'
 import ChangePasswordModal from './ChangePasswordModal.jsx'
@@ -24,6 +28,7 @@ export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
   const { isDark, toggleTheme, soundOn, toggleSound } = useTheme()
   const { totalUnread, mobileView } = useInbox()
+  const channel = useChannel()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -85,6 +90,17 @@ export default function Shell() {
       </nav>
 
       <div className="main">
+        {/* Shown to agents as well as admins: when the channel is down nothing
+            arrives, and an agent staring at a silent inbox needs to know why. */}
+        {channel.disconnected ? (
+          <div className="channel-banner" role="status">
+            <AlertTriangle size={15} />
+            <span>
+              WhatsApp is disconnected — messages are not being sent or received.
+            </span>
+          </div>
+        ) : null}
+
         <header className="topbar">
           <span className="topbar-title">{title}</span>
           <div className="topbar-spacer" />
@@ -108,6 +124,19 @@ export default function Shell() {
                   <div className="menu-head-name">{user?.name}</div>
                   <div className="menu-head-email">{user?.email}</div>
                 </div>
+
+                {isAdmin ? (
+                  <div className={`menu-channel${channel.disconnected ? ' is-down' : ''}`}>
+                    {channel.disconnected ? <WifiOff size={14} /> : <Wifi size={14} />}
+                    <span style={{ flex: 1 }}>
+                      {channel.disconnected ? 'Disconnected' : 'Connected'}
+                      {channel.status ? ` · ${channel.status}` : ''}
+                    </span>
+                    {formatUptime(channel.uptime) ? (
+                      <span className="menu-item-state">{formatUptime(channel.uptime)}</span>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {/* Admin-only, and the only route to team management now that
                     the mobile bottom nav is gone. */}

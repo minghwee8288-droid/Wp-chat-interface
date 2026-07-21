@@ -1,49 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { FileText, Download, ImageOff, Film, Music, FileSpreadsheet } from 'lucide-react'
-import { api } from '../lib/api.js'
 import { formatBytes } from '../lib/format.js'
-
-// Signed URLs last 60 minutes; cache them per path so a 4s thread poll doesn't
-// re-mint one on every render. Module scope, so it survives re-renders.
-const urlCache = new Map()
-
-function useSignedUrl(mediaPath) {
-  const [state, setState] = useState(() =>
-    urlCache.has(mediaPath) ? { url: urlCache.get(mediaPath), error: null } : { url: null, error: null }
-  )
-
-  useEffect(() => {
-    if (!mediaPath) return undefined
-    if (urlCache.has(mediaPath)) {
-      setState({ url: urlCache.get(mediaPath), error: null })
-      return undefined
-    }
-
-    const controller = new AbortController()
-    let cancelled = false
-
-    api
-      .mediaUrl(mediaPath, controller.signal)
-      .then((data) => {
-        if (cancelled) return
-        urlCache.set(mediaPath, data.url)
-        // Re-mint comfortably before the 60 minute expiry.
-        setTimeout(() => urlCache.delete(mediaPath), 50 * 60 * 1000)
-        setState({ url: data.url, error: null })
-      })
-      .catch((err) => {
-        if (cancelled || err.name === 'AbortError') return
-        setState({ url: null, error: err.message })
-      })
-
-    return () => {
-      cancelled = true
-      controller.abort()
-    }
-  }, [mediaPath])
-
-  return state
-}
+import { useSignedUrl } from '../lib/mediaUrl.js'
 
 function DocIcon({ mime, size = 18 }) {
   if (/spreadsheet|excel|csv/i.test(mime || '')) return <FileSpreadsheet size={size} />

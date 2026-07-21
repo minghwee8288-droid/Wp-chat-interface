@@ -6,6 +6,7 @@ const COLUMNS = `
   id, customer_number, business_number, customer_name,
   last_message_body, last_message_at, last_direction,
   unread_count, status, assigned_user_id, assigned_to,
+  avatar_path, avatar_error,
   created_at, updated_at
 `
 

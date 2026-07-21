@@ -1,13 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Search, X, Inbox as InboxIcon, Plus } from 'lucide-react'
-import {
-  displayName,
-  formatNumber,
-  relativeStamp,
-  matchesQuery,
-  initials,
-  avatarIndex,
-} from '../lib/format.js'
+import { displayName, formatNumber, relativeStamp, matchesQuery } from '../lib/format.js'
+import ContactAvatar from './ContactAvatar.jsx'
 
 export default function ConversationList({
   conversations,
@@ -85,13 +79,7 @@ export default function ConversationList({
                 aria-current={isActive ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
               >
-                <span
-                  className="conv-avatar"
-                  data-color={avatarIndex(conversation.customer_number)}
-                  aria-hidden="true"
-                >
-                  {initials(name)}
-                </span>
+                <ContactAvatar conversation={conversation} />
 
                 <div className="conv-body">
                   <div className="conv-top">
