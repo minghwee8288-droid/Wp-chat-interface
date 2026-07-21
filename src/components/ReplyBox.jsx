@@ -25,7 +25,7 @@ const ACCEPT = [
   'audio/webm',
 ].join(',')
 
-export default function ReplyBox({ conversationId, onSend, disabled }) {
+export default function ReplyBox({ conversationId, onSend, disabled, isGroup = false }) {
   const [value, setValue] = useState('')
   const [sending, setSending] = useState(false)
   const [attachment, setAttachment] = useState(null) // {file, previewUrl, isImage}
@@ -199,7 +199,13 @@ export default function ReplyBox({ conversationId, onSend, disabled }) {
           ref={textareaRef}
           className="reply-input"
           rows={1}
-          placeholder={attachment ? 'Add a caption…' : 'Write a reply…'}
+          placeholder={
+            attachment
+              ? 'Add a caption…'
+              : isGroup
+                ? 'Message the group…'
+                : 'Write a reply…'
+          }
           aria-label={attachment ? 'Attachment caption' : 'Reply message'}
           value={value}
           disabled={disabled || sending}

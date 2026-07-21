@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, MessagesSquare, Plus } from 'lucide-react'
+import { ArrowLeft, MessagesSquare, Plus, Users } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -11,6 +11,7 @@ import ReplyBox from '../components/ReplyBox.jsx'
 import AssignControl from '../components/AssignControl.jsx'
 import NewMessageModal from '../components/NewMessageModal.jsx'
 import ContactAvatar from '../components/ContactAvatar.jsx'
+import GroupMembers from '../components/GroupMembers.jsx'
 import { useSwipeBack } from '../lib/useSwipeBack.js'
 
 const THREAD_POLL_MS = 4000
@@ -40,6 +41,7 @@ export default function Inbox() {
   const [threadLoading, setThreadLoading] = useState(false)
   const [users, setUsers] = useState([])
   const [composing, setComposing] = useState(false)
+  const [showMembers, setShowMembers] = useState(false)
 
   const openIdRef = useRef(null)
   openIdRef.current = openId
@@ -217,12 +219,29 @@ export default function Inbox() {
 
               <ContactAvatar conversation={conversation} size={36} className="thread-avatar" />
 
-              <div className="thread-id">
-                <div className="thread-name">{displayName(conversation)}</div>
-                <div className="thread-number">
-                  {formatNumber(conversation.customer_number)}
+              {conversation.is_group ? (
+                // Tapping the name opens the member list.
+                <button
+                  type="button"
+                  className="thread-id thread-id-button"
+                  onClick={() => setShowMembers(true)}
+                >
+                  <div className="thread-name">{displayName(conversation)}</div>
+                  <div className="thread-number">
+                    <Users size={11} />
+                    {conversation.member_count
+                      ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
+                      : 'Group'}
+                  </div>
+                </button>
+              ) : (
+                <div className="thread-id">
+                  <div className="thread-name">{displayName(conversation)}</div>
+                  <div className="thread-number">
+                    {formatNumber(conversation.customer_number)}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <AssignControl
                 conversation={conversation}
@@ -246,10 +265,15 @@ export default function Inbox() {
               conversationId={conversation.id}
               onSend={send}
               disabled={!isAdmin && !conversation.assigned_user_id}
+              isGroup={conversation.is_group}
             />
           </>
         )}
       </section>
+
+      {showMembers && conversation?.is_group ? (
+        <GroupMembers conversation={conversation} onClose={() => setShowMembers(false)} />
+      ) : null}
 
       {composing ? (
         <NewMessageModal

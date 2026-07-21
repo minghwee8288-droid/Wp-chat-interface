@@ -1,5 +1,11 @@
 import { getDb, unwrap, UNIQUE_VIOLATION } from '../../../_lib/db.js'
-import { toDigits, fetchMedia } from '../../../_lib/whapi.js'
+import {
+  toDigits,
+  fetchMedia,
+  groupJidOf,
+  senderOf,
+  redactPayload,
+} from '../../../_lib/whapi.js'
 import {
   readMediaFields,
   uploadObject,
@@ -8,6 +14,7 @@ import {
 } from '../../../_lib/storage.js'
 import { notifyNewMessage } from '../../../_lib/notify.js'
 import { ingestAvatar } from '../../../_lib/avatar.js'
+import { syncGroup } from '../../../_lib/group.js'
 
 // Public endpoint — called by Whapi, not by a logged-in user. Whapi supports
 // neither signed webhooks nor custom auth headers, so the secret path segment
@@ -94,6 +101,23 @@ async function handleMessage(env, msg, pending = []) {
   // Without this every team reply would be duplicated.
   if (msg?.from_me === true) return 'skipped'
 
+  // Groups are supported. The JID is resolved with the SAME field sweep the
+  // old skip used, so every message from one group lands in ONE conversation
+  // no matter which participant sent it — that was the regression, and the
+  // sender is now recorded per message instead of keying the conversation.
+  const groupJid = groupJidOf(msg)
+  const sender = groupJid ? senderOf(msg) : { number: null, name: null }
+
+  // Broadcasts and newsletters are still not conversations.
+  const chatIdRaw = String(msg?.chat_id ?? '')
+  if (/@(broadcast|newsletter)$/i.test(chatIdRaw)) {
+    console.log(
+      'whapi webhook: skipping broadcast/newsletter',
+      JSON.stringify({ skip: 'broadcast', message_id: msg?.id ?? null, payload: redactPayload(msg) })
+    )
+    return 'skipped'
+  }
+
   // Media may arrive pre-ingested (explicit media_* fields) or as a native
   // Whapi attachment we have to download ourselves.
   const explicitMedia = readMediaFields(msg)
@@ -102,7 +126,9 @@ async function handleMessage(env, msg, pending = []) {
   // Text-only messages still require type 'text'.
   if (!explicitMedia && !attachment && msg?.type !== 'text') return 'skipped'
 
-  const customerNumber = toDigits(msg?.from ?? msg?.chat_id)
+  // 1:1 only. For a group the conversation is keyed on the JID instead, and
+  // this stays null.
+  const customerNumber = groupJid ? null : toDigits(msg?.chat_id ?? msg?.from)
   const whapiMessageId = msg?.id ? String(msg.id) : null
 
   // Caption may arrive as text.body, caption, media_caption, or on the
@@ -111,7 +137,16 @@ async function handleMessage(env, msg, pending = []) {
     msg?.text?.body ?? msg?.caption ?? attachment?.caption ?? explicitMedia?.media_caption ?? null
   const body = typeof rawBody === 'string' && rawBody ? rawBody : null
 
-  if (!customerNumber) return 'skipped'
+  if (!groupJid && !customerNumber) return 'skipped'
+  // Belt and braces on the 1:1 path: nothing over the E.164 maximum is a real
+  // phone number, so an unrecognised group id still cannot become a contact.
+  if (customerNumber && customerNumber.length > 15) {
+    console.error(
+      'whapi webhook: refusing an over-long identifier',
+      JSON.stringify({ skip: 'group_chat', digits: customerNumber.length, payload: redactPayload(msg) })
+    )
+    return 'skipped'
+  }
   // Without media, a body is mandatory — otherwise there is nothing to show.
   if (!explicitMedia && !attachment && !body) return 'skipped'
 
@@ -127,17 +162,18 @@ async function handleMessage(env, msg, pending = []) {
   const db = getDb(env)
   const businessNumber = toDigits(env.BUSINESS_NUMBER)
 
-  const conversation = await findOrCreateConversation(
-    db,
-    customerNumber,
-    businessNumber,
-    customerName
-  )
+  const conversation = groupJid
+    ? await findOrCreateGroup(db, groupJid, businessNumber, msg?.chat_name)
+    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName)
 
   // On creation only — no refresh, no backfill. Fire-and-forget via the same
   // waitUntil the push fan-out uses, so it can never delay the 200.
   if (conversation.__created) {
-    pending.push(ingestAvatar(env, conversation.id, customerNumber))
+    pending.push(
+      groupJid
+        ? syncGroup(env, conversation.id, groupJid)
+        : ingestAvatar(env, conversation.id, customerNumber)
+    )
   }
 
   // Pull the bytes into our own bucket. A failure here must degrade to a
@@ -158,8 +194,11 @@ async function handleMessage(env, msg, pending = []) {
     .insert({
       conversation_id: conversation.id,
       direction: 'inbound',
-      from_number: customerNumber,
+      from_number: groupJid ? sender.number : customerNumber,
       to_number: businessNumber,
+      // Null for 1:1 — the conversation already identifies the other party.
+      sender_number: groupJid ? sender.number : null,
+      sender_name: groupJid ? sender.name : null,
       body,
       whapi_message_id: whapiMessageId,
       status: 'received',
@@ -195,8 +234,14 @@ async function handleMessage(env, msg, pending = []) {
     await db
       .from('wp_chat_conversations')
       .update({
-        // Media with no caption still needs a readable preview line.
-        last_message_body: body || mediaPreviewLabel(media),
+        // Media with no caption still needs a readable preview line. In a
+        // group the sender is prefixed here rather than in a separate column —
+        // it is what the list AND the toast both want to show.
+        last_message_body: groupJid
+          ? `${sender.name || (sender.number ? `+${sender.number}` : 'Someone')}: ${
+              body || mediaPreviewLabel(media)
+            }`
+          : body || mediaPreviewLabel(media),
         last_message_at: createdAt,
         last_direction: 'inbound',
         unread_count: (Number(current?.unread_count) || 0) + 1,
@@ -211,7 +256,11 @@ async function handleMessage(env, msg, pending = []) {
     notifyNewMessage(env, {
       conversation: { id: conversation.id, assigned_user_id: conversation.assigned_user_id },
       message: { id: inserted.data?.id ?? null, body, media_type: media?.media_type ?? null },
-      title: customerName || conversation.customer_name || `+${customerNumber}`,
+      title: groupJid
+        ? conversation.customer_name || 'Group'
+        : customerName || conversation.customer_name || `+${customerNumber}`,
+      // Prefixes the body with the sender inside a group, as WhatsApp does.
+      senderName: groupJid ? sender.name || (sender.number ? `+${sender.number}` : null) : null,
     })
   )
 
@@ -303,6 +352,56 @@ function mediaPreviewLabel(media) {
   if (media.media_type === 'video') return '🎥 Video'
   if (media.media_type === 'audio') return '🎵 Audio'
   return '📄 Document'
+}
+
+/**
+ * Find-or-create by group JID.
+ *
+ * group_jid is UNIQUE, which is what guarantees one conversation per group
+ * regardless of how many participants write in.
+ */
+async function findOrCreateGroup(db, groupJid, businessNumber, chatName) {
+  const existing = unwrap(
+    await db
+      .from('wp_chat_conversations')
+      .select('id, customer_name, assigned_user_id')
+      .eq('group_jid', groupJid)
+      .maybeSingle()
+  )
+  if (existing) return existing
+
+  const subject = typeof chatName === 'string' && chatName.trim() ? chatName.trim() : null
+
+  const created = await db
+    .from('wp_chat_conversations')
+    .insert({
+      is_group: true,
+      group_jid: groupJid,
+      customer_number: null,
+      business_number: businessNumber,
+      // The webhook often carries chat_name; syncGroup fills it if not.
+      customer_name: subject,
+      unread_count: 0,
+      status: 'open',
+    })
+    .select('id, customer_name, assigned_user_id')
+    .single()
+
+  if (created.error) {
+    // Two participants wrote at once — take whichever row landed first.
+    if (created.error.code === UNIQUE_VIOLATION) {
+      const row = unwrap(
+        await db
+          .from('wp_chat_conversations')
+          .select('id, customer_name, assigned_user_id')
+          .eq('group_jid', groupJid)
+          .maybeSingle()
+      )
+      if (row) return row
+    }
+    throw new Error(created.error.message)
+  }
+  return { ...created.data, __created: true }
 }
 
 /**

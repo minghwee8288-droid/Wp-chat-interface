@@ -194,6 +194,12 @@ export const api = {
   pushUnsubscribe: (endpoint) =>
     request('/push/unsubscribe', { method: 'POST', body: { endpoint } }),
 
+  groupMembers: (conversationId, signal) =>
+    request(`/groups/members?conversation_id=${encodeURIComponent(conversationId)}`, { signal }),
+
+  refreshGroupMembers: (conversationId) =>
+    request('/groups/members', { method: 'POST', body: { conversation_id: conversationId } }),
+
   channelStatus: (signal) => request('/channel/status', { signal }),
 
   users: (signal) => request('/users', { signal }),

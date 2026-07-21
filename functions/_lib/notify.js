@@ -113,7 +113,7 @@ async function recordOutcome(db, subscription, result) {
  * Never throws — the caller hands this to waitUntil, so a failure here must
  * not affect the webhook's response.
  */
-export async function notifyNewMessage(env, { conversation, message, title }) {
+export async function notifyNewMessage(env, { conversation, message, title, senderName }) {
   try {
     const db = getDb(env)
 
@@ -138,9 +138,12 @@ export async function notifyNewMessage(env, { conversation, message, title }) {
       return { sent: 0 }
     }
 
+    const preview = previewFor(message)
     const payload = {
       title: title || 'New message',
-      body: previewFor(message),
+      // In a group the title is the group, so the sender goes in the body —
+      // otherwise every group notification looks identical.
+      body: senderName ? `${senderName}: ${preview}` : preview,
       conversation_id: conversation.id,
       message_id: message?.id ?? null,
     }

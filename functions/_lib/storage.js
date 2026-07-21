@@ -153,4 +153,4 @@ export function readMediaFields(source) {
 export const MESSAGE_COLUMNS = `id, conversation_id, direction, from_number, to_number, body,
    whapi_message_id, status, error_code, is_read, sent_by, created_at,
    media_path, media_type, media_mime, media_filename, media_size, media_caption,
-   media_error`
+   media_error, sender_number, sender_name`

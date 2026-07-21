@@ -37,6 +37,12 @@ export async function onRequestPost({ request, env }) {
     const now = new Date().toISOString()
     const businessNumber = toDigits(env.BUSINESS_NUMBER) || conversation.business_number
 
+    // Whapi's send endpoints take the recipient in `to` either way; for a
+    // group that is the JID rather than a bare number. sendText/sendMedia run
+    // it through toDigits, which would strip "@g.us", so the JID is passed
+    // pre-normalised and toDigits is bypassed for groups.
+    const destination = conversation.is_group ? conversation.group_jid : conversation.customer_number
+
     // (1) Persist first, so a Whapi failure is visible rather than losing the message.
     const message = unwrap(
       await db
@@ -45,7 +51,7 @@ export async function onRequestPost({ request, env }) {
           conversation_id: conversationId,
           direction: 'outbound',
           from_number: businessNumber,
-          to_number: conversation.customer_number,
+          to_number: conversation.is_group ? conversation.group_jid : conversation.customer_number,
           // With media, body carries the caption (or null).
           body: text || null,
           status: 'queued',
@@ -79,7 +85,7 @@ export async function onRequestPost({ request, env }) {
       // Supabase credentials — hence a signed URL rather than the object path.
       const signed = await signUrl(env, media.media_path, OUTBOUND_MEDIA_TTL)
       result = signed.ok
-        ? await sendMedia(env, conversation.customer_number, {
+        ? await sendMedia(env, destination, {
             mediaUrl: signed.url,
             mediaType: media.media_type,
             caption: text || null,
@@ -88,7 +94,7 @@ export async function onRequestPost({ request, env }) {
           })
         : { ok: false, error: signed.error }
     } else {
-      result = await sendText(env, conversation.customer_number, text)
+      result = await sendText(env, destination, text)
     }
 
     if (result.ok) {

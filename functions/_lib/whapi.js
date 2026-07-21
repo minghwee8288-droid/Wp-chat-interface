@@ -13,6 +13,19 @@ export function whapiConfig(env) {
 /** Digits only — strips a `@s.whatsapp.net` suffix, spaces, plus signs. */
 export const toDigits = (value) => String(value ?? '').split('@')[0].replace(/\D/g, '')
 
+/**
+ * Recipient for a send.
+ *
+ * A group JID must survive intact — toDigits() would strip "@g.us" and leave a
+ * bare id Whapi cannot route. Anything else is normalised to bare digits as
+ * before.
+ */
+export function recipientFor(value) {
+  const raw = String(value ?? '').trim()
+  if (/@g\.us$/i.test(raw)) return raw
+  return toDigits(raw)
+}
+
 /** Whapi has a distinct endpoint per media kind. */
 const MEDIA_ENDPOINT = {
   image: 'image',
@@ -28,9 +41,8 @@ const MEDIA_ENDPOINT = {
  */
 export async function sendText(env, to, body) {
   return post(env, 'messages/text', {
-    // `to` goes as bare digits, e.g. "13135555657". If a channel ever rejects
-    // that, the alternative Whapi accepts is the full JID: `${digits}@s.whatsapp.net`.
-    to: toDigits(to),
+    // Bare digits for a 1:1, e.g. "13135555657"; the full JID for a group.
+    to: recipientFor(to),
     body,
   })
 }
@@ -43,7 +55,7 @@ export async function sendText(env, to, body) {
 export async function sendMedia(env, to, { mediaUrl, mediaType, caption, filename, mime }) {
   const endpoint = MEDIA_ENDPOINT[mediaType] || 'document'
 
-  const payload = { to: toDigits(to), media: mediaUrl }
+  const payload = { to: recipientFor(to), media: mediaUrl }
   if (caption) payload.caption = caption
   // Whapi uses the filename as the document's display name.
   if (endpoint === 'document') {
@@ -228,5 +240,264 @@ export async function checkHealth(env) {
       checked_at: checkedAt,
       error: String(err?.message || 'health_failed'),
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Group / broadcast detection
+//
+// This app is 1:1 only. A group message must never create a conversation —
+// previously it did, keyed on the SENDER's personal number, so one group with
+// two participants produced two unrelated conversations.
+// ---------------------------------------------------------------------------
+
+/** JID suffixes that are never a 1:1 chat. */
+const NON_DIRECT_SUFFIXES = ['@g.us', '@broadcast', '@newsletter', '@lid']
+
+/**
+ * Identifier fields that may carry a JID.
+ *
+ * Deliberately excludes body/text/caption: a customer can legitimately TYPE
+ * "@g.us", and dropping their message because of that would be worse than the
+ * bug this fixes.
+ */
+const ID_FIELDS = [
+  'chat_id', 'chatId', 'from', 'to', 'author', 'participant',
+  'recipient', 'group_id', 'groupId', 'source',
+]
+
+// E.164 caps a real phone number at 15 digits. A WhatsApp group id is 18+,
+// so anything longer is a group whose suffix was stripped upstream.
+const MAX_E164_DIGITS = 15
+
+function idCandidates(msg) {
+  const out = []
+  for (const key of ID_FIELDS) {
+    const v = msg?.[key]
+    if (typeof v === 'string' && v) out.push([key, v])
+  }
+  // Nested shapes Whapi has used for the chat object.
+  for (const [parent, key] of [['chat', 'id'], ['group', 'id'], ['chat', 'jid']]) {
+    const v = msg?.[parent]?.[key]
+    if (typeof v === 'string' && v) out.push([`${parent}.${key}`, v])
+  }
+  return out
+}
+
+/**
+ * Returns the reasons a message looks like a group/broadcast, or [] if it is a
+ * genuine 1:1 chat. Checks EVERY identifier field rather than one, because
+ * Whapi puts the group JID in chat_id while `from` holds the individual
+ * sender — checking only one field is exactly how this slipped through.
+ */
+export function groupEvidence(msg) {
+  const reasons = []
+
+  // Explicit flags, if the payload carries them.
+  if (msg?.is_group === true) reasons.push('is_group=true')
+  if (typeof msg?.chat_type === 'string' && /group|broadcast|newsletter/i.test(msg.chat_type)) {
+    reasons.push(`chat_type=${msg.chat_type}`)
+  }
+
+  for (const [key, raw] of idCandidates(msg)) {
+    const value = raw.toLowerCase()
+
+    for (const suffix of NON_DIRECT_SUFFIXES) {
+      if (value.endsWith(suffix) || value.includes(`${suffix}:`)) {
+        reasons.push(`${key} ends with ${suffix}`)
+      }
+    }
+
+    const local = raw.split('@')[0]
+
+    // Legacy group ids look like <creator>-<timestamp>.
+    if (/^\d{5,}-\d{5,}$/.test(local)) reasons.push(`${key} is a legacy group id`)
+
+    // Suffix already stripped: too long to be a phone number.
+    const digits = local.replace(/\D/g, '')
+    if (digits.length > MAX_E164_DIGITS) {
+      reasons.push(`${key} has ${digits.length} digits, over the E.164 maximum`)
+    }
+  }
+
+  return [...new Set(reasons)]
+}
+
+export const isGroupMessage = (msg) => groupEvidence(msg).length > 0
+
+/**
+ * Whole payload for diagnosis, with anything credential-shaped masked.
+ * Group payloads are rare and the field layout is what we need to see.
+ */
+export function redactPayload(value) {
+  // Anchored: a bare substring match on "auth" also hits "author", which is a
+  // group-sender field we specifically need to READ when diagnosing a leak.
+  const SECRET_KEY = /^(token|authorization|auth|secret|apikey|api_key|password|passwd|pwd)$/i
+  const SECRET_SUFFIX = /(_token|_secret|_key|_password)$/i
+  const isSecret = (k) => SECRET_KEY.test(k) || SECRET_SUFFIX.test(k)
+  const walk = (node, depth = 0) => {
+    if (depth > 6 || node === null || typeof node !== 'object') return node
+    if (Array.isArray(node)) return node.map((v) => walk(v, depth + 1))
+    const out = {}
+    for (const [k, v] of Object.entries(node)) {
+      out[k] = isSecret(k) ? '[REDACTED]' : walk(v, depth + 1)
+    }
+    return out
+  }
+  return walk(value)
+}
+
+/**
+ * The canonical group JID for a message, or null for a 1:1 chat.
+ *
+ * Reuses the SAME field sweep as groupEvidence() rather than adding a second
+ * detection path — chat_id normally carries it, but Whapi has put it in other
+ * fields, which is how the one-conversation-per-sender bug happened.
+ */
+export function groupJidOf(msg) {
+  if (!isGroupMessage(msg)) return null
+
+  for (const [, raw] of idCandidates(msg)) {
+    const value = String(raw)
+    if (/@g\.us$/i.test(value)) return value.toLowerCase()
+  }
+
+  // Suffix already stripped upstream: rebuild it from the over-long id so the
+  // stored JID is always canonical.
+  for (const [, raw] of idCandidates(msg)) {
+    const local = String(raw).split('@')[0]
+    const digits = local.replace(/\D/g, '')
+    if (digits.length > MAX_E164_DIGITS || /^\d{5,}-\d{5,}$/.test(local)) {
+      return `${local}@g.us`
+    }
+  }
+  return null
+}
+
+/** Bare group id for URL paths — Whapi wants the full JID including @g.us. */
+export const groupIdForApi = (jid) => String(jid || '').trim()
+
+/**
+ * Who actually sent a group message.
+ *
+ * In a group, `from` is the individual participant while chat_id is the group.
+ * That asymmetry is exactly what made the old code create a conversation per
+ * sender; here it is what we WANT, recorded per message.
+ */
+export function senderOf(msg) {
+  const candidates = [msg?.from, msg?.author, msg?.participant]
+  for (const raw of candidates) {
+    if (typeof raw !== 'string' || !raw) continue
+    const digits = toDigits(raw)
+    // Skip anything that is itself the group.
+    if (!digits || digits.length > MAX_E164_DIGITS) continue
+    return {
+      number: digits,
+      name: typeof msg?.from_name === 'string' && msg.from_name.trim() ? msg.from_name.trim() : null,
+    }
+  }
+  return { number: null, name: null }
+}
+
+/**
+ * GET /groups/{GroupID} — group metadata and participants.
+ * Confirmed against Whapi's endpoint list; participants are {id, rank} where
+ * rank is "member" | "admin" | "creator".
+ * Never throws.
+ */
+export async function fetchGroupInfo(env, groupJid) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const id = groupIdForApi(groupJid)
+    if (!id) return { ok: false, error: 'group_no_id' }
+
+    const res = await fetch(`${apiUrl}/groups/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 160)
+      return { ok: false, error: `group_${res.status}${detail ? `: ${detail}` : ''}` }
+    }
+
+    const data = await res.json().catch(() => null)
+    if (!data) return { ok: false, error: 'group_bad_json' }
+
+    // Subject key varies across their docs and versions; probe in order.
+    const subject =
+      [data.name, data.subject, data.title].find((v) => typeof v === 'string' && v.trim()) || null
+
+    const rawParticipants = Array.isArray(data.participants) ? data.participants : []
+    const participants = rawParticipants
+      .map((p) => {
+        const number = toDigits(typeof p === 'string' ? p : p?.id ?? p?.jid ?? p?.number)
+        if (!number) return null
+        const rank = String(p?.rank ?? p?.role ?? '').toLowerCase()
+        return {
+          number,
+          // Participant objects rarely carry a name; fall back to the number.
+          name:
+            [p?.name, p?.pushname, p?.notify].find((v) => typeof v === 'string' && v.trim()) || null,
+          isAdmin: rank === 'admin' || rank === 'creator' || rank === 'superadmin' || p?.isAdmin === true,
+        }
+      })
+      .filter(Boolean)
+
+    return { ok: true, subject, participants, raw: data }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'group_fetch_failed') }
+  }
+}
+
+/**
+ * GET /groups/{GroupID}/icon — the group's picture.
+ * Returns image bytes, mirroring fetchProfilePicture's contract so the same
+ * storage pipeline handles both. Never throws.
+ */
+export async function fetchGroupIcon(env, groupJid, maxBytes = 2 * 1024 * 1024) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const id = groupIdForApi(groupJid)
+    if (!id) return { ok: false, error: 'group_no_id' }
+
+    const res = await fetch(`${apiUrl}/groups/${encodeURIComponent(id)}/icon`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: '*/*' },
+    })
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 120)
+      return { ok: false, error: `group_icon_${res.status}${detail ? `: ${detail}` : ''}` }
+    }
+
+    const type = String(res.headers.get('content-type') || '')
+    // The endpoint may answer with the bytes directly, or with JSON holding a
+    // temporary URL — handle both rather than assuming one.
+    if (type.includes('application/json')) {
+      const data = await res.json().catch(() => null)
+      const url = [data?.icon, data?.url, data?.icon_full, data?.preview].find(
+        (v) => typeof v === 'string' && v
+      )
+      if (!url) return { ok: false, error: 'group_icon_no_url' }
+
+      const img = await fetch(url)
+      if (!img.ok) return { ok: false, error: `group_icon_image_${img.status}` }
+      const bytes = await img.arrayBuffer()
+      if (!bytes.byteLength) return { ok: false, error: 'group_icon_empty' }
+      if (bytes.byteLength > maxBytes) return { ok: false, error: 'group_icon_too_large' }
+      return {
+        ok: true,
+        bytes,
+        mime: String(img.headers.get('content-type') || 'image/jpeg').split(';')[0].trim(),
+      }
+    }
+
+    const declared = Number(res.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      return { ok: false, error: 'group_icon_too_large' }
+    }
+    const bytes = await res.arrayBuffer()
+    if (!bytes.byteLength) return { ok: false, error: 'group_icon_empty' }
+    if (bytes.byteLength > maxBytes) return { ok: false, error: 'group_icon_too_large' }
+    return { ok: true, bytes, mime: type.split(';')[0].trim() || 'image/jpeg' }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'group_icon_failed') }
   }
 }

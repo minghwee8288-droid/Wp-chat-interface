@@ -78,6 +78,22 @@
   --av-6: #5c9ead;
   --av-7: #b95c89;
 
+
+  /* Same eight hues as the avatars, but re-tuned for use as 11px TEXT.
+     Every source colour fails WCAG AA at that size on white (2.20:1 to
+     4.24:1, all under the 4.5 needed), so each is darkened until it clears
+     4.5:1 against BOTH the row surface and the selected-row tint. Hue and
+     saturation are preserved, so agent N is recognisably the same colour as
+     avatar N. The avatar tokens above are untouched. */
+  --agent-0: #ca4517;
+  --agent-1: #6c63d8;
+  --agent-2: #188260;
+  --agent-3: #cd386a;
+  --agent-4: #2274c7;
+  --agent-5: #9c6618;
+  --agent-6: #437a86;
+  --agent-7: #b45080;
+
   --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter,
     Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
@@ -125,6 +141,18 @@
 
   --shadow-pop: 0 6px 24px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-menu: 0 8px 28px rgba(0, 0, 0, 0.6);
+
+
+  /* Lightened instead of darkened — on the dark surface the failing direction
+     is the opposite one. Three already cleared AA and are unchanged. */
+  --agent-0: #f0997b;
+  --agent-1: #8e87e1;
+  --agent-2: #1ea47a;
+  --agent-3: #db6e92;
+  --agent-4: #4894e0;
+  --agent-5: #e2a03f;
+  --agent-6: #5c9ead;
+  --agent-7: #c5799e;
 
   /* Slightly desaturated so white initials keep contrast on dark. */
   --av-0: #c97e63;
@@ -1055,6 +1083,25 @@ button {
   color: var(--text-2);
 }
 
+/* Per-agent colour, keyed on the SAME hash the avatars use so one agent reads
+   as one colour throughout. Weight is untouched — colour is the only change. */
+.conv-assignee[data-agent='0'],
+.assign-static[data-agent='0'] { color: var(--agent-0); }
+.conv-assignee[data-agent='1'],
+.assign-static[data-agent='1'] { color: var(--agent-1); }
+.conv-assignee[data-agent='2'],
+.assign-static[data-agent='2'] { color: var(--agent-2); }
+.conv-assignee[data-agent='3'],
+.assign-static[data-agent='3'] { color: var(--agent-3); }
+.conv-assignee[data-agent='4'],
+.assign-static[data-agent='4'] { color: var(--agent-4); }
+.conv-assignee[data-agent='5'],
+.assign-static[data-agent='5'] { color: var(--agent-5); }
+.conv-assignee[data-agent='6'],
+.assign-static[data-agent='6'] { color: var(--agent-6); }
+.conv-assignee[data-agent='7'],
+.assign-static[data-agent='7'] { color: var(--agent-7); }
+
 /* An absence, not a name — lighter than an assigned agent so the two read
    differently at a glance. */
 .conv-assignee.is-unassigned {
@@ -1471,6 +1518,149 @@ button {
 .bubble-failed {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* Sender name inside a group bubble, above the message. Colour comes from the
+   SAME contrast-tuned --agent-* palette the assignee names use — those were
+   tuned for small coloured text on a light/dark surface, which is exactly this
+   case. The inbound bubble background is within the range they were tuned
+   against, and it is verified in the test suite rather than assumed. */
+.msg-sender {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-sender[data-agent='0'] { color: var(--agent-0); }
+.msg-sender[data-agent='1'] { color: var(--agent-1); }
+.msg-sender[data-agent='2'] { color: var(--agent-2); }
+.msg-sender[data-agent='3'] { color: var(--agent-3); }
+.msg-sender[data-agent='4'] { color: var(--agent-4); }
+.msg-sender[data-agent='5'] { color: var(--agent-5); }
+.msg-sender[data-agent='6'] { color: var(--agent-6); }
+.msg-sender[data-agent='7'] { color: var(--agent-7); }
+
+/* A media-only bubble drops to 4px padding; the sender label still needs to
+   sit clear of the image. */
+.bubble.is-media-only .msg-sender {
+  padding: 2px 6px 0;
+}
+
+/* The group name in the header opens the member list. */
+.thread-id-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-radius: var(--r-md);
+  text-align: left;
+  transition: background 0.12s ease;
+}
+.thread-id-button:hover {
+  background: var(--surface-2);
+}
+
+.thread-id-button .thread-number {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Group members
+ * ------------------------------------------------------------------ */
+.member-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.member-age {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.member-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: var(--divider-w) solid var(--border);
+}
+.member-row:last-child {
+  border-bottom: none;
+}
+
+.member-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.member-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.member-name {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-number {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.member-admin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--accent-tint);
+  color: var(--accent-deep);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.member-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 16px;
+  color: var(--text-3);
+  font-size: 13.5px;
+  text-align: center;
 }
 
 /* ------------------------------------------------------------------ *

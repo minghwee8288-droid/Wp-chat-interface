@@ -1,6 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AlertCircle, Clock } from 'lucide-react'
-import { clockTime, dayKey, dayLabel, displayName, initials } from '../lib/format.js'
+import {
+  clockTime,
+  dayKey,
+  dayLabel,
+  displayName,
+  initials,
+  avatarIndex,
+} from '../lib/format.js'
 import MediaAttachment from './MediaAttachment.jsx'
 import Lightbox from './Lightbox.jsx'
 
@@ -9,9 +16,14 @@ import Lightbox from './Lightbox.jsx'
  * spacing, and only the last one shows an avatar.
  */
 const runKey = (message) =>
-  message.direction === 'inbound' ? 'in' : `out:${message.sent_by || ''}`
+  message.direction === 'inbound'
+    // In a group, each participant is their own run — otherwise two people in
+    // a row would share one avatar and one sender label.
+    ? `in:${message.sender_number || ''}`
+    : `out:${message.sent_by || ''}`
 
 export default function Thread({ messages, loading, conversation }) {
+  const isGroup = Boolean(conversation?.is_group)
   const [lightbox, setLightbox] = useState(null)
   const scrollRef = useRef(null)
   const lastIdRef = useRef(null)
@@ -113,7 +125,9 @@ export default function Thread({ messages, loading, conversation }) {
             runKey(next) !== runKey(message) ||
             (dayKey(next.created_at) && dayKey(next.created_at) !== key)
 
-          const who = isOut ? message.sent_by || 'You' : contactName
+          // In a group the inbound party is the individual sender, not the chat.
+          const senderLabel = message.sender_name || (message.sender_number ? `+${message.sender_number}` : null)
+          const who = isOut ? message.sent_by || 'You' : (isGroup && senderLabel) || contactName
 
           const meta = (
             <span className="bubble-meta">
@@ -151,6 +165,19 @@ export default function Thread({ messages, loading, conversation }) {
                     isRunStart ? ' has-tail' : ''
                   }`}
                 >
+                  {/* Sender label: groups only, inbound only, and only on the
+                      first message of a run — the same rule the avatars use.
+                      Inside the bubble so it cannot disturb the row's flex
+                      layout or the 65% bubble measure. */}
+                  {isGroup && !isOut && isRunStart && senderLabel ? (
+                    <span
+                      className="msg-sender"
+                      data-agent={avatarIndex(message.sender_number)}
+                    >
+                      {senderLabel}
+                    </span>
+                  ) : null}
+
                   {hasMedia ? (
                     <MediaAttachment
                       message={message}

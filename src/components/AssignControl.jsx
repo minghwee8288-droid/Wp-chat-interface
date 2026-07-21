@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { UserCheck } from 'lucide-react'
 import { api } from '../lib/api.js'
+import { avatarIndex } from '../lib/format.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
 
@@ -13,7 +14,15 @@ export default function AssignControl({ conversation, users, onAssigned }) {
   // enforces this too; this is only to keep the UI honest.
   if (!isAdmin) {
     return (
-      <span className="assign-static">
+      <span
+        className="assign-static"
+        // Matches the conversation list, so one agent is one colour throughout.
+        data-agent={
+          conversation.assigned_to && conversation.assigned_user_id != null
+            ? avatarIndex(conversation.assigned_user_id)
+            : undefined
+        }
+      >
         <UserCheck size={13} />
         {conversation.assigned_to || 'Unassigned'}
       </span>

@@ -7,6 +7,7 @@ const COLUMNS = `
   last_message_body, last_message_at, last_direction,
   unread_count, status, assigned_user_id, assigned_to,
   avatar_path, avatar_error,
+  is_group, group_jid, member_count,
   created_at, updated_at
 `
 

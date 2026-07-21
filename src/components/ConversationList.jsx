@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal } from 'lucide-react'
-import { displayName, formatNumber, relativeStamp, matchesQuery, firstName } from '../lib/format.js'
+import {
+  displayName,
+  formatNumber,
+  relativeStamp,
+  matchesQuery,
+  firstName,
+  avatarIndex,
+} from '../lib/format.js'
 import ContactAvatar from './ContactAvatar.jsx'
 import ConversationFilters, {
   EMPTY_FILTERS,
@@ -112,7 +119,14 @@ export default function ConversationList({
             // A named contact keeps its number on line 3; an unnamed one has
             // already been promoted to the name, so showing it twice is noise.
             const hasRealName = Boolean(conversation.customer_name?.trim())
+            const isGroup = Boolean(conversation.is_group)
             const assignee = firstName(conversation.assigned_to)
+            // Same hash as the avatars, keyed on the USER ID so a rename never
+            // changes an agent's colour.
+            const agentColor =
+              assignee && conversation.assigned_user_id != null
+                ? avatarIndex(conversation.assigned_user_id)
+                : null
 
             return (
               <button
@@ -134,6 +148,9 @@ export default function ConversationList({
 
                   <div className="conv-preview">
                     <span className={`conv-snippet${preview ? '' : ' is-empty'}`}>
+                      {/* A group's inbound preview already carries
+                          "Sender: " from the webhook, so only outbound needs a
+                          prefix here. */}
                       {preview
                         ? `${conversation.last_direction === 'outbound' ? 'You: ' : ''}${preview}`
                         : 'No messages yet'}
@@ -150,9 +167,18 @@ export default function ConversationList({
                       line with it, so neither can displace the other. */}
                   <div className="conv-meta">
                     <span className="conv-number">
-                      {hasRealName ? formatNumber(conversation.customer_number) : ''}
+                      {isGroup
+                        ? conversation.member_count
+                          ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
+                          : 'Group'
+                        : hasRealName
+                          ? formatNumber(conversation.customer_number)
+                          : ''}
                     </span>
-                    <span className={`conv-assignee${assignee ? '' : ' is-unassigned'}`}>
+                    <span
+                      className={`conv-assignee${assignee ? '' : ' is-unassigned'}`}
+                      data-agent={agentColor ?? undefined}
+                    >
                       {assignee || 'Unassigned'}
                     </span>
                   </div>
