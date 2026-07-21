@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Inbox as InboxIcon,
   Users,
@@ -10,7 +10,6 @@ import {
   VolumeX,
   KeyRound,
   LogOut,
-  ChevronDown,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
@@ -24,8 +23,9 @@ import PushDiagnostics from './PushDiagnostics.jsx'
 export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
   const { isDark, toggleTheme, soundOn, toggleSound } = useTheme()
-  const { totalUnread } = useInbox()
+  const { totalUnread, mobileView } = useInbox()
   const location = useLocation()
+  const navigate = useNavigate()
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
@@ -52,7 +52,7 @@ export default function Shell() {
   const title = location.pathname.startsWith('/team') ? 'Team' : 'Inbox'
 
   return (
-    <div className="shell">
+    <div className="shell" data-mobile-view={mobileView}>
       <nav className="rail" aria-label="Primary">
         <div className="rail-mark" aria-hidden="true">
           <MessageSquare size={17} />
@@ -89,30 +89,6 @@ export default function Shell() {
           <span className="topbar-title">{title}</span>
           <div className="topbar-spacer" />
 
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label={soundOn ? 'Mute notification sound' : 'Unmute notification sound'}
-            title={soundOn ? 'Sound on' : 'Sound muted'}
-            onClick={() => {
-              // Unmuting counts as the interaction that unblocks Web Audio.
-              armAudio()
-              toggleSound()
-            }}
-          >
-            {soundOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
-          </button>
-
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-            title={isDark ? 'Light theme' : 'Dark theme'}
-            onClick={toggleTheme}
-          >
-            {isDark ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-
           <div className="user-menu" ref={menuRef}>
             <button
               type="button"
@@ -124,8 +100,6 @@ export default function Shell() {
               <span className="avatar" aria-hidden="true">
                 {initials(user?.name)}
               </span>
-              <span className="user-name">{user?.name}</span>
-              <ChevronDown size={14} style={{ color: 'var(--text-3)' }} />
             </button>
 
             {menuOpen ? (
@@ -134,6 +108,49 @@ export default function Shell() {
                   <div className="menu-head-name">{user?.name}</div>
                   <div className="menu-head-email">{user?.email}</div>
                 </div>
+
+                {/* Admin-only, and the only route to team management now that
+                    the mobile bottom nav is gone. */}
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/team')
+                    }}
+                  >
+                    <Users size={15} />
+                    Team
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    // Unmuting counts as the interaction that unblocks Web Audio.
+                    armAudio()
+                    toggleSound()
+                  }}
+                >
+                  {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                  <span style={{ flex: 1 }}>Sound</span>
+                  <span className="menu-item-state">{soundOn ? 'On' : 'Off'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="menu-item"
+                  role="menuitem"
+                  onClick={toggleTheme}
+                >
+                  {isDark ? <Sun size={15} /> : <Moon size={15} />}
+                  <span style={{ flex: 1 }}>Theme</span>
+                  <span className="menu-item-state">{isDark ? 'Dark' : 'Light'}</span>
+                </button>
 
                 <button
                   type="button"

@@ -28,6 +28,9 @@ export function InboxProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [openId, setOpenId] = useState(null)
+  // Which pane is showing on phones. Lives here rather than in the Inbox page
+  // so the Shell can hide its chrome while a thread is open.
+  const [mobileView, setMobileView] = useState('list')
 
   // Snapshot of the previous poll, keyed by id, used to diff for new inbound
   // messages. Kept in a ref so the polling effect doesn't re-subscribe on it.
@@ -203,6 +206,8 @@ export function InboxProvider({ children }) {
       totalUnread,
       openId,
       setOpenId,
+      mobileView,
+      setMobileView,
       clearUnread,
       applyOutbound,
       patchConversation,
@@ -215,6 +220,7 @@ export function InboxProvider({ children }) {
       error,
       totalUnread,
       openId,
+      mobileView,
       clearUnread,
       applyOutbound,
       patchConversation,

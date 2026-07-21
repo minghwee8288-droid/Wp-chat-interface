@@ -1,8 +1,21 @@
 import { useMemo, useState } from 'react'
-import { Search, X, Inbox as InboxIcon, User } from 'lucide-react'
-import { displayName, formatNumber, relativeStamp, matchesQuery, initials } from '../lib/format.js'
+import { Search, X, Inbox as InboxIcon, Plus } from 'lucide-react'
+import {
+  displayName,
+  formatNumber,
+  relativeStamp,
+  matchesQuery,
+  initials,
+  avatarIndex,
+} from '../lib/format.js'
 
-export default function ConversationList({ conversations, openId, onOpen, loading }) {
+export default function ConversationList({
+  conversations,
+  openId,
+  onOpen,
+  loading,
+  onNewMessage,
+}) {
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(
@@ -14,7 +27,7 @@ export default function ConversationList({ conversations, openId, onOpen, loadin
     <>
       <div className="search-wrap">
         <div className="search">
-          <Search size={16} className="search-icon" />
+          <Search size={15} className="search-icon" />
           <input
             className="input"
             type="search"
@@ -60,6 +73,9 @@ export default function ConversationList({ conversations, openId, onOpen, loadin
             const name = displayName(conversation)
             // Whitespace-only bodies count as empty too.
             const preview = String(conversation.last_message_body || '').trim()
+            // A named contact keeps its number on line 3; an unnamed one has
+            // already been promoted to the name, so showing it twice is noise.
+            const hasRealName = Boolean(conversation.customer_name?.trim())
 
             return (
               <button
@@ -69,7 +85,11 @@ export default function ConversationList({ conversations, openId, onOpen, loadin
                 aria-current={isActive ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
               >
-                <span className="conv-avatar" aria-hidden="true">
+                <span
+                  className="conv-avatar"
+                  data-color={avatarIndex(conversation.customer_number)}
+                  aria-hidden="true"
+                >
                   {initials(name)}
                 </span>
 
@@ -94,22 +114,27 @@ export default function ConversationList({ conversations, openId, onOpen, loadin
                     ) : null}
                   </div>
 
-                  <div className="conv-meta">
-                    <span>{formatNumber(conversation.customer_number)}</span>
-                    {conversation.assigned_to ? (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <User size={11} />
-                        <span>{conversation.assigned_to}</span>
-                      </>
-                    ) : null}
-                  </div>
+                  {hasRealName ? (
+                    <div className="conv-meta">
+                      {formatNumber(conversation.customer_number)}
+                    </div>
+                  ) : null}
                 </div>
               </button>
             )
           })
         )}
       </div>
+
+      {/* Mobile-only floating action; desktop uses the "+" in the list header. */}
+      <button
+        type="button"
+        className="conv-fab"
+        aria-label="New message"
+        onClick={onNewMessage}
+      >
+        <Plus size={24} />
+      </button>
     </>
   )
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
-import { UserPlus, KeyRound, Users } from 'lucide-react'
+import { Navigate, Link } from 'react-router-dom'
+import { UserPlus, KeyRound, Users, ArrowLeft } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
@@ -69,6 +69,12 @@ export default function Team() {
   return (
     <div className="page-scroll">
       <div className="page-inner">
+        {/* The mobile bottom nav is gone, so this is the way back to the inbox. */}
+        <Link to="/inbox" className="btn btn-secondary btn-sm page-back">
+          <ArrowLeft size={14} />
+          Back to inbox
+        </Link>
+
         <section className="card">
           <div className="card-head">
             <Users size={17} style={{ color: 'var(--text-2)' }} />

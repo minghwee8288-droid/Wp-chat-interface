@@ -16,11 +16,41 @@ export function formatNumber(number) {
 export const displayName = (conversation) =>
   conversation?.customer_name?.trim() || formatNumber(conversation?.customer_number)
 
+/**
+ * First character of the first and last word.
+ *
+ * Uses Array.from so it splits by code POINT, not code unit — otherwise a name
+ * beginning with an emoji or an astral-plane character (and many CJK/Indic
+ * scripts once combining marks are involved) would be cut mid-character and
+ * render as a replacement glyph. toUpperCase is a no-op for scripts without
+ * case, which is correct.
+ */
 export function initials(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+
+  const first = Array.from(parts[0])[0] || ''
+  if (parts.length === 1) return first.toUpperCase()
+
+  const last = Array.from(parts[parts.length - 1])[0] || ''
+  return (first + last).toUpperCase()
+}
+
+/**
+ * Deterministic avatar colour index, 0–7.
+ *
+ * Keyed on the phone number rather than the name so the colour survives a
+ * contact being renamed. Plain FNV-1a — stable across sessions and devices,
+ * which a random or insertion-order colour would not be.
+ */
+export function avatarIndex(identifier) {
+  const key = String(identifier ?? '').replace(/\D/g, '') || String(identifier ?? '')
+  let hash = 0x811c9dc5
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash % 8
 }
 
 /** Compact stamp for the conversation list: time today, weekday this week, else date. */

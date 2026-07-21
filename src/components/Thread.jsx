@@ -147,15 +147,18 @@ export default function Thread({ messages, loading, conversation }) {
                 <div
                   className={`bubble ${isOut ? 'bubble-out' : 'bubble-in'}${
                     failed ? ' bubble-failed' : ''
-                  }${hasMedia ? ' has-media' : ''}${mediaOnly ? ' is-media-only' : ''}`}
+                  }${hasMedia ? ' has-media' : ''}${mediaOnly ? ' is-media-only' : ''}${
+                    isRunStart ? ' has-tail' : ''
+                  }`}
                 >
                   {hasMedia ? (
                     <MediaAttachment
                       message={message}
                       onOpenImage={setLightbox}
-                      /* An uncaptioned image carries its stamp as an overlay
-                         instead of costing a whole text line. */
-                      stamp={mediaOnly && isImage ? meta : null}
+                      /* Uncaptioned media carries the stamp itself — overlaid
+                         on an image, inline on a chip — so it never costs a
+                         whole extra row. */
+                      stamp={mediaOnly ? meta : null}
                     />
                   ) : null}
 
@@ -166,8 +169,7 @@ export default function Thread({ messages, loading, conversation }) {
                     </div>
                   ) : null}
 
-                  {/* Chips (and failed media) have nothing to overlay onto. */}
-                  {mediaOnly && !isImage ? <div className="bubble-meta-row">{meta}</div> : null}
+
                 </div>
 
                 {isOut ? avatar : null}

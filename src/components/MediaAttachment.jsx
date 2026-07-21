@@ -67,6 +67,7 @@ export default function MediaAttachment({ message, onOpenImage, stamp = null }) 
       <div className="media-error">
         <ImageOff size={15} />
         <span>Media unavailable</span>
+        {stamp}
       </div>
     )
   }
@@ -76,6 +77,7 @@ export default function MediaAttachment({ message, onOpenImage, stamp = null }) 
       <div className="media-error">
         <ImageOff size={15} />
         <span>Attachment unavailable</span>
+        {stamp}
       </div>
     )
   }
@@ -126,7 +128,8 @@ export default function MediaAttachment({ message, onOpenImage, stamp = null }) 
       <span className="media-doc-body">
         <span className="media-doc-name">{name}</span>
         <span className="media-doc-meta">
-          {formatBytes(message.media_size) || message.media_type}
+          <span>{formatBytes(message.media_size) || message.media_type}</span>
+          {stamp}
         </span>
       </span>
       <span className="media-doc-dl">

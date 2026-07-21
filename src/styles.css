@@ -2,80 +2,139 @@
  * Tokens
  * ------------------------------------------------------------------ */
 :root {
-  --brand: #2f6df6;
-  --brand-hover: #2559d4;
-  --brand-soft: #eaf1ff;
-  --brand-contrast: #ffffff;
+  /* --- accent ------------------------------------------------------ */
+  --accent: #378add;
+  --accent-hover: #2a72bd;
+  --accent-deep: #0c447c;
+  --accent-tint: #dcebfb;
+  --accent-contrast: #ffffff;
 
-  --bg: #f7f8fa;
+  /* Legacy aliases — every rule written against --brand still resolves. */
+  --brand: var(--accent);
+  --brand-hover: var(--accent-hover);
+  --brand-soft: var(--accent-tint);
+  --brand-contrast: var(--accent-contrast);
+
+  /* --- chat thread -------------------------------------------------- */
+  --chat-bg: #f1ede3;
+  --chat-dot: #e1daca;
+  --bubble-in: #ffffff;
+  --bubble-out: #dcebfb;
+  --bubble-text: #111111;
+  --bubble-meta: #666666;
+  --bubble-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
+
+  /* --- app chrome --------------------------------------------------- */
+  --bg: #f1ede3;
   --surface: #ffffff;
-  --surface-2: #f2f4f7;
-  --surface-3: #e9ecf1;
+  --surface-2: #f7f5ef;
+  --surface-3: #ece7dc;
+  --search-bg: #f1ede3;
 
-  --text: #16191f;
-  --text-2: #5a6472;
-  --text-3: #8b95a5;
+  --text: #111111;
+  --text-2: #666666;
+  --text-3: #888888;
 
-  --border: #e3e7ed;
-  --border-strong: #cfd6e0;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --divider-w: 0.5px;
 
-  --danger: #d8453c;
+  --badge: #e24b4a;
+  --badge-text: #ffffff;
+  --row-selected: #f5f9fe;
+
+  --danger: #e24b4a;
   --danger-soft: #fdeceb;
-  --success: #1d9a68;
+  --success: #1d9e75;
   --success-soft: #e8f6ef;
-  --warning: #b47210;
+  --warning: #e2a03f;
   --warning-soft: #fdf3e2;
 
-  --bubble-in: #f0f2f5;
-  --bubble-in-text: #16191f;
+  --bubble-in-text: var(--bubble-text);
 
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 10px;
-  --r-xl: 14px;
+  --r-xl: 12px;
   --r-full: 999px;
+  /* Asymmetric bubble corners — the 2px corner IS the tail. */
+  --r-bubble: 12px;
+  --r-tail: 2px;
 
-  --shadow-pop: 0 6px 24px rgba(16, 24, 40, 0.12), 0 1px 2px rgba(16, 24, 40, 0.06);
-  --shadow-menu: 0 8px 28px rgba(16, 24, 40, 0.14);
+  --shadow-pop: 0 6px 24px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-menu: 0 8px 28px rgba(0, 0, 0, 0.14);
 
   --rail-w: 60px;
   --list-w: 340px;
   --bar-h: 60px;
+
+  /* Deterministic per-contact avatar palette. */
+  --av-0: #f0997b;
+  --av-1: #7f77dd;
+  --av-2: #1d9e75;
+  --av-3: #d4537e;
+  --av-4: #378add;
+  --av-5: #e2a03f;
+  --av-6: #5c9ead;
+  --av-7: #b95c89;
 
   --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter,
     Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 [data-theme='dark'] {
-  --brand: #5b8cff;
-  --brand-hover: #7ba3ff;
-  --brand-soft: #1c2740;
-  --brand-contrast: #0b0d12;
+  --accent: #6fa8d6;
+  --accent-hover: #8bbce3;
+  --accent-deep: #a9cdea;
+  --accent-tint: #24384a;
+  --accent-contrast: #0b0d12;
 
-  --bg: #0d1016;
-  --surface: #14181f;
-  --surface-2: #1a1f28;
-  --surface-3: #232935;
+  --chat-bg: #14120e;
+  --chat-dot: #1f1c16;
+  --bubble-in: #22201b;
+  --bubble-out: #24384a;
+  --bubble-text: #f0ede6;
+  --bubble-meta: #9a958a;
+  --bubble-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
 
-  --text: #e7eaf0;
-  --text-2: #9aa4b4;
-  --text-3: #6c7789;
+  --bg: #14120e;
+  --surface: #1b1915;
+  --surface-2: #22201b;
+  --surface-3: #2b2822;
+  --search-bg: #22201b;
 
-  --border: #242a35;
-  --border-strong: #333b49;
+  --text: #f0ede6;
+  --text-2: #9a958a;
+  --text-3: #7d786e;
 
-  --danger: #f26b62;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --badge: #c4453f;
+  --badge-text: #ffffff;
+  --row-selected: #202b36;
+
+  --danger: #e0665f;
   --danger-soft: #2c1a1a;
   --success: #45c08c;
   --success-soft: #14261f;
   --warning: #d99b3c;
   --warning-soft: #2a2114;
 
-  --bubble-in: #232935;
-  --bubble-in-text: #e7eaf0;
+  --bubble-in-text: var(--bubble-text);
 
-  --shadow-pop: 0 6px 24px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-menu: 0 8px 28px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 6px 24px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-menu: 0 8px 28px rgba(0, 0, 0, 0.6);
+
+  /* Slightly desaturated so white initials keep contrast on dark. */
+  --av-0: #c97e63;
+  --av-1: #6a63bd;
+  --av-2: #18855f;
+  --av-3: #b34568;
+  --av-4: #2f74b8;
+  --av-5: #bd8735;
+  --av-6: #4d848f;
+  --av-7: #9c4d73;
 }
 
 /* ------------------------------------------------------------------ *
@@ -530,8 +589,8 @@ button {
   height: 17px;
   padding: 0 4px;
   border-radius: var(--r-full);
-  background: var(--danger);
-  color: #fff;
+  background: var(--badge);
+  color: var(--badge-text);
   font-size: 11.5px;
   font-weight: 700;
   line-height: 1;
@@ -554,15 +613,15 @@ button {
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
-  height: var(--bar-h);
-  padding: 0 16px;
+  min-height: 52px;
+  padding: 14px 16px 10px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  
 }
 
 .topbar-title {
-  font-size: 16.5px;
-  font-weight: 650;
+  font-size: 20px;
+  font-weight: 500;
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -598,8 +657,8 @@ button {
   height: 30px;
   flex-shrink: 0;
   border-radius: var(--r-full);
-  background: var(--brand-soft);
-  color: var(--brand);
+  background: var(--accent-tint);
+  color: var(--accent-deep);
   font-size: 12px;
   font-weight: 700;
 }
@@ -742,7 +801,10 @@ button {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  background: var(--bg);
+  background-color: var(--chat-bg);
+  /* 1px dots on an 18px grid — the only decoration in the thread. */
+  background-image: radial-gradient(var(--chat-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
 }
 
 /* ------------------------------------------------------------------ *
@@ -750,8 +812,8 @@ button {
  * ------------------------------------------------------------------ */
 .search-wrap {
   flex: 0 0 auto;
-  padding: 11px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 0 16px 12px;
+  background: var(--surface);
 }
 
 .search {
@@ -767,16 +829,20 @@ button {
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-3);
+  width: 15px;
+  height: 15px;
   pointer-events: none;
 }
 
 .search .input {
-  height: 36px;
-  padding-left: 34px;
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 36px;
   padding-right: 32px;
-  font-size: 15px;
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  font-size: 13px;
+  border-radius: var(--r-lg);
+  background: var(--search-bg);
   border-color: transparent;
 }
 
@@ -812,42 +878,81 @@ button {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  background: var(--surface);
+}
+
+/* An empty list has no rows to push against, so centre the message in the
+   whole pane instead of letting it sit under the search field. */
+.conv-list:has(> .empty) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .conv-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
   width: 100%;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
   text-align: left;
+  background: var(--surface);
   transition: background 0.1s ease;
 }
+
+/* Divider is inset past the avatar rather than spanning the row. Drawn on a
+   pseudo-element so it can start at the text column exactly. */
+.conv-row::after {
+  content: '';
+  position: absolute;
+  left: 70px; /* 16 padding + 42 avatar + 12 gap */
+  right: 0;
+  bottom: 0;
+  height: var(--divider-w);
+  background: var(--border);
+}
+.conv-row:last-child::after {
+  display: none;
+}
+
 .conv-row:hover {
   background: var(--surface-2);
 }
-/* Selected = subtle wash + a 3px brand accent bar. inset box-shadow draws the
-   bar without a pseudo-element or any layout shift. */
+
 .conv-row.is-active {
-  background: var(--surface-2);
-  box-shadow: inset 3px 0 0 var(--brand);
+  background: var(--row-selected);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+/* The selected row owns its edges — no divider under it. */
+.conv-row.is-active::after {
+  display: none;
 }
 
 .conv-avatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   flex-shrink: 0;
   border-radius: var(--r-full);
-  background: var(--surface-3);
-  color: var(--text-2);
-  font-size: 14px;
-  font-weight: 600;
+  background: var(--av-0);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1;
+  user-select: none;
 }
+
+.conv-avatar[data-color='0'] { background: var(--av-0); }
+.conv-avatar[data-color='1'] { background: var(--av-1); }
+.conv-avatar[data-color='2'] { background: var(--av-2); }
+.conv-avatar[data-color='3'] { background: var(--av-3); }
+.conv-avatar[data-color='4'] { background: var(--av-4); }
+.conv-avatar[data-color='5'] { background: var(--av-5); }
+.conv-avatar[data-color='6'] { background: var(--av-6); }
+.conv-avatar[data-color='7'] { background: var(--av-7); }
 
 .conv-body {
   flex: 1;
@@ -863,8 +968,9 @@ button {
 .conv-name {
   flex: 1;
   min-width: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -872,7 +978,7 @@ button {
 
 .conv-time {
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -880,14 +986,15 @@ button {
 .conv-preview {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-top: 3px;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .conv-snippet {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 400;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -904,31 +1011,59 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 19px;
-  height: 19px;
-  padding: 0 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   flex-shrink: 0;
-  border-radius: var(--r-full);
-  background: var(--danger);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
+  border-radius: 8px;
+  background: var(--badge);
+  color: var(--badge-text);
+  font-size: 10px;
+  font-weight: 500;
   line-height: 1;
 }
 
 .conv-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 13px;
+  margin-top: 2px;
+  font-size: 11px;
   color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.conv-row.is-unread .conv-name,
+/* Unread: the preview darkens and thickens, the stamp turns accent. Weight
+   carries the signal without the whole row shouting. */
 .conv-row.is-unread .conv-snippet {
-  font-weight: 680;
+  font-weight: 500;
   color: var(--text);
+}
+
+.conv-row.is-unread .conv-time {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Floating compose button — mobile only; desktop uses the header "+". */
+.conv-fab {
+  position: absolute;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: var(--shadow-pop);
+  z-index: 30;
+  transition: background 0.12s ease;
+}
+.conv-fab:hover {
+  background: var(--accent-hover);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1006,9 +1141,9 @@ button {
   justify-content: flex-end;
   min-height: 100%;
   width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 24px 20px;
+  /* Full pane, no fixed column. The gutter tracks the pane at 5%, floored at
+     24px so it never crowds, capped at 80px so it never becomes a column. */
+  padding: 24px clamp(24px, 5%, 80px);
 }
 
 .day-sep {
@@ -1026,12 +1161,22 @@ button {
   font-weight: 600;
 }
 
+/* The tail is the RADIUS now — a 2px corner nearest the sender on the first
+   bubble of each run. No pseudo-element, no clip-path. */
+.bubble-in.has-tail {
+  border-radius: var(--r-bubble) var(--r-bubble) var(--r-bubble) var(--r-tail);
+}
+
+.bubble-out.has-tail {
+  border-radius: var(--r-bubble) var(--r-bubble) var(--r-tail) var(--r-bubble);
+}
+
 /* Placeholder bubbles shown while a thread loads, so switching conversations
    never shows an empty pane or the previous thread's content. */
 .bubble-skeleton {
   height: 40px;
   max-width: 65%;
-  border-radius: var(--r-xl);
+  border-radius: var(--r-bubble);
   background: linear-gradient(
     90deg,
     var(--surface-3) 25%,
@@ -1094,22 +1239,22 @@ button {
 .bubble {
   width: fit-content;
   max-width: 65%;
-  padding: 8px 12px;
-  border-radius: var(--r-xl);
+  padding: 6px 12px;
+  border-radius: var(--r-bubble);
+  box-shadow: var(--bubble-shadow);
+  position: relative;
   font-size: 16px;
   line-height: 1.45;
 }
 
 .bubble-in {
   background: var(--bubble-in);
-  color: var(--bubble-in-text);
-  border-bottom-left-radius: var(--r-sm);
+  color: var(--bubble-text);
 }
 
 .bubble-out {
-  background: var(--brand);
-  color: var(--brand-contrast);
-  border-bottom-right-radius: var(--r-sm);
+  background: var(--bubble-out);
+  color: var(--bubble-text);
 }
 
 .bubble-text {
@@ -1135,27 +1280,24 @@ button {
 }
 
 .bubble-out .bubble-meta {
-  color: var(--brand-contrast);
+  color: var(--bubble-meta);
 }
 .bubble-in .bubble-meta {
-  color: var(--text-3);
+  color: var(--bubble-meta);
 }
 
-/* Chips and failed media have no text line to ride on. */
-.bubble-meta-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 2px;
-}
-.bubble-meta-row .bubble-meta {
+/* Inside a chip or the media-unavailable box the stamp sits inline on the
+   existing line rather than claiming a row of its own. */
+.media-doc-meta .bubble-meta,
+.media-error .bubble-meta {
   float: none;
   margin-left: 0;
   padding-top: 0;
 }
 
 .bubble-failed {
-  background: var(--danger);
-  color: #fff;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1186,7 +1328,7 @@ button {
   width: fit-content;
   max-width: 100%;
   padding: 0;
-  border-radius: var(--r-md);
+  border-radius: var(--r-bubble);
   overflow: hidden;
   line-height: 0;
   background: var(--surface-3);
@@ -1201,7 +1343,7 @@ button {
      still shows the whole image. */
   max-height: 360px;
   object-fit: cover;
-  border-radius: var(--r-md);
+  border-radius: var(--r-bubble);
 }
 
 /* Stamp over the image, on a scrim so it stays legible on any photo and in
@@ -1260,7 +1402,7 @@ button {
   min-width: 220px;
   max-width: 300px;
   padding: 8px 10px;
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   text-decoration: none;
   color: inherit;
   background: var(--surface-3);
@@ -1277,10 +1419,10 @@ button {
 /* On a brand-coloured outbound bubble the chip sits on a translucent wash so
    it reads in both themes without a second hardcoded colour. */
 .bubble-out .media-doc {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.05);
 }
 .bubble-out .media-doc:hover {
-  background: rgba(255, 255, 255, 0.24);
+  background: rgba(0, 0, 0, 0.09);
 }
 
 .media-doc-icon {
@@ -1295,8 +1437,8 @@ button {
   color: var(--text-2);
 }
 .bubble-out .media-doc-icon {
-  background: rgba(255, 255, 255, 0.2);
-  color: var(--brand-contrast);
+  background: var(--surface);
+  color: var(--accent-deep);
 }
 
 .media-doc-body {
@@ -1316,6 +1458,10 @@ button {
 }
 
 .media-doc-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 13px;
   opacity: 0.72;
 }
@@ -1329,6 +1475,7 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
+  justify-content: space-between;
   padding: 8px 10px;
   border-radius: var(--r-md);
   background: var(--surface-3);
@@ -1369,7 +1516,7 @@ button {
   height: 40px;
   border-radius: var(--r-full);
   background: rgba(255, 255, 255, 0.14);
-  color: #fff;
+  color: var(--badge-text);
   transition: background 0.12s ease;
 }
 .lightbox-close:hover {
@@ -1401,9 +1548,9 @@ button {
   align-items: flex-end;
   gap: 8px;
   width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 0 20px;
+  /* Identical gutter to .msg-list, so the composer input and the message rows
+     share one vertical axis at every width. */
+  padding: 0 clamp(24px, 5%, 80px);
 }
 
 /* Ghost paperclip, matching the textarea's resting height. */
@@ -1411,9 +1558,9 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   flex-shrink: 0;
   border-radius: var(--r-md);
   color: var(--text-2);
@@ -1435,10 +1582,9 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: calc(100% - 40px);
-  max-width: 720px;
-  margin: 0 auto 8px;
-  padding: 8px 10px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 8px clamp(24px, 5%, 80px);
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -1505,9 +1651,10 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: calc(100% - 40px);
-  max-width: 720px;
-  margin: 0 auto 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding-left: clamp(24px, 5%, 80px);
+  padding-right: clamp(24px, 5%, 80px);
   padding: 8px 10px;
   border-radius: var(--r-md);
   background: var(--danger-soft);
@@ -1519,7 +1666,7 @@ button {
 .reply-input {
   flex: 1;
   min-width: 0;
-  min-height: 40px;
+  min-height: 44px;
   /* 5 rows at 1.45 line-height + vertical padding. */
   max-height: 136px;
   padding: 9px 12px;
@@ -1544,11 +1691,11 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   flex-shrink: 0;
-  border-radius: var(--r-md);
+  border-radius: var(--r-full);
   background: var(--brand);
   color: var(--brand-contrast);
   transition: background 0.12s ease, opacity 0.12s ease;
@@ -1563,9 +1710,9 @@ button {
 
 /* Plain muted text — no kbd/mark/background anywhere in this chain. */
 .reply-hint {
-  width: calc(100% - 40px);
-  max-width: 720px;
-  margin: 6px auto 0;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0 clamp(24px, 5%, 80px);
   font-size: 13px;
   line-height: 1.4;
   text-align: center;
@@ -1799,6 +1946,35 @@ button {
   word-break: break-all;
 }
 
+/* Desktop "+" above the search field; mobile uses .conv-fab instead. */
+.list-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 12px 0;
+  background: var(--surface);
+}
+
+.page-back {
+  align-self: flex-start;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.field-optional {
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+/* Reuses the composer textarea styling but must not inherit its auto-grow. */
+.nm-textarea {
+  min-height: 88px;
+  max-height: 200px;
+  border-radius: var(--r-md);
+}
+
 /* ------------------------------------------------------------------ *
  * Push diagnostics (TEMPORARY — remove with PushDiagnostics.jsx)
  * ------------------------------------------------------------------ */
@@ -1977,38 +2153,17 @@ button {
 
 @media (max-width: 720px) {
   .shell {
-    /* Rail becomes a bottom bar; reserve its height so nothing is overlapped. */
     flex-direction: column;
-    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    /* Nothing reserved at the bottom — the rail is gone on mobile. */
+    padding-bottom: 0;
   }
 
+  /* No bottom navigation on mobile, in any view or role. Team management
+     lives in the account dropdown instead. */
   .rail {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    width: 100%;
-    height: calc(56px + env(safe-area-inset-bottom));
-    flex: 0 0 auto;
-    flex-direction: row;
-    justify-content: space-around;
-    align-items: center;
-    gap: 0;
-    padding: 0 6px env(safe-area-inset-bottom);
-    border-right: none;
-    border-top: 1px solid var(--border);
-  }
-
-  .rail-mark,
-  .rail-spacer {
     display: none;
   }
 
-  .rail-link {
-    width: 46px;
-    height: 46px;
-  }
 
   .main {
     height: 100%;
@@ -2064,6 +2219,14 @@ button {
     padding: 14px 12px;
   }
 
+  .pane-list {
+    position: relative;
+  }
+
+  .conv-fab {
+    display: flex;
+  }
+
   /* Narrow panes need more of the width than the 65% desktop measure. */
   .bubble {
     max-width: 82%;
@@ -2081,12 +2244,20 @@ button {
   .reply-attach,
   .reply-error,
   .reply-hint {
-    width: calc(100% - 24px);
+    width: 100%;
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   /* Too tight for avatars at this width — drop them and their spacers. */
   .msg-avatar,
   .msg-spacer {
+    display: none;
+  }
+
+  /* Inside a thread the thread header is the ONLY chrome — the back arrow
+     is the way out. */
+  .shell[data-mobile-view='thread'] .topbar {
     display: none;
   }
 

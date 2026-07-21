@@ -154,6 +154,9 @@ export const api = {
 
   conversations: (signal) => request('/conversations', { signal }),
 
+  newConversation: (payload) =>
+    request('/conversations/new', { method: 'POST', body: payload }),
+
   messages: (conversationId, signal) =>
     request(`/messages?conversation_id=${encodeURIComponent(conversationId)}`, { signal }),
 

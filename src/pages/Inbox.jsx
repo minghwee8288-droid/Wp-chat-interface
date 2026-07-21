@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, MessagesSquare } from 'lucide-react'
+import { ArrowLeft, MessagesSquare, Plus } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -9,6 +9,7 @@ import ConversationList from '../components/ConversationList.jsx'
 import Thread from '../components/Thread.jsx'
 import ReplyBox from '../components/ReplyBox.jsx'
 import AssignControl from '../components/AssignControl.jsx'
+import NewMessageModal from '../components/NewMessageModal.jsx'
 
 const THREAD_POLL_MS = 4000
 
@@ -25,6 +26,9 @@ export default function Inbox() {
     applyOutbound,
     patchConversation,
     registerOpenHandler,
+    mobileView,
+    setMobileView,
+    refresh,
   } = useInbox()
 
   // Messages are stored WITH the conversation they belong to. Clearing them in
@@ -33,8 +37,7 @@ export default function Inbox() {
   const [thread, setThread] = useState({ conversationId: null, messages: [] })
   const [threadLoading, setThreadLoading] = useState(false)
   const [users, setUsers] = useState([])
-  // On phones only one pane is visible at a time.
-  const [mobileView, setMobileView] = useState('list')
+  const [composing, setComposing] = useState(false)
 
   const openIdRef = useRef(null)
   openIdRef.current = openId
@@ -154,11 +157,25 @@ export default function Inbox() {
   return (
     <div className="inbox" data-view={mobileView}>
       <aside className="pane-list">
+        {/* Desktop affordance; the mobile one is the FAB inside the list. */}
+        <div className="list-actions desktop-only">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="New message"
+            title="New message"
+            onClick={() => setComposing(true)}
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+
         <ConversationList
           conversations={conversations}
           openId={openId}
           onOpen={open}
           loading={loading}
+          onNewMessage={() => setComposing(true)}
         />
         {error ? (
           <div style={{ padding: '10px 12px' }}>
@@ -221,6 +238,18 @@ export default function Inbox() {
           </>
         )}
       </section>
+
+      {composing ? (
+        <NewMessageModal
+          onClose={() => setComposing(false)}
+          onCreated={(conversationId) => {
+            // refresh() picks the new row up on the next poll; opening it now
+            // means the thread is already loading when the sheet closes.
+            refresh()
+            open(conversationId)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
