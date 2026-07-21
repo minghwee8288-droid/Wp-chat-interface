@@ -11,6 +11,7 @@ import ReplyBox from '../components/ReplyBox.jsx'
 import AssignControl from '../components/AssignControl.jsx'
 import NewMessageModal from '../components/NewMessageModal.jsx'
 import ContactAvatar from '../components/ContactAvatar.jsx'
+import { useSwipeBack } from '../lib/useSwipeBack.js'
 
 const THREAD_POLL_MS = 4000
 
@@ -46,6 +47,7 @@ export default function Inbox() {
   // Monotonic request counter: a slow poll must never overwrite the result of
   // a newer one, even within the same conversation.
   const seqRef = useRef(0)
+  const threadPaneRef = useRef(null)
 
   /**
    * Render-time guard. If the stored messages belong to a different
@@ -133,6 +135,12 @@ export default function Inbox() {
     }
   }, [openId, conversation, loading, setOpenId])
 
+  // Edge-swipe right to go back. Only armed on a phone with a thread open —
+  // the hook itself no-ops above 720px.
+  useSwipeBack(threadPaneRef, mobileView === 'thread' && Boolean(conversation), () =>
+    setMobileView('list')
+  )
+
   const send = async (body, media = null) => {
     if (!conversation) return
     try {
@@ -177,6 +185,7 @@ export default function Inbox() {
           onOpen={open}
           loading={loading}
           onNewMessage={() => setComposing(true)}
+          users={users}
         />
         {error ? (
           <div style={{ padding: '10px 12px' }}>
@@ -185,7 +194,7 @@ export default function Inbox() {
         ) : null}
       </aside>
 
-      <section className="pane-thread">
+      <section className="pane-thread" ref={threadPaneRef}>
         {!conversation ? (
           <div className="empty">
             <MessagesSquare size={30} />

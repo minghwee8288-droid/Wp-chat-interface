@@ -1,7 +1,12 @@
 import { useMemo, useState } from 'react'
-import { Search, X, Inbox as InboxIcon, Plus } from 'lucide-react'
-import { displayName, formatNumber, relativeStamp, matchesQuery } from '../lib/format.js'
+import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal } from 'lucide-react'
+import { displayName, formatNumber, relativeStamp, matchesQuery, firstName } from '../lib/format.js'
 import ContactAvatar from './ContactAvatar.jsx'
+import ConversationFilters, {
+  EMPTY_FILTERS,
+  hasActiveFilters,
+  matchesFilters,
+} from './ConversationFilters.jsx'
 
 export default function ConversationList({
   conversations,
@@ -9,13 +14,25 @@ export default function ConversationList({
   onOpen,
   loading,
   onNewMessage,
+  users = [],
 }) {
   const [query, setQuery] = useState('')
+  // Filters live here, not in the URL — they reset on reload by design.
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
 
-  const filtered = useMemo(
+  const searched = useMemo(
     () => conversations.filter((c) => matchesQuery(c, query)),
     [conversations, query]
   )
+
+  const filtered = useMemo(
+    () => searched.filter((c) => matchesFilters(c, filters)),
+    [searched, filters]
+  )
+
+  const filtersActive = hasActiveFilters(filters)
+  // Distinguishes "filters hid everything" from "there is nothing at all".
+  const hiddenByFilters = filtersActive && searched.length > 0 && filtered.length === 0
 
   return (
     <>
@@ -43,20 +60,45 @@ export default function ConversationList({
         </div>
       </div>
 
+      <ConversationFilters users={users} filters={filters} onChange={setFilters} />
+
       <div className="conv-list">
         {filtered.length === 0 ? (
           <div className="empty">
-            <InboxIcon size={26} />
-            {query ? (
-              <div className="empty-title">No conversations match</div>
+            {hiddenByFilters ? (
+              <>
+                <SlidersHorizontal size={26} />
+                <div className="empty-title">No conversations match these filters</div>
+                <div className="empty-sub">
+                  {filters.unassigned && filters.agentIds.length
+                    ? 'Unassigned and a specific agent cannot both be true.'
+                    : 'Try widening or clearing the filters.'}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setFilters(EMPTY_FILTERS)}
+                >
+                  Clear filters
+                </button>
+              </>
             ) : (
               <>
-                <div className="empty-title">{loading ? 'Loading…' : 'No conversations yet'}</div>
-                {!loading ? (
-                  <div className="empty-sub">
-                    Incoming WhatsApp messages will appear here.
-                  </div>
-                ) : null}
+                <InboxIcon size={26} />
+                {query ? (
+                  <div className="empty-title">No conversations match</div>
+                ) : (
+                  <>
+                    <div className="empty-title">
+                      {loading ? 'Loading…' : 'No conversations yet'}
+                    </div>
+                    {!loading ? (
+                      <div className="empty-sub">
+                        Incoming WhatsApp messages will appear here.
+                      </div>
+                    ) : null}
+                  </>
+                )}
               </>
             )}
           </div>
@@ -70,6 +112,7 @@ export default function ConversationList({
             // A named contact keeps its number on line 3; an unnamed one has
             // already been promoted to the name, so showing it twice is noise.
             const hasRealName = Boolean(conversation.customer_name?.trim())
+            const assignee = firstName(conversation.assigned_to)
 
             return (
               <button
@@ -102,11 +145,17 @@ export default function ConversationList({
                     ) : null}
                   </div>
 
-                  {hasRealName ? (
-                    <div className="conv-meta">
-                      {formatNumber(conversation.customer_number)}
-                    </div>
-                  ) : null}
+                  {/* Line 3 always renders so the row height is constant, and
+                      it is where the assignee lives — the badge never shares a
+                      line with it, so neither can displace the other. */}
+                  <div className="conv-meta">
+                    <span className="conv-number">
+                      {hasRealName ? formatNumber(conversation.customer_number) : ''}
+                    </span>
+                    <span className={`conv-assignee${assignee ? '' : ' is-unassigned'}`}>
+                      {assignee || 'Unassigned'}
+                    </span>
+                  </div>
                 </div>
               </button>
             )

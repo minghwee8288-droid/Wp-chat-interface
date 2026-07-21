@@ -1026,10 +1026,176 @@ button {
 }
 
 .conv-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   margin-top: 2px;
   font-size: 11px;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+
+.conv-number {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Assignee sits under the timestamp on line 3. Deliberately NOT on line 2
+   with the unread badge: on separate lines neither can ever displace the
+   other, so the row geometry is identical with or without a badge. */
+.conv-assignee {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+/* An absence, not a name — lighter than an assigned agent so the two read
+   differently at a glance. */
+.conv-assignee.is-unassigned {
+  color: var(--text-3);
+  opacity: 0.75;
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------------ *
+ * Filter row
+ * ------------------------------------------------------------------ */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 0 16px 10px;
+  background: var(--surface);
+  /* Scrolls sideways rather than wrapping to a second line, which would push
+     the list too far down on a phone. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.filter-row::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 11px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.filter-chip:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.filter-chip.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+.filter-chip.is-on:hover {
+  background: var(--accent-hover);
+  color: var(--accent-contrast);
+}
+
+.filter-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.filter-clear-agents {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.filter-clear-agents:hover {
+  background: var(--border-strong);
+  color: var(--text);
+}
+
+.filter-menu {
+  /* Portalled to <body> and fixed-positioned by JS. It cannot be absolutely
+     positioned inside .filter-row: that row is the mobile horizontal scroller,
+     and its overflow clips descendants on both axes. Coordinates come from the
+     chip's bounding rect. */
+  position: fixed;
+  /* Above the toast stack (200); the lightbox (300) still wins. */
+  z-index: 250;
+  min-width: 190px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+
+.filter-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  text-align: left;
+  color: var(--text);
+}
+.filter-menu-item:hover {
+  background: var(--surface-2);
+}
+
+.filter-menu-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.filter-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  color: var(--accent-contrast);
+}
+.filter-check.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.filter-menu-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1260,6 +1426,11 @@ button {
 }
 
 .bubble-text {
+  /* One step under the 400 it inherited. Renders as a true 350 wherever the
+     system UI font is variable (SF Pro, Segoe UI Variable); elsewhere CSS
+     font-matching falls back to the nearest lighter face. Body text only —
+     the list, header and composer are untouched. */
+  font-weight: 350;
   white-space: pre-wrap;
   word-break: break-word;
 }

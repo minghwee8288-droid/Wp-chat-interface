@@ -97,6 +97,13 @@ export const dayKey = (value) => {
   return Number.isNaN(date.getTime()) ? '' : date.toDateString()
 }
 
+/** "Priya Sharma" -> "Priya". Rows only have room for one name. */
+export function firstName(name) {
+  const trimmed = String(name || '').trim()
+  if (!trimmed) return ''
+  return trimmed.split(/\s+/)[0]
+}
+
 /** 4096 -> "4.0 KB". Documents show size under the filename. */
 export function formatBytes(bytes) {
   const n = Number(bytes)
