@@ -2583,6 +2583,145 @@ button {
 }
 
 /* ------------------------------------------------------------------ *
+ * Search results
+ *
+ * Result rows reuse .conv-row for its avatar column, hover, height and active
+ * state, then override only what differs: results are two lines rather than
+ * three, and a message hit needs a snippet that can wrap to two lines instead
+ * of a single truncated preview.
+ * ------------------------------------------------------------------ */
+.search-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 16px 6px;
+  background: var(--surface);
+  border-bottom: var(--divider-w) solid var(--border);
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Two lines rather than three, so a little more vertical padding keeps the
+   row from reading as cramped next to the 42px avatar. */
+.search-row {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.search-sub {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.search-snippet {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  /* Two lines of context, then ellipsis. The server already trims to roughly
+     this much, so the clamp is a guard rather than the usual case. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.search-sender {
+  font-weight: 600;
+  color: var(--text);
+}
+/* Same eight-hue agent palette as the conversation list, already tuned for
+   AA contrast as small text on both themes. */
+.search-sender[data-agent='0'] { color: var(--agent-0); }
+.search-sender[data-agent='1'] { color: var(--agent-1); }
+.search-sender[data-agent='2'] { color: var(--agent-2); }
+.search-sender[data-agent='3'] { color: var(--agent-3); }
+.search-sender[data-agent='4'] { color: var(--agent-4); }
+.search-sender[data-agent='5'] { color: var(--agent-5); }
+.search-sender[data-agent='6'] { color: var(--agent-6); }
+.search-sender[data-agent='7'] { color: var(--agent-7); }
+.search-sender.is-you {
+  color: var(--text-3);
+}
+
+.search-mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--accent-tint);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.search-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 16px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  text-align: center;
+}
+.search-status.is-error {
+  color: var(--danger);
+}
+.search-status .spinner {
+  width: 13px;
+  height: 13px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Thread paging
+ * ------------------------------------------------------------------ */
+.page-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  /* flex-shrink:0 matters: .msg-list packs to flex-end, and without it this
+     would be squeezed to nothing on a thread that overflows. */
+  flex-shrink: 0;
+  padding: 10px 0 14px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.page-status .spinner {
+  width: 13px;
+  height: 13px;
+}
+
+/* A brief cue that this is the message you searched for, not a marker —
+   it is gone in about two seconds and leaves nothing behind. */
+.msg-flash .bubble {
+  animation: msg-flash 2.2s ease-out forwards;
+}
+
+@keyframes msg-flash {
+  0%,
+  55% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    box-shadow: var(--bubble-shadow);
+  }
+}
+
+/* Honour a reduced-motion preference by holding the highlight steady for the
+   same duration instead of animating it away. */
+@media (prefers-reduced-motion: reduce) {
+  .msg-flash .bubble {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Mobile — single-column master/detail, bottom nav bar
  * ------------------------------------------------------------------ */
 .back-btn {

@@ -13,8 +13,16 @@ import NewMessageModal from '../components/NewMessageModal.jsx'
 import ContactAvatar from '../components/ContactAvatar.jsx'
 import GroupMembers from '../components/GroupMembers.jsx'
 import { useSwipeBack } from '../lib/useSwipeBack.js'
+import { mergeMessages } from '../lib/thread.js'
 
 const THREAD_POLL_MS = 4000
+
+const EMPTY_THREAD = {
+  conversationId: null,
+  messages: [],
+  hasMoreBefore: false,
+  hasMoreAfter: false,
+}
 
 export default function Inbox() {
   const { isAdmin } = useAuth()
@@ -37,8 +45,12 @@ export default function Inbox() {
   // Messages are stored WITH the conversation they belong to. Clearing them in
   // an effect is not enough: effects run after paint, so a switch from A to B
   // would still render one frame of A's messages under B's header.
-  const [thread, setThread] = useState({ conversationId: null, messages: [] })
+  const [thread, setThread] = useState(EMPTY_THREAD)
   const [threadLoading, setThreadLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(null)
+  // The message a search result asked us to jump to. Null for a normal open,
+  // which is what keeps the default path byte-for-byte the behaviour it was.
+  const [anchor, setAnchor] = useState(null)
   const [users, setUsers] = useState([])
   const [composing, setComposing] = useState(false)
   const [showMembers, setShowMembers] = useState(false)
@@ -51,16 +63,29 @@ export default function Inbox() {
   const seqRef = useRef(0)
   const threadPaneRef = useRef(null)
 
+  // Read by the poll and by the paging callbacks without making either of them
+  // depend on thread state — the polling effect must not re-subscribe every
+  // time a page loads.
+  const threadRef = useRef(thread)
+  threadRef.current = thread
+  const loadingMoreRef = useRef(null)
+  loadingMoreRef.current = loadingMore
+
   /**
    * Render-time guard. If the stored messages belong to a different
    * conversation than the one selected, they simply do not exist as far as
    * this render is concerned — no stale frame is possible.
    */
-  const messages = String(thread.conversationId) === String(openId) ? thread.messages : []
+  // The paging flags are guarded by the same test: a stale `hasMoreBefore`
+  // would otherwise render "scroll up for earlier messages" over the loading
+  // skeleton of a thread that has not arrived yet.
+  const threadIsCurrent = String(thread.conversationId) === String(openId)
+  const messages = threadIsCurrent ? thread.messages : []
 
   const open = useCallback(
-    (conversationId) => {
+    (conversationId, anchorMessageId = null) => {
       setOpenId(conversationId)
+      setAnchor(anchorMessageId ?? null)
       // Optimistic — the GET /messages side effect clears it server-side.
       clearUnread(conversationId)
       setMobileView('thread')
@@ -85,30 +110,46 @@ export default function Inbox() {
     return () => controller.abort()
   }, [])
 
-  // Poll the open thread every ~4s.
+  // Load and then poll the open thread every ~4s.
+  //
+  // Re-runs when the anchor changes as well as the conversation, because
+  // jumping to a different message is a different window of the same thread.
   useEffect(() => {
     if (!openId) {
-      setThread({ conversationId: null, messages: [] })
+      setThread(EMPTY_THREAD)
       setThreadLoading(false)
+      setLoadingMore(null)
       return undefined
     }
 
     const controller = new AbortController()
     let cancelled = false
     setThreadLoading(true)
+    setLoadingMore(null)
 
-    const load = async () => {
+    /** Guards shared by every request in this effect, cheapest first. */
+    const stale = (seq) =>
+      cancelled ||
+      // ...the user left this thread while the request was in flight,
+      String(openIdRef.current) !== String(openId) ||
+      // ...or a newer request has already answered and this one is obsolete.
+      seq !== seqRef.current
+
+    const initial = async () => {
       const seq = ++seqRef.current
       try {
-        const data = await api.messages(openId, controller.signal)
-        // Three independent guards, cheapest first:
-        if (cancelled) return
-        // ...the user left this thread while the request was in flight,
-        if (String(openIdRef.current) !== String(openId)) return
-        // ...or a newer poll has already answered and this one is stale.
-        if (seq !== seqRef.current) return
+        const data = await api.messages(openId, {
+          anchorId: anchor ?? undefined,
+          signal: controller.signal,
+        })
+        if (stale(seq)) return
 
-        setThread({ conversationId: openId, messages: data.messages || [] })
+        setThread({
+          conversationId: openId,
+          messages: data.messages || [],
+          hasMoreBefore: Boolean(data.has_more_before),
+          hasMoreAfter: Boolean(data.has_more_after),
+        })
       } catch (err) {
         if (cancelled || err.name === 'AbortError' || err.status === 401) return
         toast.error('Could not load messages', err.message)
@@ -117,15 +158,95 @@ export default function Inbox() {
       }
     }
 
-    load()
-    const interval = setInterval(load, THREAD_POLL_MS)
+    const poll = async () => {
+      // While the reader is somewhere in the middle of history there is no
+      // live edge to poll towards, and appending would be wrong. The poll
+      // resumes by itself the moment they scroll down far enough for
+      // has_more_after to clear.
+      if (threadRef.current.hasMoreAfter) return
+      // A page request is already in flight; let it settle first.
+      if (loadingMoreRef.current) return
+
+      const seq = ++seqRef.current
+      try {
+        const data = await api.messages(openId, { signal: controller.signal })
+        if (stale(seq)) return
+
+        setThread((current) =>
+          String(current.conversationId) !== String(openId)
+            ? current
+            : {
+                ...current,
+                messages: mergeMessages(current.messages, data.messages || []),
+                // has_more_before describes the TAIL page, not the window the
+                // reader has built by scrolling up, so it must not overwrite
+                // what is already known about the top of that window.
+                hasMoreAfter: false,
+              }
+        )
+      } catch (err) {
+        if (cancelled || err.name === 'AbortError' || err.status === 401) return
+        toast.error('Could not load messages', err.message)
+      }
+    }
+
+    initial()
+    const interval = setInterval(poll, THREAD_POLL_MS)
 
     return () => {
       cancelled = true
       clearInterval(interval)
       controller.abort()
     }
-  }, [openId, toast])
+  }, [openId, anchor, toast])
+
+  /** Load one page in either direction from the edge of the loaded window. */
+  const loadPage = useCallback(
+    async (direction) => {
+      const current = threadRef.current
+      if (loadingMoreRef.current || !current.messages.length) return
+      if (direction === 'before' ? !current.hasMoreBefore : !current.hasMoreAfter) return
+
+      const conversationId = current.conversationId
+      const edge =
+        direction === 'before'
+          ? current.messages[0]
+          : current.messages[current.messages.length - 1]
+
+      // Set synchronously via the ref too, so two scroll events in the same
+      // frame cannot both get through the guard above.
+      loadingMoreRef.current = direction
+      setLoadingMore(direction)
+
+      try {
+        const data = await api.messages(conversationId, {
+          [direction === 'before' ? 'beforeId' : 'afterId']: edge.id,
+        })
+        const rows = data.messages || []
+
+        setThread((state) => {
+          if (String(state.conversationId) !== String(conversationId)) return state
+          return {
+            ...state,
+            messages: mergeMessages(state.messages, rows),
+            ...(direction === 'before'
+              ? { hasMoreBefore: Boolean(data.has_more_before) }
+              : { hasMoreAfter: Boolean(data.has_more_after) }),
+          }
+        })
+      } catch (err) {
+        if (err.name === 'AbortError' || err.status === 401) return
+        toast.error('Could not load more messages', err.message)
+      } finally {
+        loadingMoreRef.current = null
+        setLoadingMore(null)
+      }
+    },
+    [toast]
+  )
+
+  const loadOlder = useCallback(() => loadPage('before'), [loadPage])
+  const loadNewer = useCallback(() => loadPage('after'), [loadPage])
 
   const conversation = conversations.find((c) => String(c.id) === String(openId)) || null
 
@@ -147,12 +268,21 @@ export default function Inbox() {
     if (!conversation) return
     try {
       const data = await api.send(conversation.id, body, media)
-      // Only append if that conversation is still the one on screen.
-      setThread((current) =>
-        String(current.conversationId) === String(conversation.id)
-          ? { ...current, messages: [...current.messages, data.message] }
-          : current
-      )
+
+      if (threadRef.current.hasMoreAfter) {
+        // Sending while reading history would drop the new message below the
+        // "scroll down for newer messages" marker, with a gap in between.
+        // Clearing the anchor reloads the tail, which is where the reader now
+        // wants to be anyway.
+        setAnchor(null)
+      } else {
+        // Only append if that conversation is still the one on screen.
+        setThread((current) =>
+          String(current.conversationId) === String(conversation.id)
+            ? { ...current, messages: [...current.messages, data.message] }
+            : current
+        )
+      }
       applyOutbound(conversation.id, body || (media ? mediaLabel(media.media_type) : ''))
 
       if (data.message.status === 'send_failed') {
@@ -261,6 +391,12 @@ export default function Inbox() {
               messages={messages}
               loading={threadLoading}
               conversation={conversation}
+              hasMoreBefore={threadIsCurrent && thread.hasMoreBefore}
+              hasMoreAfter={threadIsCurrent && thread.hasMoreAfter}
+              loadingMore={loadingMore}
+              onLoadOlder={loadOlder}
+              onLoadNewer={loadNewer}
+              anchorMessageId={anchor}
             />
 
             <ReplyBox

@@ -22,25 +22,105 @@ const runKey = (message) =>
     ? `in:${message.sender_number || ''}`
     : `out:${message.sent_by || ''}`
 
-export default function Thread({ messages, loading, conversation }) {
+/** Distance from either end at which the next page starts loading. */
+const LOAD_THRESHOLD_PX = 300
+
+/** How long a jumped-to message stays highlighted. Matches the CSS animation. */
+const FLASH_MS = 2200
+
+export default function Thread({
+  messages,
+  loading,
+  conversation,
+  hasMoreBefore = false,
+  hasMoreAfter = false,
+  loadingMore = null,
+  onLoadOlder,
+  onLoadNewer,
+  anchorMessageId = null,
+}) {
   const isGroup = Boolean(conversation?.is_group)
   const [lightbox, setLightbox] = useState(null)
+  const [flashId, setFlashId] = useState(null)
   const scrollRef = useRef(null)
   const lastIdRef = useRef(null)
   const pinnedRef = useRef(true)
 
-  // Only auto-scroll when the reader is already at the bottom, so polling
-  // doesn't yank them out of older history they're reading.
+  // Set just before an older page is requested; consumed once by the layout
+  // effect below to keep the reader's viewport still while content is
+  // inserted ABOVE them.
+  const prependRef = useRef(null)
+
+  // The anchor we have not yet scrolled to. Held in a ref rather than compared
+  // in the effect body because the message only exists in the DOM once the
+  // window that contains it has rendered.
+  const pendingAnchorRef = useRef(null)
+
   const onScroll = () => {
     const el = scrollRef.current
     if (!el) return
-    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 90
+
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+
+    // "Pinned" now requires being at the live edge as well as at the bottom of
+    // the loaded window. Without the hasMoreAfter test, opening an old search
+    // result whose window happens to be short would look pinned, and the next
+    // poll would scroll the reader away from the message they jumped to.
+    pinnedRef.current = !hasMoreAfter && fromBottom < 90
+
+    if (loadingMore) return
+
+    if (hasMoreBefore && el.scrollTop < LOAD_THRESHOLD_PX && onLoadOlder) {
+      prependRef.current = { height: el.scrollHeight, top: el.scrollTop }
+      onLoadOlder()
+    } else if (hasMoreAfter && fromBottom < LOAD_THRESHOLD_PX && onLoadNewer) {
+      onLoadNewer()
+    }
   }
+
+  // A new anchor is a fresh jump request, even if it is in the window already.
+  useEffect(() => {
+    pendingAnchorRef.current = anchorMessageId
+    // Clear any previous flash immediately so two jumps in a row can't leave
+    // two messages lit at once.
+    setFlashId(null)
+  }, [anchorMessageId])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el || !messages.length) return
 
+    // 1. Older page just landed: hold the viewport still. Must come first —
+    //    it is the only case where scrollTop must NOT move.
+    const prepend = prependRef.current
+    if (prepend) {
+      prependRef.current = null
+      el.scrollTop = el.scrollHeight - prepend.height + prepend.top
+      lastIdRef.current = messages[messages.length - 1].id
+      return
+    }
+
+    // 2. A jump target is present in the DOM: centre it.
+    const anchor = pendingAnchorRef.current
+    if (anchor != null) {
+      const node = el.querySelector(`[data-message-id="${anchor}"]`)
+      if (node) {
+        pendingAnchorRef.current = null
+        // Centred rather than scrollIntoView's default, so the messages either
+        // side of the hit are visible — the context is the reason for jumping.
+        const target = node.offsetTop - el.clientHeight / 2 + node.offsetHeight / 2
+        el.scrollTop = Math.max(0, target)
+        lastIdRef.current = messages[messages.length - 1].id
+        setFlashId(anchor)
+        return
+      }
+      // Not rendered yet — leave it pending and fall through, so a normal
+      // bottom-anchor does not fight the jump on the next render.
+      return
+    }
+
+    // 3. Ordinary behaviour, unchanged: stick to the bottom on first paint and
+    //    on new messages, but only if the reader was already there.
     const newestId = messages[messages.length - 1].id
     const changed = newestId !== lastIdRef.current
     const firstRender = lastIdRef.current === null
@@ -51,11 +131,19 @@ export default function Thread({ messages, loading, conversation }) {
     }
   }, [messages])
 
+  // The flash is a brief cue, not a marker — it clears itself.
+  useEffect(() => {
+    if (flashId == null) return undefined
+    const timer = setTimeout(() => setFlashId(null), FLASH_MS)
+    return () => clearTimeout(timer)
+  }, [flashId])
+
   // Reset the pin whenever we switch to a different thread.
   useEffect(() => {
     pinnedRef.current = true
     lastIdRef.current = null
-  }, [messages[0]?.conversation_id])
+    prependRef.current = null
+  }, [conversation?.id])
 
   // Shown while a thread loads. Because Inbox only hands over messages that
   // belong to the selected conversation, this can never be masked by stale
@@ -100,6 +188,22 @@ export default function Thread({ messages, loading, conversation }) {
   return (
     <div className="thread-scroll" ref={scrollRef} onScroll={onScroll}>
       <div className="msg-list">
+        {/* Sits inside .msg-list so it participates in the same flex-end
+            packing — an absolutely positioned spinner would overlap the first
+            bubble on a short thread. */}
+        {hasMoreBefore ? (
+          <div className="page-status" role="status">
+            {loadingMore === 'before' ? (
+              <>
+                <span className="spinner" aria-hidden="true" />
+                Loading earlier messages…
+              </>
+            ) : (
+              'Scroll up for earlier messages'
+            )}
+          </div>
+        ) : null}
+
         {messages.map((message, index) => {
           const isOut = message.direction === 'outbound'
           const failed = message.status === 'send_failed'
@@ -146,7 +250,11 @@ export default function Thread({ messages, loading, conversation }) {
           )
 
           return (
-            <div key={message.id}>
+            <div
+              key={message.id}
+              data-message-id={message.id}
+              className={message.id === flashId ? 'msg-flash' : undefined}
+            >
               {showDay ? (
                 <div className="day-sep">
                   <span>{dayLabel(message.created_at)}</span>
@@ -204,6 +312,21 @@ export default function Thread({ messages, loading, conversation }) {
             </div>
           )
         })}
+
+        {/* Only ever visible after a jump into history. Once this clears, the
+            window has reached the newest message and polling resumes. */}
+        {hasMoreAfter ? (
+          <div className="page-status" role="status">
+            {loadingMore === 'after' ? (
+              <>
+                <span className="spinner" aria-hidden="true" />
+                Loading newer messages…
+              </>
+            ) : (
+              'Scroll down for newer messages'
+            )}
+          </div>
+        ) : null}
       </div>
 
       <Lightbox image={lightbox} onClose={() => setLightbox(null)} />

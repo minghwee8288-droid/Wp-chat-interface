@@ -14,6 +14,8 @@ import ConversationFilters, {
   hasActiveFilters,
   matchesFilters,
 } from './ConversationFilters.jsx'
+import SearchResults from './SearchResults.jsx'
+import { useMessageSearch } from '../lib/useMessageSearch.js'
 
 export default function ConversationList({
   conversations,
@@ -27,10 +29,19 @@ export default function ConversationList({
   // Filters live here, not in the URL — they reset on reload by design.
   const [filters, setFilters] = useState(EMPTY_FILTERS)
 
+  // Name and number matching stays client-side: every conversation the caller
+  // may see is already loaded, so this is instant and needs no round trip.
+  // Only message BODIES require the database.
   const searched = useMemo(
     () => conversations.filter((c) => matchesQuery(c, query)),
     [conversations, query]
   )
+
+  const search = useMessageSearch(query)
+  // Results mode is keyed on the typed query, not on the search status, so the
+  // list switches over on the first keystroke rather than when a request
+  // returns.
+  const searching = query.trim().length > 0
 
   const filtered = useMemo(
     () => searched.filter((c) => matchesFilters(c, filters)),
@@ -49,8 +60,8 @@ export default function ConversationList({
           <input
             className="input"
             type="search"
-            placeholder="Search name or number"
-            aria-label="Search conversations"
+            placeholder="Search messages, names, numbers"
+            aria-label="Search messages and conversations"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -67,8 +78,22 @@ export default function ConversationList({
         </div>
       </div>
 
-      <ConversationFilters users={users} filters={filters} onChange={setFilters} />
+      {/* Filters describe conversations; a results list also contains message
+          rows they cannot express. Rather than leave a control on screen that
+          silently stops applying, it is withdrawn for the duration. */}
+      {searching ? null : (
+        <ConversationFilters users={users} filters={filters} onChange={setFilters} />
+      )}
 
+      {searching ? (
+        <SearchResults
+          query={query}
+          nameMatches={searched}
+          search={search}
+          openId={openId}
+          onOpen={onOpen}
+        />
+      ) : (
       <div className="conv-list">
         {filtered.length === 0 ? (
           <div className="empty">
@@ -91,21 +116,18 @@ export default function ConversationList({
               </>
             ) : (
               <>
+                {/* Only reachable with an empty field — a non-empty one is
+                    handled by SearchResults, which has its own distinct
+                    "no matches" state. */}
                 <InboxIcon size={26} />
-                {query ? (
-                  <div className="empty-title">No conversations match</div>
-                ) : (
-                  <>
-                    <div className="empty-title">
-                      {loading ? 'Loading…' : 'No conversations yet'}
-                    </div>
-                    {!loading ? (
-                      <div className="empty-sub">
-                        Incoming WhatsApp messages will appear here.
-                      </div>
-                    ) : null}
-                  </>
-                )}
+                <div className="empty-title">
+                  {loading ? 'Loading…' : 'No conversations yet'}
+                </div>
+                {!loading ? (
+                  <div className="empty-sub">
+                    Incoming WhatsApp messages will appear here.
+                  </div>
+                ) : null}
               </>
             )}
           </div>
@@ -188,6 +210,7 @@ export default function ConversationList({
           })
         )}
       </div>
+      )}
 
       {/* Mobile-only floating action; desktop uses the "+" in the list header. */}
       <button

@@ -157,8 +157,30 @@ export const api = {
   newConversation: (payload) =>
     request('/conversations/new', { method: 'POST', body: payload }),
 
-  messages: (conversationId, signal) =>
-    request(`/messages?conversation_id=${encodeURIComponent(conversationId)}`, { signal }),
+  /**
+   * One page of a thread.
+   *
+   * With no anchorId/beforeId/afterId this is the newest page and behaves as
+   * the endpoint always has. The three cursor options are mutually exclusive;
+   * the server rejects any combination rather than silently picking one.
+   */
+  messages: (conversationId, { anchorId, beforeId, afterId, signal } = {}) => {
+    const params = new URLSearchParams({ conversation_id: String(conversationId) })
+    if (anchorId != null) params.set('anchor_id', String(anchorId))
+    else if (beforeId != null) params.set('before_id', String(beforeId))
+    else if (afterId != null) params.set('after_id', String(afterId))
+    return request(`/messages?${params}`, { signal })
+  },
+
+  /** Message-body search across every conversation the caller may see. */
+  search: (query, { cursor, signal } = {}) => {
+    const params = new URLSearchParams({ q: query })
+    if (cursor) {
+      params.set('cursor_at', cursor.at)
+      params.set('cursor_id', String(cursor.id))
+    }
+    return request(`/search?${params}`, { signal })
+  },
 
   send: (conversationId, body, media = null) =>
     request('/send', {
