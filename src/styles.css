@@ -2677,6 +2677,95 @@ button {
 }
 
 /* ------------------------------------------------------------------ *
+ * In-thread search
+ * ------------------------------------------------------------------ */
+
+/* On desktop the bar is a second row under the header, so the conversation
+   being searched stays named. Mobile overrides this below. */
+.thread-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.thread-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* min-width:0 is what lets the field give up space to the count and the
+     chevrons instead of pushing them out of the bar. */
+  flex: 1;
+  min-width: 0;
+}
+
+.thread-search-field .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.thread-search-field .input {
+  height: auto;
+  padding: 7px 12px 7px 34px;
+  font-size: 13.5px;
+  border-radius: var(--r-lg);
+  background: var(--search-bg);
+  border-color: transparent;
+}
+.thread-search-field .input:focus {
+  background: var(--surface);
+  border-color: var(--brand);
+}
+
+.thread-search-count {
+  flex: 0 0 auto;
+  /* Tabular figures so the bar does not twitch sideways as the index steps
+     from 9 to 10. */
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  /* Wide enough for "12 of 200+" so the chevrons hold still while typing. */
+  min-width: 68px;
+  text-align: right;
+}
+.thread-search-count.is-empty {
+  color: var(--danger);
+}
+
+.thread-search-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.thread-search-nav .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Standing highlight on every match in the loaded window. Deliberately
+   quieter than .search-mark in the results list — it appears many times at
+   once inside a bubble, where a strong fill would out-shout the text. The
+   CURRENT match is distinguished by the flash ring, not by this. */
+.msg-match {
+  border-radius: 2px;
+  background: var(--warning-soft);
+  /* Inherit, so a highlight inside an outbound bubble keeps that bubble's
+     text colour rather than reverting to the UA default. */
+  color: inherit;
+  box-shadow: 0 0 0 1px var(--warning);
+}
+
+/* ------------------------------------------------------------------ *
  * Thread paging
  * ------------------------------------------------------------------ */
 .page-status {
@@ -2801,6 +2890,36 @@ button {
     height: 56px;
     padding: 0 11px;
     gap: 8px;
+  }
+
+  /* The search button makes this a FIVE-control header, and at 390px the
+     arithmetic is fixed: 390 - 22 padding - 34 back - 36 avatar - 42 search
+     - 116 assign - 32 gaps leaves the name 100px in the worst case (long
+     group name AND a long assignee). Two things were tried and rejected:
+     tightening the gap to 6px, which cramps every mobile header to buy 8px
+     in only the crowded case, and shrinking this button below the 42px tap
+     target every other icon at this breakpoint holds to. This header is now
+     full — a sixth control would have to collapse something into a menu. */
+
+  /* 390px cannot hold a name, an assign control and a find bar at once, so
+     the bar REPLACES the header rather than stacking under it. The header
+     collapses to nothing — height included — and the bar takes its metrics,
+     so the thread below does not shift by a single pixel. */
+  .thread-head.is-searching {
+    display: none;
+  }
+
+  .thread-search {
+    height: 56px;
+    padding: 0 11px;
+    gap: 6px;
+  }
+
+  /* Reclaims the ~30px the desktop reservation costs; on a phone the count is
+     next to the chevrons the thumb is already aiming at. */
+  .thread-search-count {
+    min-width: 0;
+    font-size: 12px;
   }
 
   .msg-list {
@@ -2968,5 +3087,446 @@ button {
 @media (max-width: 380px) {
   .rail-link {
     width: 42px;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Contact / group info panel + shared media
+ *
+ * Desktop: a right-hand drawer over the app. Mobile (<=720px): full screen
+ * with its own back control — the header is at capacity at 390px, so the entry
+ * point is tapping the existing name, never a new header control.
+ * ------------------------------------------------------------------ */
+.contact-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 32vw);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+}
+
+.contact-panel-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.contact-panel-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* The back arrow is the mobile affordance; the X is the desktop one. Each is
+   hidden where the other reads more naturally. */
+.contact-panel-back {
+  display: none;
+}
+
+.contact-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.contact-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 20px 18px;
+  text-align: center;
+}
+.contact-hero-avatar {
+  margin-bottom: 4px;
+}
+.contact-hero-name {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.contact-hero-sub {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.contact-hero-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.contact-section {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+.contact-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 0 4px;
+}
+.contact-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.contact-section-note {
+  font-size: 12px;
+  color: var(--text-3);
+  padding-bottom: 8px;
+}
+
+.contact-loading {
+  display: flex;
+  justify-content: center;
+  padding: 28px 0;
+  color: var(--text-3);
+}
+.contact-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 20px;
+  color: var(--text-3);
+  font-size: 13.5px;
+  text-align: center;
+}
+.contact-empty svg {
+  color: var(--text-3);
+  opacity: 0.7;
+}
+.contact-empty-inline {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.contact-more {
+  margin: 14px auto 4px;
+  display: flex;
+}
+
+/* --- tabs --- */
+.contact-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.contact-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.contact-tab:hover {
+  color: var(--text);
+}
+.contact-tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.contact-tab-body {
+  padding: 12px 16px 24px;
+}
+
+/* --- media grid --- */
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.media-tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.media-tile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.media-tile-skeleton {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 25%,
+    var(--surface-2) 37%,
+    var(--surface-3) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton 1.3s ease-in-out infinite;
+}
+.media-tile-badge {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+
+/* --- docs list --- */
+.doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: var(--r-md);
+}
+.doc-row:hover {
+  background: var(--surface-2);
+}
+.doc-row[aria-disabled='true'] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.doc-row-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-md);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.doc-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.doc-row-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-row-meta {
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-row-dl {
+  flex: 0 0 auto;
+  color: var(--text-3);
+}
+
+/* --- links list --- */
+.link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.link-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.link-row:last-child {
+  border-bottom: none;
+}
+.link-row-url {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--accent);
+  min-width: 0;
+}
+.link-row-url svg {
+  flex: 0 0 auto;
+}
+.link-row-href {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-row-context {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.link-row-text {
+  font-size: 12.5px;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.link-row-context:hover .link-row-text {
+  color: var(--text);
+}
+.link-row-date {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+@media (max-width: 720px) {
+  .contact-panel {
+    width: 100%;
+    border-left: none;
+    box-shadow: none;
+  }
+  .contact-panel-back {
+    display: inline-flex;
+  }
+  /* Back is the primary on mobile; the redundant X is dropped. */
+  .contact-panel-close {
+    display: none;
+  }
+  .media-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Sync (admin) page
+ * ------------------------------------------------------------------ */
+.sync-lede {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.sync-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.sync-mode-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  font-size: 13.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.sync-mode-opt.is-on {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-tint);
+}
+.sync-mode-opt input {
+  accent-color: var(--accent);
+}
+
+.sync-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.sync-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  text-align: center;
+}
+.sync-stat-num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sync-stat-label {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.sync-errors {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--warning-soft);
+}
+.sync-errors-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.sync-errors-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sync-errors-list code {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.sync-done-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .sync-stats {
+    grid-template-columns: 1fr;
   }
 }

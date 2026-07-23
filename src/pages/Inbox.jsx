@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, MessagesSquare, Plus, Users } from 'lucide-react'
+import { ArrowLeft, MessagesSquare, Plus, Search, Users } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
-import { useAuth } from '../context/AuthContext.jsx'
 import { useInbox } from '../context/InboxContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
 import ConversationList from '../components/ConversationList.jsx'
@@ -11,7 +10,8 @@ import ReplyBox from '../components/ReplyBox.jsx'
 import AssignControl from '../components/AssignControl.jsx'
 import NewMessageModal from '../components/NewMessageModal.jsx'
 import ContactAvatar from '../components/ContactAvatar.jsx'
-import GroupMembers from '../components/GroupMembers.jsx'
+import ContactPanel from '../components/ContactPanel.jsx'
+import ThreadSearch from '../components/ThreadSearch.jsx'
 import { useSwipeBack } from '../lib/useSwipeBack.js'
 import { mergeMessages } from '../lib/thread.js'
 
@@ -25,7 +25,6 @@ const EMPTY_THREAD = {
 }
 
 export default function Inbox() {
-  const { isAdmin } = useAuth()
   const toast = useToast()
   const {
     conversations,
@@ -48,12 +47,22 @@ export default function Inbox() {
   const [thread, setThread] = useState(EMPTY_THREAD)
   const [threadLoading, setThreadLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(null)
-  // The message a search result asked us to jump to. Null for a normal open,
+  // The message the loaded WINDOW is built around. Null for a normal open,
   // which is what keeps the default path byte-for-byte the behaviour it was.
   const [anchor, setAnchor] = useState(null)
+  // The message to scroll to and flash. Separate from `anchor` because
+  // stepping between in-thread matches usually needs no reload at all — only
+  // a jump outside the loaded window has to move the window with it.
+  const [jumpTo, setJumpTo] = useState(null)
+  const jumpNonceRef = useRef(0)
+
+  // In-thread search state.
+  const [threadSearchOpen, setThreadSearchOpen] = useState(false)
+  const [threadSearchQuery, setThreadSearchQuery] = useState('')
   const [users, setUsers] = useState([])
   const [composing, setComposing] = useState(false)
-  const [showMembers, setShowMembers] = useState(false)
+  // The contact/group info panel — opened by tapping the thread-header name.
+  const [showInfo, setShowInfo] = useState(false)
 
   const openIdRef = useRef(null)
   openIdRef.current = openId
@@ -70,6 +79,8 @@ export default function Inbox() {
   threadRef.current = thread
   const loadingMoreRef = useRef(null)
   loadingMoreRef.current = loadingMore
+  const threadSearchOpenRef = useRef(false)
+  threadSearchOpenRef.current = threadSearchOpen
 
   /**
    * Render-time guard. If the stored messages belong to a different
@@ -82,16 +93,50 @@ export default function Inbox() {
   const threadIsCurrent = String(thread.conversationId) === String(openId)
   const messages = threadIsCurrent ? thread.messages : []
 
+  /** Scroll to and flash a message; nonce makes a repeat request a fresh one. */
+  const requestJump = useCallback((messageId) => {
+    setJumpTo({ id: messageId, nonce: ++jumpNonceRef.current })
+  }, [])
+
   const open = useCallback(
     (conversationId, anchorMessageId = null) => {
       setOpenId(conversationId)
       setAnchor(anchorMessageId ?? null)
+      setJumpTo(anchorMessageId ? { id: anchorMessageId, nonce: ++jumpNonceRef.current } : null)
+      // Opening a different conversation from a global search result must not
+      // leave the previous thread's in-thread search bar or info panel up.
+      setThreadSearchOpen(false)
+      setThreadSearchQuery('')
+      setShowInfo(false)
       // Optimistic — the GET /messages side effect clears it server-side.
       clearUnread(conversationId)
       setMobileView('thread')
     },
     [setOpenId, clearUnread]
   )
+
+  /**
+   * Step to an in-thread match.
+   *
+   * Most steps land inside the loaded window, where a jump alone is enough and
+   * a reload would be both wasteful and visibly jarring. Only a match outside
+   * it moves the window, via the anchored load already built for global search.
+   */
+  const goToMessage = useCallback(
+    (messageId) => {
+      const loaded = threadRef.current.messages.some(
+        (m) => String(m.id) === String(messageId)
+      )
+      if (!loaded) setAnchor(messageId)
+      requestJump(messageId)
+    },
+    [requestJump]
+  )
+
+  const closeThreadSearch = useCallback(() => {
+    setThreadSearchOpen(false)
+    setThreadSearchQuery('')
+  }, [])
 
   // Lets a toast click jump straight into the conversation.
   useEffect(() => {
@@ -164,6 +209,10 @@ export default function Inbox() {
       // resumes by itself the moment they scroll down far enough for
       // has_more_after to clear.
       if (threadRef.current.hasMoreAfter) return
+      // In-thread search gets the same treatment as reading history: the
+      // reader is parked on a specific message, and a poll that appended or
+      // re-anchored underneath them would move it.
+      if (threadSearchOpenRef.current) return
       // A page request is already in flight; let it settle first.
       if (loadingMoreRef.current) return
 
@@ -337,7 +386,10 @@ export default function Inbox() {
           </div>
         ) : (
           <>
-            <header className="thread-head">
+            {/* On mobile the bar REPLACES the header — 390px has no room for a
+                name, an assign control and a find bar. On desktop it sits
+                below, so the conversation being searched stays named. */}
+            <header className={`thread-head${threadSearchOpen ? ' is-searching' : ''}`}>
               <button
                 type="button"
                 className="icon-btn back-btn"
@@ -349,14 +401,15 @@ export default function Inbox() {
 
               <ContactAvatar conversation={conversation} size={36} className="thread-avatar" />
 
-              {conversation.is_group ? (
-                // Tapping the name opens the member list.
-                <button
-                  type="button"
-                  className="thread-id thread-id-button"
-                  onClick={() => setShowMembers(true)}
-                >
-                  <div className="thread-name">{displayName(conversation)}</div>
+              {/* Tapping the name — group OR 1:1 — opens the info panel. */}
+              <button
+                type="button"
+                className="thread-id thread-id-button"
+                onClick={() => setShowInfo(true)}
+                aria-label="Conversation info"
+              >
+                <div className="thread-name">{displayName(conversation)}</div>
+                {conversation.is_group ? (
                   <div className="thread-number">
                     <Users size={11} />
                     <span className="thread-sub-label">
@@ -365,15 +418,23 @@ export default function Inbox() {
                         : 'Group'}
                     </span>
                   </div>
-                </button>
-              ) : (
-                <div className="thread-id">
-                  <div className="thread-name">{displayName(conversation)}</div>
+                ) : (
                   <div className="thread-number">
                     {formatNumber(conversation.customer_number)}
                   </div>
-                </div>
-              )}
+                )}
+              </button>
+
+              <button
+                type="button"
+                className="icon-btn thread-search-btn"
+                aria-label="Search this conversation"
+                title="Search this conversation"
+                aria-expanded={threadSearchOpen}
+                onClick={() => setThreadSearchOpen(true)}
+              >
+                <Search size={18} />
+              </button>
 
               <AssignControl
                 conversation={conversation}
@@ -387,6 +448,19 @@ export default function Inbox() {
               />
             </header>
 
+            {threadSearchOpen ? (
+              // Keyed on the conversation so switching threads with the bar
+              // open starts a clean search rather than carrying the old query,
+              // match list and cursor across.
+              <ThreadSearch
+                key={conversation.id}
+                conversationId={conversation.id}
+                onGoTo={goToMessage}
+                onQueryChange={setThreadSearchQuery}
+                onClose={closeThreadSearch}
+              />
+            ) : null}
+
             <Thread
               messages={messages}
               loading={threadLoading}
@@ -396,21 +470,38 @@ export default function Inbox() {
               loadingMore={loadingMore}
               onLoadOlder={loadOlder}
               onLoadNewer={loadNewer}
-              anchorMessageId={anchor}
+              jumpTo={jumpTo}
+              highlightQuery={threadSearchQuery}
+              searchActive={threadSearchOpen}
+              // The window walked away from where search started, so there is
+              // nothing left to scroll back to. Reloading the tail is the
+              // honest fallback.
+              onRestoreFailed={() => setAnchor(null)}
             />
 
+            {/* No assignment gate: assignment is a label now, so any signed-in
+                user can reply to any conversation. The server agrees —
+                requireConversationAccess no longer 403s on assignment. */}
             <ReplyBox
               conversationId={conversation.id}
               onSend={send}
-              disabled={!isAdmin && !conversation.assigned_user_id}
               isGroup={conversation.is_group}
             />
           </>
         )}
       </section>
 
-      {showMembers && conversation?.is_group ? (
-        <GroupMembers conversation={conversation} onClose={() => setShowMembers(false)} />
+      {showInfo && conversation ? (
+        <ContactPanel
+          conversation={conversation}
+          onClose={() => setShowInfo(false)}
+          onJumpToMessage={(messageId) => {
+            // Reuse the anchor loading: jump to the message, then get out of the
+            // way so the thread is visible.
+            goToMessage(messageId)
+            setShowInfo(false)
+          }}
+        />
       ) : null}
 
       {composing ? (

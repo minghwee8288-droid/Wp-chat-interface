@@ -10,6 +10,7 @@ import {
 } from '../lib/format.js'
 import MediaAttachment from './MediaAttachment.jsx'
 import Lightbox from './Lightbox.jsx'
+import { splitMatches } from '../lib/thread.js'
 
 /**
  * Consecutive messages from the same sender form a "run": they get tight
@@ -37,7 +38,10 @@ export default function Thread({
   loadingMore = null,
   onLoadOlder,
   onLoadNewer,
-  anchorMessageId = null,
+  jumpTo = null,
+  highlightQuery = '',
+  searchActive = false,
+  onRestoreFailed,
 }) {
   const isGroup = Boolean(conversation?.is_group)
   const [lightbox, setLightbox] = useState(null)
@@ -46,15 +50,47 @@ export default function Thread({
   const lastIdRef = useRef(null)
   const pinnedRef = useRef(true)
 
+  // Where the reader was when in-thread search opened, so Escape can put them
+  // back. Stored as a message id plus an offset rather than a raw scrollTop:
+  // stepping through matches can replace the whole loaded window, and a
+  // scrollTop measured against a different set of messages means nothing.
+  const savedViewRef = useRef(null)
+
   // Set just before an older page is requested; consumed once by the layout
   // effect below to keep the reader's viewport still while content is
   // inserted ABOVE them.
   const prependRef = useRef(null)
 
-  // The anchor we have not yet scrolled to. Held in a ref rather than compared
-  // in the effect body because the message only exists in the DOM once the
-  // window that contains it has rendered.
-  const pendingAnchorRef = useRef(null)
+  // The message we have not yet scrolled to. Held in a ref rather than
+  // compared in the effect body because the message only exists in the DOM
+  // once the window that contains it has rendered — which, for a jump into
+  // history, is a whole round trip later.
+  const pendingJumpRef = useRef(null)
+
+  /**
+   * Offset of a message within the scroll content.
+   *
+   * Measured from bounding rects rather than offsetTop, which is relative to
+   * the nearest positioned ancestor and would be wrong the moment anything
+   * between here and the message gains `position: relative`.
+   */
+  const offsetOf = (node) => {
+    const el = scrollRef.current
+    return node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+  }
+
+  /** The topmost message currently in view, and how far below the fold it sits. */
+  const captureView = () => {
+    const el = scrollRef.current
+    if (!el) return null
+    for (const node of el.querySelectorAll('[data-message-id]')) {
+      const top = offsetOf(node)
+      if (top + node.offsetHeight > el.scrollTop) {
+        return { id: node.dataset.messageId, offset: top - el.scrollTop }
+      }
+    }
+    return null
+  }
 
   const onScroll = () => {
     const el = scrollRef.current
@@ -78,13 +114,46 @@ export default function Thread({
     }
   }
 
-  // A new anchor is a fresh jump request, even if it is in the window already.
+  // Keyed on the nonce, not the id: stepping onto the same match twice, or
+  // pressing next until it wraps back around, is still a fresh jump request.
   useEffect(() => {
-    pendingAnchorRef.current = anchorMessageId
+    if (!jumpTo) return
+    pendingJumpRef.current = jumpTo.id
     // Clear any previous flash immediately so two jumps in a row can't leave
     // two messages lit at once.
     setFlashId(null)
-  }, [anchorMessageId])
+  }, [jumpTo?.nonce])
+
+  // Remember the reading position on the way into search, restore it on the
+  // way out. Both halves live here because only this component knows where the
+  // scroller actually is.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+
+    if (searchActive) {
+      // Only on the way in — re-capturing mid-search would save a position the
+      // reader never chose.
+      if (!savedViewRef.current) savedViewRef.current = captureView()
+      return
+    }
+
+    const saved = savedViewRef.current
+    if (!saved) return
+    savedViewRef.current = null
+    pendingJumpRef.current = null
+    setFlashId(null)
+
+    const node = el.querySelector(`[data-message-id="${saved.id}"]`)
+    if (node) {
+      el.scrollTop = Math.max(0, offsetOf(node) - saved.offset)
+    } else {
+      // Stepping through matches walked the window away from where they
+      // started, so there is nothing here to scroll back to. Inbox reloads the
+      // tail instead, which is the honest fallback.
+      onRestoreFailed?.()
+    }
+  }, [searchActive])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -101,17 +170,17 @@ export default function Thread({
     }
 
     // 2. A jump target is present in the DOM: centre it.
-    const anchor = pendingAnchorRef.current
-    if (anchor != null) {
-      const node = el.querySelector(`[data-message-id="${anchor}"]`)
+    const jump = pendingJumpRef.current
+    if (jump != null) {
+      const node = el.querySelector(`[data-message-id="${jump}"]`)
       if (node) {
-        pendingAnchorRef.current = null
+        pendingJumpRef.current = null
         // Centred rather than scrollIntoView's default, so the messages either
         // side of the hit are visible — the context is the reason for jumping.
-        const target = node.offsetTop - el.clientHeight / 2 + node.offsetHeight / 2
+        const target = offsetOf(node) - el.clientHeight / 2 + node.offsetHeight / 2
         el.scrollTop = Math.max(0, target)
         lastIdRef.current = messages[messages.length - 1].id
-        setFlashId(anchor)
+        setFlashId(jump)
         return
       }
       // Not rendered yet — leave it pending and fall through, so a normal
@@ -129,7 +198,10 @@ export default function Thread({
     if (firstRender || (changed && pinnedRef.current)) {
       el.scrollTop = el.scrollHeight
     }
-  }, [messages])
+    // The nonce matters as much as `messages`: stepping to a match already in
+    // the loaded window changes nothing about the message array, so without it
+    // this effect would never run and the thread would not move.
+  }, [messages, jumpTo?.nonce])
 
   // The flash is a brief cue, not a marker — it clears itself.
   useEffect(() => {
@@ -138,11 +210,15 @@ export default function Thread({
     return () => clearTimeout(timer)
   }, [flashId])
 
-  // Reset the pin whenever we switch to a different thread.
+  // Reset every piece of per-thread scroll state when we switch threads.
+  // A saved view or a pending jump that outlived its conversation would apply
+  // itself to the next one.
   useEffect(() => {
     pinnedRef.current = true
     lastIdRef.current = null
     prependRef.current = null
+    savedViewRef.current = null
+    pendingJumpRef.current = null
   }, [conversation?.id])
 
   // Shown while a thread loads. Because Inbox only hands over messages that
@@ -299,7 +375,20 @@ export default function Thread({
 
                   {caption ? (
                     <div className="bubble-text">
-                      {caption}
+                      {/* Every occurrence in the loaded window gets a standing
+                          highlight, so it is visible WHICH messages matched.
+                          The current one is marked separately, by the flash. */}
+                      {highlightQuery
+                        ? splitMatches(caption, highlightQuery).map((part, i) =>
+                            part.match ? (
+                              <mark className="msg-match" key={i}>
+                                {part.text}
+                              </mark>
+                            ) : (
+                              part.text
+                            )
+                          )
+                        : caption}
                       {meta}
                     </div>
                   ) : null}

@@ -7,6 +7,16 @@ export const MIN_QUERY_LENGTH = 2
 export const SEARCH_PAGE_SIZE = 25
 export const SEARCH_MAX_PAGE_SIZE = 50
 
+/**
+ * Ceiling for a conversation-scoped search.
+ *
+ * Higher than the global cap because in-thread search is a stepper, not a
+ * list: "3 of 12" and the up/down chevrons only mean anything if the client
+ * holds every match at once. 200 snippets is roughly 70KB in the worst case,
+ * on a deliberate user action, for a single conversation.
+ */
+export const SEARCH_SCOPED_MAX_PAGE_SIZE = 200
+
 /** Characters of context kept either side of the match in a snippet. */
 const LEAD = 48
 const TRAIL = 120

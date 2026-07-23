@@ -172,9 +172,16 @@ export const api = {
     return request(`/messages?${params}`, { signal })
   },
 
-  /** Message-body search across every conversation the caller may see. */
-  search: (query, { cursor, signal } = {}) => {
+  /**
+   * Message-body search.
+   *
+   * Global by default. With conversationId it is scoped to that thread and
+   * comes back oldest-first, which is the order the in-thread stepper walks.
+   */
+  search: (query, { conversationId, limit, cursor, signal } = {}) => {
     const params = new URLSearchParams({ q: query })
+    if (conversationId != null) params.set('conversation_id', String(conversationId))
+    if (limit != null) params.set('limit', String(limit))
     if (cursor) {
       params.set('cursor_at', cursor.at)
       params.set('cursor_id', String(cursor.id))
@@ -216,6 +223,22 @@ export const api = {
   pushUnsubscribe: (endpoint) =>
     request('/push/unsubscribe', { method: 'POST', body: { endpoint } }),
 
+  /**
+   * One page of a conversation's shared media, one tab at a time.
+   * tab: 'media' | 'docs' | 'links'. Keyset-paginated newest-first.
+   */
+  conversationMedia: (conversationId, tab, { cursor, signal } = {}) => {
+    const params = new URLSearchParams({
+      conversation_id: String(conversationId),
+      tab,
+    })
+    if (cursor) {
+      params.set('cursor_at', cursor.at)
+      params.set('cursor_id', String(cursor.id))
+    }
+    return request(`/conversation/media?${params}`, { signal })
+  },
+
   groupMembers: (conversationId, signal) =>
     request(`/groups/members?conversation_id=${encodeURIComponent(conversationId)}`, { signal }),
 
@@ -238,5 +261,16 @@ export const api = {
     request('/password/reset', {
       method: 'POST',
       body: { user_id: userId, new_password: newPassword ?? null },
+    }),
+
+  // --- admin sync / backfill ---
+  syncStart: (scope) => request('/sync/start', { method: 'POST', body: scope }),
+
+  syncStep: (jobId, signal) =>
+    request('/sync/step', { method: 'POST', body: { job_id: jobId }, signal }),
+
+  syncStatus: (jobId, signal) =>
+    request(jobId != null ? `/sync/status?job_id=${encodeURIComponent(jobId)}` : '/sync/status', {
+      signal,
     }),
 }

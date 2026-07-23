@@ -377,6 +377,95 @@ export function groupJidOf(msg) {
 /** Bare group id for URL paths — Whapi wants the full JID including @g.us. */
 export const groupIdForApi = (jid) => String(jid || '').trim()
 
+// ---------------------------------------------------------------------------
+// History listing — used ONLY by the admin sync/backfill, never live.
+//
+// Endpoints per Whapi's REST reference:
+//   GET /messages/list/{ChatID}  — messages in a chat
+//   GET /chats                   — the account's chats
+//
+// Both are paged with count/offset and return arrays of the SAME message /
+// chat shapes the webhook already understands, which is what lets the sync
+// feed straight into shapeInboundMessage(). Field access is defensive because
+// this could not be exercised against live Whapi here.
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /messages/list/{ChatID}
+ *
+ * @param chatId  a JID: "<digits>@s.whatsapp.net" for 1:1, "<id>@g.us" for a group
+ * @param opts    { offset, count, timeFrom, timeTo }  (unix SECONDS for the times)
+ * Resolves to { ok, messages, total, error } — never throws.
+ */
+export async function listMessages(env, chatId, { offset = 0, count = 100, timeFrom, timeTo } = {}) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const id = String(chatId || '').trim()
+    if (!id) return { ok: false, error: 'list_no_chat', messages: [] }
+
+    const qs = new URLSearchParams({ count: String(count), offset: String(offset) })
+    if (Number.isFinite(Number(timeFrom))) qs.set('time_from', String(Math.floor(timeFrom)))
+    if (Number.isFinite(Number(timeTo))) qs.set('time_to', String(Math.floor(timeTo)))
+
+    const res = await fetch(`${apiUrl}/messages/list/${encodeURIComponent(id)}?${qs}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 160)
+      return { ok: false, error: `list_${res.status}${detail ? `: ${detail}` : ''}`, messages: [] }
+    }
+
+    const data = await res.json().catch(() => null)
+    const messages = Array.isArray(data?.messages) ? data.messages : []
+    const total = Number.isFinite(Number(data?.total)) ? Number(data.total) : null
+    return { ok: true, messages, total }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'list_failed'), messages: [] }
+  }
+}
+
+/**
+ * GET /chats — one page of the account's chats.
+ * @param opts { offset, count }
+ * Resolves to { ok, chats, total, error }. Each chat is normalised to
+ * { id, name, isGroup }. Never throws.
+ */
+export async function listChats(env, { offset = 0, count = 100 } = {}) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const qs = new URLSearchParams({ count: String(count), offset: String(offset) })
+
+    const res = await fetch(`${apiUrl}/chats?${qs}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 160)
+      return { ok: false, error: `chats_${res.status}${detail ? `: ${detail}` : ''}`, chats: [] }
+    }
+
+    const data = await res.json().catch(() => null)
+    const raw = Array.isArray(data?.chats) ? data.chats : []
+    const chats = raw
+      .map((c) => {
+        const id = String(c?.id ?? c?.chat_id ?? '').trim()
+        if (!id) return null
+        // A group chat id ends in @g.us; Whapi may also carry type: 'group'.
+        const isGroup = /@g\.us$/i.test(id) || String(c?.type || '').toLowerCase() === 'group'
+        const name =
+          [c?.name, c?.subject, c?.title].find((v) => typeof v === 'string' && v.trim()) || null
+        return { id, name, isGroup }
+      })
+      .filter(Boolean)
+
+    const total = Number.isFinite(Number(data?.total)) ? Number(data.total) : null
+    return { ok: true, chats, total }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'chats_failed'), chats: [] }
+  }
+}
+
 /**
  * Who actually sent a group message.
  *

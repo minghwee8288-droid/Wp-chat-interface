@@ -55,7 +55,7 @@ It reads and writes three tables, all prefixed `wp_chat_`:
 | `wp_chat_conversations` | One row per customer number, with the preview, `unread_count`, and assignment |
 | `wp_chat_messages` | Every message, `inbound` or `outbound` |
 
-Phone numbers are stored as digits — E.164 without the plus, e.g. `919669229223`.
+Phone numbers are stored as digits — E.164 without the plus, e.g. `919669228223`.
 
 Queries go through the Supabase query builder, so values are always sent as bound
 parameters — never interpolated into a query string.

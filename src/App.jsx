@@ -10,6 +10,7 @@ import Shell from './components/Shell.jsx'
 import Login from './pages/Login.jsx'
 import Inbox from './pages/Inbox.jsx'
 import Team from './pages/Team.jsx'
+import Sync from './pages/Sync.jsx'
 
 /** Cold-start placeholder. Reuses existing classes — no new UI. */
 function Booting() {
@@ -54,6 +55,7 @@ function AppRoutes() {
       >
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/team" element={<Team />} />
+        <Route path="/sync" element={<Sync />} />
       </Route>
       <Route path="*" element={<Navigate to="/inbox" replace />} />
     </Routes>

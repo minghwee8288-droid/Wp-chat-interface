@@ -18,15 +18,14 @@ export async function onRequestGet({ request, env }) {
   try {
     const db = getDb(env)
 
-    let builder = db
+    // No role scoping: every authenticated user sees every conversation.
+    // Assignment is a label, not a filter — the Assigned/Unassigned chips do
+    // the narrowing client-side, and now mean something for agents too.
+    const builder = db
       .from('wp_chat_conversations')
       .select(COLUMNS)
       // DESC NULLS LAST
       .order('last_message_at', { ascending: false, nullsFirst: false })
-
-    if (auth.user.role !== 'admin') {
-      builder = builder.eq('assigned_user_id', auth.user.id)
-    }
 
     const conversations = unwrap(await builder) || []
 

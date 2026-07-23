@@ -46,8 +46,16 @@ export async function requireAdmin(request, env) {
 }
 
 /**
- * Agents may only touch conversations assigned to them. Returns the
- * conversation row, or {response} with a 403/404 to return instead.
+ * Loads a conversation any authenticated user may access.
+ *
+ * Assignment is NO LONGER a permission boundary — every agent sees, reads and
+ * replies to every conversation, assigned or not; `assigned_user_id` is kept
+ * only as a "who is handling this" label. This used to 403 an agent on a
+ * conversation not assigned to them; that check has been removed. The only
+ * failure now is a conversation that does not exist (404).
+ *
+ * `user` is still accepted so every caller keeps a stable signature and so the
+ * gate can be re-tightened in one place if that ever changes.
  */
 export async function requireConversationAccess(env, user, conversationId) {
   const conversation = unwrap(
@@ -63,15 +71,6 @@ export async function requireConversationAccess(env, user, conversationId) {
       response: new Response(
         JSON.stringify({ ok: false, error: 'Conversation not found' }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
-      ),
-    }
-  }
-
-  if (user.role !== 'admin' && String(conversation.assigned_user_id) !== String(user.id)) {
-    return {
-      response: new Response(
-        JSON.stringify({ ok: false, error: 'This conversation is not assigned to you' }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } }
       ),
     }
   }

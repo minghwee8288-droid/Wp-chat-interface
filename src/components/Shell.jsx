@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Wifi,
   WifiOff,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
@@ -54,7 +55,11 @@ export default function Shell() {
     }
   }, [menuOpen])
 
-  const title = location.pathname.startsWith('/team') ? 'Team' : 'Inbox'
+  const title = location.pathname.startsWith('/team')
+    ? 'Team'
+    : location.pathname.startsWith('/sync')
+      ? 'Sync'
+      : 'Inbox'
 
   return (
     <div className="shell" data-mobile-view={mobileView}>
@@ -83,6 +88,17 @@ export default function Shell() {
             aria-label="Team"
           >
             <Users size={19} />
+          </NavLink>
+        ) : null}
+
+        {isAdmin ? (
+          <NavLink
+            to="/sync"
+            className={({ isActive }) => `rail-link${isActive ? ' is-active' : ''}`}
+            title="Sync missed messages"
+            aria-label="Sync missed messages"
+          >
+            <RefreshCw size={18} />
           </NavLink>
         ) : null}
 
@@ -152,6 +168,21 @@ export default function Shell() {
                   >
                     <Users size={15} />
                     Team
+                  </button>
+                ) : null}
+
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/sync')
+                    }}
+                  >
+                    <RefreshCw size={15} />
+                    Sync missed messages
                   </button>
                 ) : null}
 
