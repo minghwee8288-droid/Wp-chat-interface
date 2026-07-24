@@ -24,6 +24,7 @@ import { armAudio } from '../lib/chime.js'
 import ChangePasswordModal from './ChangePasswordModal.jsx'
 import AccountMenuExtras from './AccountMenuExtras.jsx'
 import PushDiagnostics from './PushDiagnostics.jsx'
+import ReconnectModal from './ReconnectModal.jsx'
 
 export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
@@ -35,6 +36,7 @@ export default function Shell() {
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
   // TEMPORARY — remove with the push diagnostics panel.
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const menuRef = useRef(null)
@@ -114,6 +116,17 @@ export default function Shell() {
             <span>
               WhatsApp is disconnected — messages are not being sent or received.
             </span>
+            {/* Admin only: reconnecting exposes the QR, which grants account
+                access. Agents see the banner but not this control. */}
+            {isAdmin ? (
+              <button
+                type="button"
+                className="channel-banner-fix"
+                onClick={() => setReconnecting(true)}
+              >
+                Reconnect
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -148,7 +161,18 @@ export default function Shell() {
                       {channel.disconnected ? 'Disconnected' : 'Connected'}
                       {channel.status ? ` · ${channel.status}` : ''}
                     </span>
-                    {formatUptime(channel.uptime) ? (
+                    {channel.disconnected ? (
+                      <button
+                        type="button"
+                        className="menu-channel-fix"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          setReconnecting(true)
+                        }}
+                      >
+                        Reconnect
+                      </button>
+                    ) : formatUptime(channel.uptime) ? (
                       <span className="menu-item-state">{formatUptime(channel.uptime)}</span>
                     ) : null}
                   </div>
@@ -250,6 +274,8 @@ export default function Shell() {
       {changingPassword ? (
         <ChangePasswordModal onClose={() => setChangingPassword(false)} />
       ) : null}
+
+      {reconnecting ? <ReconnectModal onClose={() => setReconnecting(false)} /> : null}
 
       {showDiagnostics ? (
         <PushDiagnostics onClose={() => setShowDiagnostics(false)} />

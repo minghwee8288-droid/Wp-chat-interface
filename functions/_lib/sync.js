@@ -35,6 +35,7 @@ import {
   findOrCreateGroup,
   findOrCreateConversation,
   previewLine,
+  mediaPreviewLabel,
 } from './ingest.js'
 
 // Messages pulled and processed per step. Deliberately small: a step may fetch
@@ -59,17 +60,44 @@ function dayEndUnix(date) {
 }
 
 /**
- * Store one historical message. Returns
+ * Whapi's per-message delivery status -> our `status` column.
+ *
+ * We store only what Whapi reports, mapped onto the small set the app already
+ * understands: a failed send stays distinguishable, everything else that made
+ * it into Whapi's history was sent. We do not invent a delivery state.
+ */
+function outboundStatus(msg) {
+  const s = String(msg?.status || '').toLowerCase()
+  if (s === 'failed' || s === 'error') return 'send_failed'
+  return 'sent'
+}
+
+/**
+ * Who/what sent an outbound message, if Whapi says. Stored in the EXISTING
+ * sent_by column (no new column). Whapi does not know our internal agents, so
+ * this is the account/device name when present, else null.
+ */
+function outboundSentBy(msg) {
+  const candidate = [msg?.from_name, msg?.source, msg?.device].find(
+    (v) => typeof v === 'string' && v.trim()
+  )
+  return candidate ? candidate.trim().slice(0, 255) : null
+}
+
+/**
+ * Store one historical message — INBOUND or OUTBOUND. Returns
  *   { added, duplicate, skipped, mediaFailed, error }
  * and never throws for an expired attachment — that degrades to media_error
  * exactly as a live failure does.
  */
 export async function persistHistorical(env, db, msg, chatName) {
-  const shaped = shapeInboundMessage(msg, env)
+  // allowOutbound: sync keeps our own sent messages (the live webhook drops
+  // them as echoes). This is what was missing — replies never got written.
+  const shaped = shapeInboundMessage(msg, env, { allowOutbound: true })
   if (shaped.skip) return { added: false, skipped: true }
 
   const {
-    groupJid, sender, customerNumber, customerName,
+    fromMe, groupJid, sender, customerNumber, customerName,
     whapiMessageId, body, createdAt, explicitMedia, attachment, businessNumber,
   } = shaped
 
@@ -77,8 +105,9 @@ export async function persistHistorical(env, db, msg, chatName) {
     ? await findOrCreateGroup(db, groupJid, businessNumber, chatName)
     : await findOrCreateConversation(db, customerNumber, businessNumber, customerName)
 
-  // Same fetch-and-store pipeline as live inbound. An expired media id comes
-  // back as media_error rather than throwing.
+  // Same fetch-and-store pipeline for BOTH directions. An expired media id
+  // (common on year-old messages) comes back as media_error rather than
+  // throwing, and the message is still written with its text intact.
   let media = explicitMedia
   let mediaError = null
   if (attachment) {
@@ -87,20 +116,38 @@ export async function persistHistorical(env, db, msg, chatName) {
     mediaError = ingested.error
   }
 
+  // Direction-specific columns. The recipient of an outbound message is the
+  // conversation counterparty (the group JID, or the customer's number).
+  const directionRow = fromMe
+    ? {
+        direction: 'outbound',
+        from_number: businessNumber,
+        to_number: groupJid || customerNumber,
+        sender_number: null,
+        sender_name: null,
+        status: outboundStatus(msg),
+        sent_by: outboundSentBy(msg),
+      }
+    : {
+        direction: 'inbound',
+        from_number: groupJid ? sender.number : customerNumber,
+        to_number: businessNumber,
+        sender_number: groupJid ? sender.number : null,
+        sender_name: groupJid ? sender.name : null,
+        status: 'received',
+        sent_by: null,
+      }
+
   const inserted = await db
     .from('wp_chat_messages')
     .insert({
       conversation_id: conversation.id,
-      direction: 'inbound',
-      from_number: groupJid ? sender.number : customerNumber,
-      to_number: businessNumber,
-      sender_number: groupJid ? sender.number : null,
-      sender_name: groupJid ? sender.name : null,
+      ...directionRow,
       body,
       whapi_message_id: whapiMessageId,
-      status: 'received',
-      // Historical messages are considered already-read: a backfill must not
-      // inflate unread counts.
+      // Historical messages are considered already-read in BOTH directions: a
+      // backfill must never inflate unread counts, and our own replies are read
+      // by definition (this matches /api/send, which stores is_read: true).
       is_read: true,
       created_at: createdAt,
       ...(mediaError ? { error_code: mediaError.slice(0, 200) } : {}),
@@ -110,15 +157,23 @@ export async function persistHistorical(env, db, msg, chatName) {
     .single()
 
   if (inserted.error) {
-    // Already synced (or delivered live): the unique whapi_message_id makes
-    // this a no-op, which is exactly the dedup guarantee.
+    // Already synced (or, for outbound, already written live by /api/send): the
+    // unique whapi_message_id makes this a no-op — the dedup guarantee, and the
+    // reason an outbound message already in the DB is never doubled.
     if (inserted.error.code === UNIQUE_VIOLATION) return { added: false, duplicate: true }
     throw new Error(inserted.error.message)
   }
 
-  // Preview/order guard: only move last_message_at FORWARD. A three-month-old
-  // message must never jump a conversation to the top or clobber a newer
-  // preview. Unread is intentionally left untouched.
+  // Preview/order guard: only move last_message_at FORWARD. An old message must
+  // never jump a conversation to the top or clobber a newer preview. Unread is
+  // intentionally left untouched.
+  //
+  // Outbound gets NO group-sender prefix — the list adds "You: " itself from
+  // last_direction, exactly as it does for a live reply.
+  const preview = fromMe
+    ? body || mediaPreviewLabel(media)
+    : previewLine(groupJid, sender, body, media)
+
   const conv = unwrap(
     await db.from('wp_chat_conversations').select('last_message_at').eq('id', conversation.id).maybeSingle()
   )
@@ -128,9 +183,9 @@ export async function persistHistorical(env, db, msg, chatName) {
       await db
         .from('wp_chat_conversations')
         .update({
-          last_message_body: previewLine(groupJid, sender, body, media),
+          last_message_body: preview,
           last_message_at: createdAt,
-          last_direction: 'inbound',
+          last_direction: fromMe ? 'outbound' : 'inbound',
           updated_at: new Date().toISOString(),
         })
         .eq('id', conversation.id)

@@ -123,15 +123,25 @@ export function previewLine(groupJid, sender, body, media) {
  * the fields every downstream write needs, or {skip: reason} for anything that
  * is not a storable conversation message.
  *
+ * `allowOutbound` is the ONE difference between live and historical handling:
+ *   - LIVE webhook (default false): a from_me message is an echo of a reply we
+ *     already wrote in /api/send, so it is skipped. This must never change.
+ *   - SYNC (true): nothing has been written yet, so a from_me message is a real
+ *     outbound record to keep — shaped with `fromMe: true` so the caller writes
+ *     it with direction 'outbound'.
+ *
  * Pure: no I/O, no side effects — which is what lets both callers share it and
  * what makes it unit-testable without a database.
  */
-export function shapeInboundMessage(msg, env) {
-  // Echoes of our own outbound — /api/send already wrote those rows.
-  if (msg?.from_me === true) return { skip: 'from_me' }
+export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
+  const fromMe = msg?.from_me === true
+  // Live: drop our own outbound echoes. Sync: keep them (see above).
+  if (fromMe && !allowOutbound) return { skip: 'from_me' }
 
   const groupJid = groupJidOf(msg)
-  const sender = groupJid ? senderOf(msg) : { number: null, name: null }
+  // Outbound has no inbound "sender" — `from` is us, so senderOf would wrongly
+  // treat the business number as a group participant. Only inbound resolves one.
+  const sender = groupJid && !fromMe ? senderOf(msg) : { number: null, name: null }
 
   // Broadcasts and newsletters are never conversations.
   const chatIdRaw = String(msg?.chat_id ?? '')
@@ -166,6 +176,7 @@ export function shapeInboundMessage(msg, env) {
 
   return {
     skip: null,
+    fromMe,
     groupJid,
     sender,
     customerNumber,

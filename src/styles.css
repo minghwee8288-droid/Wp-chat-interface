@@ -3530,3 +3530,151 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Channel reconnect (admin) — button entry points + QR modal
+ * ------------------------------------------------------------------ */
+
+/* Reconnect affordance in the banner. Contained-button styling in the amber
+   palette so it reads as an action, not part of the sentence. */
+.channel-banner-fix {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--warning);
+  background: transparent;
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 600;
+}
+.channel-banner-fix:hover {
+  background: var(--warning);
+  color: var(--surface);
+}
+
+/* Reconnect button inside the account-menu status line. */
+.menu-channel-fix {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--warning);
+  background: transparent;
+  color: var(--warning);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.menu-channel-fix:hover {
+  background: var(--warning);
+  color: var(--surface);
+}
+
+.reconnect {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* relaunching / connected / error share one centred column. */
+.reconnect-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 8px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.reconnect-status p {
+  margin: 0;
+  max-width: 34ch;
+}
+.reconnect-status.is-ok svg {
+  color: var(--success);
+}
+.reconnect-status.is-error svg {
+  color: var(--danger);
+}
+.reconnect-status .btn {
+  margin-top: 4px;
+}
+
+.reconnect-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Fixed 256px so the code is always large enough to scan from a phone at
+   arm's length; the modal is 400px wide, so this fits with margin to spare. */
+.reconnect-qr-img {
+  width: 256px;
+  height: 256px;
+  border-radius: var(--r-md);
+  /* White quiet-zone regardless of theme — WhatsApp expects dark-on-light and
+     an inverted code will not scan. */
+  background: #ffffff;
+  padding: 10px;
+  box-shadow: var(--shadow-pop);
+}
+.reconnect-qr-img.is-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+
+.reconnect-steps {
+  align-self: stretch;
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.reconnect-steps strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.reconnect-qr-foot {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.reconnect-expiry {
+  font-size: 12.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.reconnect-hint {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.reconnect-hint svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+@media (max-width: 720px) {
+  .reconnect-qr-img {
+    width: 232px;
+    height: 232px;
+  }
+}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 
 const ChannelContext = createContext(null)
@@ -15,6 +15,10 @@ export function ChannelProvider({ children }) {
     checkedAt: null,
     known: false,
   })
+
+  // Holds the latest one-shot checker so recheck() can be called from anywhere
+  // (e.g. the reconnect flow, on success) without waiting out the 60s poll.
+  const checkRef = useRef(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -38,17 +42,25 @@ export function ChannelProvider({ children }) {
       }
     }
 
+    checkRef.current = check
     check()
     const interval = setInterval(check, CHANNEL_POLL_MS)
     return () => {
       cancelled = true
+      checkRef.current = null
       clearInterval(interval)
       controller.abort()
     }
   }, [])
 
   const value = useMemo(
-    () => ({ ...state, disconnected: state.known && !state.connected }),
+    () => ({
+      ...state,
+      disconnected: state.known && !state.connected,
+      // Force an immediate status refresh — used after a reconnect so the
+      // banner clears at once instead of on the next 60s tick.
+      recheck: () => checkRef.current?.(),
+    }),
     [state]
   )
 
@@ -58,7 +70,12 @@ export function ChannelProvider({ children }) {
 export function useChannel() {
   const ctx = useContext(ChannelContext)
   // Optional: components outside the provider simply see a healthy channel.
-  return ctx || { connected: true, disconnected: false, known: false, uptime: null, status: null }
+  return (
+    ctx || {
+      connected: true, disconnected: false, known: false, uptime: null, status: null,
+      recheck: () => {},
+    }
+  )
 }
 
 /** 93899 -> "1d 2h" */

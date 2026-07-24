@@ -247,6 +247,12 @@ export const api = {
 
   channelStatus: (signal) => request('/channel/status', { signal }),
 
+  /** Admin: ask Whapi to relaunch the channel, then report health. */
+  channelRelaunch: () => request('/channel/relaunch', { method: 'POST' }),
+
+  /** Admin: a fresh login QR (data URL) or { connected: true }. */
+  channelQr: (signal) => request('/channel/qr', { signal }),
+
   users: (signal) => request('/users', { signal }),
 
   createUser: (payload) => request('/users/create', { method: 'POST', body: payload }),

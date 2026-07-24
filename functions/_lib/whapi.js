@@ -201,13 +201,21 @@ export async function fetchProfilePicture(env, chatId, maxBytes = 2 * 1024 * 102
  * cannot positively identify as AUTH counts as disconnected.
  *
  * Never throws — an unreachable Whapi is itself a disconnected state.
+ *
+ * With { wakeup: true } this becomes the documented "Check health & launch
+ * channel" call — GET /health?wakeup=true — which asks Whapi to (re)launch a
+ * sleeping/disconnected channel. The default is OFF so the passive 60s status
+ * poll stays a pure read and only an explicit admin action launches anything.
  */
-export async function checkHealth(env) {
+export async function checkHealth(env, { wakeup = false } = {}) {
   const checkedAt = new Date().toISOString()
   try {
     const { token, apiUrl } = whapiConfig(env)
 
-    const res = await fetch(`${apiUrl}/health`, {
+    // channel_type=web — link an EXISTING WhatsApp account via WA Web (the QR
+    // flow), never create a new mobile account.
+    const url = wakeup ? `${apiUrl}/health?wakeup=true&channel_type=web` : `${apiUrl}/health`
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     })
 
@@ -240,6 +248,74 @@ export async function checkHealth(env) {
       checked_at: checkedAt,
       error: String(err?.message || 'health_failed'),
     }
+  }
+}
+
+/**
+ * Ask Whapi to (re)launch the channel, then report its health. Some
+ * disconnections recover from this alone, with no QR scan. Never throws.
+ */
+export const launchChannel = (env) => checkHealth(env, { wakeup: true })
+
+/** ArrayBuffer -> base64, chunked so a large image cannot blow the call stack. */
+function base64FromBytes(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
+
+/**
+ * Fetch the WhatsApp-Web login QR from Whapi and return it as a self-contained
+ * data URL, so the browser renders an <img> with NO QR library and the
+ * WHAPI_TOKEN never leaves the Worker.
+ *
+ * GET /users/login/image — documented to answer with a PNG (accept:image/png)
+ * or JSON. Both are handled. Status 409 means the channel is already
+ * authenticated, which is surfaced as { alreadyAuthed } rather than an error so
+ * the caller can show "connected" instead of a dead QR.
+ *
+ * Resolves to { ok, dataUrl } | { ok:false, alreadyAuthed } | { ok:false, error }.
+ * Never throws.
+ */
+export async function fetchLoginQr(env, { size = 400 } = {}) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const qs = new URLSearchParams({ wakeup: 'true', size: String(size) })
+
+    const res = await fetch(`${apiUrl}/users/login/image?${qs}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'image/png' },
+    })
+
+    // 409 = "Channel already authenticated" — not an error, just no QR needed.
+    if (res.status === 409) return { ok: false, alreadyAuthed: true, status: 409 }
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 160)
+      return { ok: false, status: res.status, error: `qr_${res.status}${detail ? `: ${detail}` : ''}` }
+    }
+
+    const type = String(res.headers.get('content-type') || '')
+
+    // Whapi may honour accept:image/png (binary) or answer with JSON carrying a
+    // base64 string — handle both rather than assuming one.
+    if (type.includes('application/json')) {
+      const data = await res.json().catch(() => null)
+      const raw = [data?.qr, data?.image, data?.base64, data?.data].find(
+        (v) => typeof v === 'string' && v
+      )
+      if (!raw) return { ok: false, status: 200, error: 'qr_no_data' }
+      return { ok: true, dataUrl: raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}` }
+    }
+
+    const bytes = await res.arrayBuffer()
+    if (!bytes.byteLength) return { ok: false, status: 200, error: 'qr_empty' }
+    const mime = type.split(';')[0].trim() || 'image/png'
+    return { ok: true, dataUrl: `data:${mime};base64,${base64FromBytes(bytes)}` }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'qr_failed') }
   }
 }
 
