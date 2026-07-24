@@ -8,7 +8,7 @@
 // nothing for historical).
 
 import { unwrap, UNIQUE_VIOLATION } from './db.js'
-import { toDigits, fetchMedia, groupJidOf, senderOf } from './whapi.js'
+import { toDigits, fetchMedia, fetchMediaUrl, groupJidOf, senderOf } from './whapi.js'
 import {
   readMediaFields,
   uploadObject,
@@ -39,9 +39,14 @@ export function describeAttachment(msg) {
   const mime = String(info.mime_type || info.mime || '').split(';')[0].trim() || null
   const size = Number(info.file_size ?? info.size)
 
+  // Whapi puts a direct storage URL alongside the id. Captured so ingest can
+  // recover the bytes when /media/{id} has expired on an old message.
+  const link = [info.link, info.url].find((v) => typeof v === 'string' && v) || null
+
   return {
     mediaId: String(mediaId),
     mime,
+    link,
     filename: info.file_name || info.filename || null,
     size: Number.isFinite(size) && size > 0 ? Math.round(size) : null,
     caption: typeof info.caption === 'string' && info.caption ? info.caption : null,
@@ -70,7 +75,22 @@ export async function ingestAttachment(env, conversationId, attachment) {
     media_error: true,
   }
 
-  const fetched = await fetchMedia(env, attachment.mediaId, MAX_UPLOAD_BYTES)
+  let fetched = await fetchMedia(env, attachment.mediaId, MAX_UPLOAD_BYTES)
+
+  // Recovery: /media/{id} expires on old messages, but the direct storage link
+  // may still resolve. Only tried on failure, so live delivery (fresh id) is
+  // unaffected; if the link fails too, this degrades to media_error as before.
+  if (!fetched.ok && attachment.link) {
+    const viaLink = await fetchMediaUrl(attachment.link, MAX_UPLOAD_BYTES)
+    if (viaLink.ok) {
+      console.log('ingest: recovered media via direct link', attachment.mediaId)
+      fetched = viaLink
+    } else {
+      console.error('ingest: media fetch failed (id and link)', attachment.mediaId, fetched.error, viaLink.error)
+      return { media: base, error: `${fetched.error}; link:${viaLink.error}` }
+    }
+  }
+
   if (!fetched.ok) {
     console.error('ingest: media fetch failed', attachment.mediaId, fetched.error)
     return { media: base, error: fetched.error }

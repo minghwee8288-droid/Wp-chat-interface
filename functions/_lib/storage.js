@@ -1,4 +1,5 @@
 import { serviceKey } from './db.js'
+import { drainBody } from './http.js'
 
 // Supabase Storage over the plain REST API — no SDK on this path, so nothing
 // extra is pulled into the Worker bundle for uploads.
@@ -93,6 +94,9 @@ export async function uploadObject(env, { conversationId, bytes, mime, filename 
       const detail = (await res.text()).slice(0, 200)
       return { ok: false, error: `storage_${res.status}: ${detail}` }
     }
+    // Supabase returns a small JSON ack we don't use; drain it so the upload's
+    // connection is released (this fires on every synced attachment).
+    await drainBody(res)
     return { ok: true, path }
   } catch (err) {
     return { ok: false, error: String(err?.message || 'upload_failed') }

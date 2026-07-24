@@ -8,6 +8,8 @@
  * compatibility risk.
  */
 
+import { drainBody } from './http.js'
+
 // ---------------------------------------------------------------- base64url
 export function b64urlToBytes(value) {
   const s = String(value).replace(/-/g, '+').replace(/_/g, '/')
@@ -292,8 +294,9 @@ export async function sendPush(env, subscription, payload, { ttl = 86400 } = {})
     })
 
     // On rejection, read the body — Apple and the other push services put the
-    // actual reason there, and it was previously discarded. Success bodies are
-    // empty, so this only runs on failure.
+    // actual reason there. On success the body is empty but the stream must
+    // still be released, or every delivered push leaks a connection (this is
+    // the fan-out that logs "two stalled responses per webhook invocation").
     let failureBody = null
     if (!res.ok) {
       try {
@@ -301,6 +304,8 @@ export async function sendPush(env, subscription, payload, { ttl = 86400 } = {})
       } catch {
         failureBody = null
       }
+    } else {
+      await drainBody(res)
     }
 
     // 404/410 are the standard "this subscription is dead" signals.

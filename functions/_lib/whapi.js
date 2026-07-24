@@ -1,5 +1,7 @@
 // Direct Whapi integration. The app calls Whapi itself — there is no n8n hop.
 
+import { drainBody } from './http.js'
+
 const DEFAULT_API_URL = 'https://gate.whapi.cloud'
 
 export function whapiConfig(env) {
@@ -88,6 +90,7 @@ export async function fetchMedia(env, mediaId, maxBytes = Infinity) {
     // it is buffered into the isolate's memory.
     const declared = Number(res.headers.get('content-length'))
     if (Number.isFinite(declared) && declared > maxBytes) {
+      await drainBody(res)
       return { ok: false, error: 'media_too_large' }
     }
 
@@ -102,6 +105,59 @@ export async function fetchMedia(env, mediaId, maxBytes = Infinity) {
     return { ok: true, bytes, mime: mime || null }
   } catch (err) {
     return { ok: false, error: String(err?.message || 'media_fetch_failed') }
+  }
+}
+
+// Hosts a media `link` may point at. Whapi stores attachments on Wasabi S3 and
+// serves them from its own domain; the allow-list is what stops a crafted
+// webhook payload from turning this into an SSRF against an internal address.
+// Extend it here if Whapi changes its storage host.
+const MEDIA_LINK_HOSTS = /(?:^|\.)(wasabisys\.com|whapi\.cloud)$/i
+
+/**
+ * Download an attachment straight from its direct storage `link` (the
+ * wasabisys S3 URL Whapi puts alongside the media id), bypassing /media/{id}.
+ *
+ * This is the recovery path for OLD messages whose /media/{id} has expired: the
+ * link may outlive it. Strictly additive — only tried after the id fetch fails,
+ * and if the link fails too the result is the same media_error as before.
+ *
+ * https-only and host-allow-listed (the URL comes from an inbound payload, so
+ * it is not fully trusted). Resolves to {ok, bytes, mime, error}. Never throws.
+ */
+export async function fetchMediaUrl(link, maxBytes = Infinity) {
+  try {
+    let u
+    try {
+      u = new URL(String(link))
+    } catch {
+      return { ok: false, error: 'media_link_bad_url' }
+    }
+    if (u.protocol !== 'https:') return { ok: false, error: 'media_link_not_https' }
+    if (!MEDIA_LINK_HOSTS.test(u.hostname)) {
+      return { ok: false, error: `media_link_host_blocked:${u.hostname}` }
+    }
+
+    const res = await fetch(u.toString(), { headers: { Accept: '*/*' } })
+    if (!res.ok) {
+      await drainBody(res)
+      return { ok: false, error: `media_link_${res.status}` }
+    }
+
+    const declared = Number(res.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      await drainBody(res)
+      return { ok: false, error: 'media_too_large' }
+    }
+
+    const bytes = await res.arrayBuffer()
+    if (bytes.byteLength > maxBytes) return { ok: false, error: 'media_too_large' }
+    if (bytes.byteLength === 0) return { ok: false, error: 'media_empty' }
+
+    const mime = String(res.headers.get('content-type') || '').split(';')[0].trim()
+    return { ok: true, bytes, mime: mime || null }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'media_link_failed') }
   }
 }
 
@@ -174,10 +230,14 @@ export async function fetchProfilePicture(env, chatId, maxBytes = 2 * 1024 * 102
     if (!icon || typeof icon !== 'string') return { ok: false, error: 'profile_no_icon' }
 
     const img = await fetch(icon)
-    if (!img.ok) return { ok: false, error: `profile_image_${img.status}` }
+    if (!img.ok) {
+      await drainBody(img)
+      return { ok: false, error: `profile_image_${img.status}` }
+    }
 
     const declared = Number(img.headers.get('content-length'))
     if (Number.isFinite(declared) && declared > maxBytes) {
+      await drainBody(img)
       return { ok: false, error: 'profile_too_large' }
     }
 
@@ -220,6 +280,7 @@ export async function checkHealth(env, { wakeup = false } = {}) {
     })
 
     if (!res.ok) {
+      await drainBody(res)
       return {
         connected: false,
         status: `http_${res.status}`,
@@ -291,7 +352,10 @@ export async function fetchLoginQr(env, { size = 400 } = {}) {
     })
 
     // 409 = "Channel already authenticated" — not an error, just no QR needed.
-    if (res.status === 409) return { ok: false, alreadyAuthed: true, status: 409 }
+    if (res.status === 409) {
+      await drainBody(res)
+      return { ok: false, alreadyAuthed: true, status: 409 }
+    }
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 160)
       return { ok: false, status: res.status, error: `qr_${res.status}${detail ? `: ${detail}` : ''}` }
@@ -643,7 +707,10 @@ export async function fetchGroupIcon(env, groupJid, maxBytes = 2 * 1024 * 1024) 
       if (!url) return { ok: false, error: 'group_icon_no_url' }
 
       const img = await fetch(url)
-      if (!img.ok) return { ok: false, error: `group_icon_image_${img.status}` }
+      if (!img.ok) {
+        await drainBody(img)
+        return { ok: false, error: `group_icon_image_${img.status}` }
+      }
       const bytes = await img.arrayBuffer()
       if (!bytes.byteLength) return { ok: false, error: 'group_icon_empty' }
       if (bytes.byteLength > maxBytes) return { ok: false, error: 'group_icon_too_large' }
@@ -656,6 +723,7 @@ export async function fetchGroupIcon(env, groupJid, maxBytes = 2 * 1024 * 1024) 
 
     const declared = Number(res.headers.get('content-length'))
     if (Number.isFinite(declared) && declared > maxBytes) {
+      await drainBody(res)
       return { ok: false, error: 'group_icon_too_large' }
     }
     const bytes = await res.arrayBuffer()

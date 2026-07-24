@@ -28,7 +28,7 @@
 //     hits the constraint and is skipped, never written twice.
 
 import { unwrap, UNIQUE_VIOLATION } from './db.js'
-import { listMessages, listChats } from './whapi.js'
+import { listMessages, listChats, redactPayload } from './whapi.js'
 import {
   shapeInboundMessage,
   ingestAttachment,
@@ -94,7 +94,27 @@ export async function persistHistorical(env, db, msg, chatName) {
   // allowOutbound: sync keeps our own sent messages (the live webhook drops
   // them as echoes). This is what was missing — replies never got written.
   const shaped = shapeInboundMessage(msg, env, { allowOutbound: true })
-  if (shaped.skip) return { added: false, skipped: true }
+
+  // DIAGNOSTIC: trace every raw from_me message through shaping so a run shows,
+  // per message, whether the fromMe flag survived into persistence and which
+  // direction it will be written as — the exact "computed and discarded?"
+  // question. If shapedFromMe is ever false or skip is set for a from_me
+  // message, this line pinpoints it.
+  if (msg?.from_me === true) {
+    console.log(
+      'sync.diag.outbound ' +
+        JSON.stringify({
+          id: msg?.id ?? null,
+          type: msg?.type ?? null,
+          rawFromMe: msg.from_me,
+          shapedFromMe: shaped.fromMe ?? null,
+          skip: shaped.skip ?? null,
+          direction: shaped.skip ? null : shaped.fromMe ? 'outbound' : 'inbound',
+        })
+    )
+  }
+
+  if (shaped.skip) return { added: false, skipped: true, reason: shaped.skip }
 
   const {
     fromMe, groupJid, sender, customerNumber, customerName,
@@ -160,7 +180,9 @@ export async function persistHistorical(env, db, msg, chatName) {
     // Already synced (or, for outbound, already written live by /api/send): the
     // unique whapi_message_id makes this a no-op — the dedup guarantee, and the
     // reason an outbound message already in the DB is never doubled.
-    if (inserted.error.code === UNIQUE_VIOLATION) return { added: false, duplicate: true }
+    if (inserted.error.code === UNIQUE_VIOLATION) {
+      return { added: false, duplicate: true, direction: fromMe ? 'outbound' : 'inbound' }
+    }
     throw new Error(inserted.error.message)
   }
 
@@ -192,13 +214,21 @@ export async function persistHistorical(env, db, msg, chatName) {
     )
   }
 
-  return { added: true, mediaFailed: Boolean(mediaError) }
+  return { added: true, direction: fromMe ? 'outbound' : 'inbound', mediaFailed: Boolean(mediaError) }
 }
 
-/** Process a batch of raw messages, honouring an optional time window. */
-async function ingestBatch(env, db, messages, chatName, windowSec) {
+/**
+ * Process a batch of raw messages, honouring an optional time window.
+ *
+ * DIAGNOSTIC: logs one `sync.diag.classify` line per page — returned vs how
+ * many were classified inbound/outbound, added, deduped, window-skipped, and
+ * skipped-with-reason. A run that silently drops every outbound message no
+ * longer looks identical to a healthy one; the counts show it.
+ */
+async function ingestBatch(env, db, messages, chatName, windowSec, chatId = '') {
   let added = 0
   let mediaFailed = 0
+  const stats = { returned: messages.length, inbound: 0, outbound: 0, added: 0, duplicate: 0, windowSkipped: 0, skipped: 0, reasons: {} }
 
   for (const msg of messages) {
     // Defensive window filter: even if Whapi ignores time_from/time_to, an
@@ -206,16 +236,43 @@ async function ingestBatch(env, db, messages, chatName, windowSec) {
     if (windowSec) {
       const ts = Number(msg?.timestamp)
       if (Number.isFinite(ts)) {
-        if (windowSec.from && ts < windowSec.from) continue
-        if (windowSec.to && ts > windowSec.to) continue
+        if (windowSec.from && ts < windowSec.from) { stats.windowSkipped++; continue }
+        if (windowSec.to && ts > windowSec.to) { stats.windowSkipped++; continue }
       }
     }
     const r = await persistHistorical(env, db, msg, chatName)
-    if (r.added) added++
+    if (r.direction === 'inbound') stats.inbound++
+    else if (r.direction === 'outbound') stats.outbound++
+    if (r.added) { added++; stats.added++ }
     if (r.mediaFailed) mediaFailed++
+    if (r.duplicate) stats.duplicate++
+    if (r.skipped) {
+      stats.skipped++
+      // Break the generic non_text skip down by message type, so contact /
+      // action (reactions, edits) / system (revoked) are visible distinctly
+      // rather than lumped together.
+      const key = r.reason === 'non_text' ? `non_text:${msg?.type || 'unknown'}` : r.reason
+      stats.reasons[key] = (stats.reasons[key] || 0) + 1
+    }
   }
 
+  console.log('sync.diag.classify ' + JSON.stringify({ chat: chatId, ...stats }))
+
   return { added, mediaFailed }
+}
+
+/**
+ * DIAGNOSTIC: dump the raw Whapi response for the first page of a chat, with
+ * only token-shaped keys redacted (redactPayload preserves from/from_me/author/
+ * chat_id/source so the real direction encoding is visible). Bounded to one
+ * page (≤ STEP_MESSAGES) and only on offset 0, so it does not flood.
+ */
+function logRawPage(chatId, offset, messages) {
+  if (offset !== 0) return
+  console.log(
+    'sync.diag.raw ' +
+      JSON.stringify({ chat: chatId, count: messages.length, messages: messages.map(redactPayload) })
+  )
 }
 
 /**
@@ -251,7 +308,8 @@ async function stepConversation(env, db, scope, cursor) {
     }
   }
 
-  const { added, mediaFailed } = await ingestBatch(env, db, list.messages, scope.name, null)
+  logRawPage(scope.chat_id, offset, list.messages)
+  const { added, mediaFailed } = await ingestBatch(env, db, list.messages, scope.name, null, scope.chat_id)
   const nextOffset = offset + list.messages.length
   const done = list.messages.length < STEP_MESSAGES
 
@@ -323,7 +381,8 @@ async function stepRange(env, db, scope, cursor) {
     }
   }
 
-  const { added, mediaFailed } = await ingestBatch(env, db, list.messages, state.current.name, windowSec)
+  logRawPage(state.current.id, state.current.msgOffset, list.messages)
+  const { added, mediaFailed } = await ingestBatch(env, db, list.messages, state.current.name, windowSec, state.current.id)
 
   state.current.msgOffset += list.messages.length
   const chatDone = list.messages.length < STEP_MESSAGES
