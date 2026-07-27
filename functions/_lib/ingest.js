@@ -130,6 +130,21 @@ export function mediaPreviewLabel(media) {
   return '📄 Document'
 }
 
+/**
+ * The DB's wp_chat_messages_has_content constraint requires every row to have
+ * SOMETHING to show — a body, or a stored media object (media_path). A media
+ * message whose bytes have expired (media_path null) and that carries no
+ * caption satisfies neither, and must be skipped rather than written.
+ *
+ * shapeInboundMessage cannot make this call: it is pure, and whether the media
+ * actually stored is only known AFTER ingestAttachment runs. So the check lives
+ * here and is applied by the persistence layer post-ingest. The constraint is
+ * correct — this simply avoids attempting a write it would (rightly) reject.
+ */
+export function messageHasContent(body, media) {
+  return Boolean(body) || Boolean(media && media.media_path)
+}
+
 /** Build the group-aware preview line used by the list AND the toast. */
 export function previewLine(groupJid, sender, body, media) {
   const text = body || mediaPreviewLabel(media)

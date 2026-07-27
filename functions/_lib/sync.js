@@ -36,6 +36,7 @@ import {
   findOrCreateConversation,
   previewLine,
   mediaPreviewLabel,
+  messageHasContent,
 } from './ingest.js'
 
 // Messages pulled and processed per step. Deliberately small: a step may fetch
@@ -147,6 +148,16 @@ export async function persistHistorical(env, db, msg, chatName) {
     const ingested = await ingestAttachment(env, conversation.id, attachment)
     media = ingested.media
     mediaError = ingested.error
+  }
+
+  // Content guard, matching the has_content constraint. A media message whose
+  // bytes expired (media_path null) with no caption has nothing to store — skip
+  // it cleanly instead of attempting a write the constraint rejects (which
+  // would throw and, in the backfill, abort the whole run). Common on year-old
+  // media (e.g. captionless stickers). Only reachable here — shapeInboundMessage
+  // is pure and cannot know the media failed until after the fetch.
+  if (!messageHasContent(body, media)) {
+    return { added: false, skipped: true, reason: 'no_content' }
   }
 
   // Direction-specific columns. The recipient of an outbound message is the

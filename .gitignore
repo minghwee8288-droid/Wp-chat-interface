@@ -6,3 +6,7 @@ dist
 *.log
 .env
 .env.*
+!.env.example
+
+# Local backfill script resume cursor — never commit.
+scripts/.backfill-cursor.json
