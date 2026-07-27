@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, Link } from 'react-router-dom'
-import { ArrowLeft, RefreshCw, Play, Square, CheckCircle2, AlertTriangle, Zap } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Play, CheckCircle2, AlertTriangle, Zap } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useChannel } from '../context/ChannelContext.jsx'
-import { displayName } from '../lib/format.js'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -21,33 +20,34 @@ function fmtTs(ts) {
 const isAuto = (job) => job?.scope?.type === 'auto'
 
 /** Human label for a job's scope. */
-function scopeLabel(job, conversations) {
+function scopeLabel(job) {
   const s = job?.scope || {}
   if (s.type === 'auto') return `${fmtTs(s.from_ts)} → ${fmtTs(s.to_ts)}`
   if (s.type === 'range') return `${s.from} → ${s.to}`
-  if (s.type === 'conversation') {
-    const conv = conversations.find((c) => String(c.id) === String(s.conversation_id))
-    return conv ? displayName(conv) : `Conversation #${s.conversation_id}`
-  }
+  if (s.type === 'conversation') return `Conversation #${s.conversation_id}`
   return '—'
 }
 
+/**
+ * Recovery status page — READ-ONLY plus the deferred "Run" action.
+ *
+ * There are no manual sync controls: gap recovery runs automatically when the
+ * channel reconnects (see ChannelContext + functions/_lib/channel-gap.js).
+ * Manual date-range / single-conversation syncs were removed — on a large range
+ * they could blow the Worker subrequest limit, and auto-recovery covers the
+ * real need. The backend sync engine, the step endpoint and the auto-driver are
+ * all untouched; this page only observes them, and lets an admin deliberately
+ * run a gap that was too long to auto-run.
+ */
 export default function Sync() {
   const { isAdmin } = useAuth()
   const channel = useChannel()
-
-  const [mode, setMode] = useState('range') // 'range' | 'conversation'
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [conversationId, setConversationId] = useState('')
-  const [conversations, setConversations] = useState([])
 
   const [job, setJob] = useState(null)
   const [jobs, setJobs] = useState([])
   const [driving, setDriving] = useState(false)
   const [error, setError] = useState(null)
 
-  // Lets Stop halt the loop cooperatively without tearing down the request.
   const drivingRef = useRef(false)
 
   const loadJobs = useCallback(async () => {
@@ -60,18 +60,11 @@ export default function Sync() {
     }
   }, [])
 
-  // Conversation picker + recent jobs, loaded once, then polled so auto
-  // recoveries (driven from ChannelContext) show up live.
+  // Recent jobs, loaded once then polled so auto-recoveries (driven from
+  // ChannelContext) and their results show up live.
   useEffect(() => {
     let cancelled = false
-    api.conversations().then((d) => !cancelled && setConversations(d.conversations || [])).catch(() => {})
-    loadJobs().then((list) => {
-      if (cancelled) return
-      // Resume a manual job that was mid-run (not an auto one — those drive
-      // themselves from the channel poll).
-      const active = list.find((j) => !TERMINAL.has(j.status) && !isAuto(j))
-      if (active) setJob(active)
-    })
+    loadJobs()
     const t = setInterval(() => !cancelled && loadJobs(), 5000)
     return () => {
       cancelled = true
@@ -79,21 +72,23 @@ export default function Sync() {
     }
   }, [loadJobs])
 
+  /**
+   * Drive a job's bounded steps to completion. Only used to run a DEFERRED
+   * auto-recovery an admin chose to run (promote:true flips it from deferred).
+   * Auto-recoveries inside the threshold drive themselves from ChannelContext.
+   */
   const drive = useCallback(
-    async (jobId, promote = false) => {
+    async (jobId) => {
       drivingRef.current = true
       setDriving(true)
       setError(null)
       try {
-        // Loop of bounded steps. Each returns the whole job, so progress
-        // updates every iteration. `promote` runs a deferred (too-long) job.
         // eslint-disable-next-line no-constant-condition
         while (drivingRef.current) {
-          const res = await api.syncStep(jobId, { promote })
+          const res = await api.syncStep(jobId, { promote: true })
           setJob(res.job)
           if (res.done || TERMINAL.has(res.job?.status)) break
-          // Another driver holds the lease, a manual sync is running, or a soft
-          // backoff was requested.
+          // Lease held elsewhere, a manual/other sync active, or a soft backoff.
           if (res.busy || res.backoff || res.deferred) await sleep(1500)
         }
       } catch (err) {
@@ -110,7 +105,7 @@ export default function Sync() {
   // Admin runs a deferred (too-long) auto-recovery deliberately.
   const runDeferred = (deferred) => {
     setJob(deferred)
-    drive(deferred.id, true)
+    drive(deferred.id)
   }
 
   const clearHalt = async () => {
@@ -123,37 +118,8 @@ export default function Sync() {
     }
   }
 
-  const start = async () => {
-    setError(null)
-    let scope
-    if (mode === 'range') {
-      if (!from || !to) return setError('Choose a start and end date.')
-      if (from > to) return setError('The start date must be on or before the end date.')
-      scope = { type: 'range', from, to }
-    } else {
-      if (!conversationId) return setError('Choose a conversation.')
-      scope = { type: 'conversation', conversation_id: Number(conversationId) }
-    }
-
-    try {
-      const { job: created } = await api.syncStart(scope)
-      setJob(created)
-      drive(created.id)
-    } catch (err) {
-      setError(err.message || 'Could not start the sync')
-    }
-  }
-
-  const stop = () => {
-    // Cooperative: halts the client loop. The job stays resumable — the server
-    // lease expires within ~2 minutes and its cursor is intact.
-    drivingRef.current = false
-    setDriving(false)
-  }
-
   if (!isAdmin) return <Navigate to="/inbox" replace />
 
-  const running = job && !TERMINAL.has(job.status)
   const finished = job && TERMINAL.has(job.status)
 
   return (
@@ -177,6 +143,8 @@ export default function Sync() {
           </div>
         ) : null}
 
+        {error ? <div className="alert alert-error">{error}</div> : null}
+
         {channel.autoRecovering ? (
           <div className="sync-auto-note" role="status">
             <span className="spinner" />
@@ -187,101 +155,16 @@ export default function Sync() {
         <section className="card">
           <div className="card-head">
             <RefreshCw size={17} style={{ color: 'var(--text-2)' }} />
-            <h2 className="card-title">Sync missed messages</h2>
+            <h2 className="card-title">Message recovery</h2>
           </div>
-
           <div className="card-body">
             <p className="sync-lede">
-              Backfill inbound messages Whapi has that we do not — after a disconnection, or
-              to import history. Synced messages are marked read, never trigger notifications, and
-              never reorder your conversations by their old timestamps.
+              Messages missed during a WhatsApp disconnection are recovered automatically when
+              the channel reconnects — nothing to start. Recovered messages are marked read,
+              never notify, and never reorder your conversations. A recovery in progress and
+              recent results appear below; an unusually long outage is recorded but not run
+              automatically, so use its Run button to recover it deliberately.
             </p>
-
-            <div className="sync-mode">
-              <label className={`sync-mode-opt${mode === 'range' ? ' is-on' : ''}`}>
-                <input
-                  type="radio"
-                  name="sync-mode"
-                  checked={mode === 'range'}
-                  onChange={() => setMode('range')}
-                />
-                A date range
-              </label>
-              <label className={`sync-mode-opt${mode === 'conversation' ? ' is-on' : ''}`}>
-                <input
-                  type="radio"
-                  name="sync-mode"
-                  checked={mode === 'conversation'}
-                  onChange={() => setMode('conversation')}
-                />
-                A single conversation
-              </label>
-            </div>
-
-            {mode === 'range' ? (
-              <div className="form-grid">
-                <div className="field">
-                  <label className="label" htmlFor="sync-from">From</label>
-                  <input
-                    id="sync-from"
-                    className="input"
-                    type="date"
-                    value={from}
-                    onChange={(e) => setFrom(e.target.value)}
-                  />
-                </div>
-                <div className="field">
-                  <label className="label" htmlFor="sync-to">To</label>
-                  <input
-                    id="sync-to"
-                    className="input"
-                    type="date"
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="field">
-                <label className="label" htmlFor="sync-conv">Conversation</label>
-                <select
-                  id="sync-conv"
-                  className="select"
-                  value={conversationId}
-                  onChange={(e) => setConversationId(e.target.value)}
-                >
-                  <option value="">Choose a conversation…</option>
-                  {conversations.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {displayName(c)}
-                      {c.is_group ? ' (group)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {error ? <div className="alert alert-error">{error}</div> : null}
-
-            <div className="form-grid-actions">
-              {running ? (
-                <button type="button" className="btn btn-secondary" onClick={stop} disabled={!driving}>
-                  <Square size={14} />
-                  {driving ? 'Stop' : 'Paused'}
-                </button>
-              ) : (
-                <button type="button" className="btn btn-primary" onClick={start}>
-                  <Play size={15} />
-                  Start sync
-                </button>
-              )}
-              {running && !driving ? (
-                <button type="button" className="btn btn-primary" onClick={() => drive(job.id)}>
-                  <Play size={15} />
-                  Resume
-                </button>
-              ) : null}
-            </div>
           </div>
         </section>
 
@@ -300,15 +183,11 @@ export default function Sync() {
               <h2 className="card-title">
                 {finished
                   ? job.status === 'done'
-                    ? 'Sync complete'
-                    : `Sync ${job.status}`
-                  : driving
-                    ? 'Syncing…'
-                    : 'Paused'}
+                    ? 'Recovery complete'
+                    : `Recovery ${job.status}`
+                  : 'Recovering…'}
               </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
-                {scopeLabel(job, conversations)}
-              </span>
+              <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{scopeLabel(job)}</span>
             </div>
 
             <div className="card-body">
@@ -374,7 +253,7 @@ export default function Sync() {
                       {auto ? <Zap size={11} /> : null}
                       {auto ? 'Auto' : 'Manual'}
                     </span>
-                    <span className="sync-history-scope">{scopeLabel(j, conversations)}</span>
+                    <span className="sync-history-scope">{scopeLabel(j)}</span>
                     <span className={`sync-history-status is-${j.status}`}>
                       {deferred ? 'Needs manual run' : j.status}
                     </span>
