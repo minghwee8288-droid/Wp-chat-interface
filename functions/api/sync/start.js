@@ -1,6 +1,7 @@
 import { getDb, unwrap } from '../../_lib/db.js'
 import { requireAdmin } from '../../_lib/auth.js'
 import { json, badRequest, notFound, serverError, readJson } from '../../_lib/respond.js'
+import { clearAutoHalt } from '../../_lib/channel-gap.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -82,6 +83,10 @@ export async function onRequestPost({ request, env }) {
         .select('*')
         .single()
     )
+
+    // Starting a manual sync IS the admin intervention that a halted
+    // auto-recovery was waiting for — clear the halt so auto resumes afterward.
+    await clearAutoHalt(env)
 
     return json({ ok: true, job })
   } catch (err) {

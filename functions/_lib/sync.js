@@ -60,6 +60,19 @@ function dayEndUnix(date) {
 }
 
 /**
+ * The unix-second window a range/auto job covers.
+ *   range : whole days from the admin's YYYY-MM-DD dates.
+ *   auto  : the precise outage window (already buffered) in from_ts/to_ts, so a
+ *           5-minute outage recovers a 5-minute window, not a whole day.
+ */
+function rangeWindow(scope) {
+  if (scope.type === 'auto') {
+    return { from: Number(scope.from_ts) || null, to: Number(scope.to_ts) || null }
+  }
+  return { from: dayStartUnix(scope.from), to: dayEndUnix(scope.to) }
+}
+
+/**
  * Whapi's per-message delivery status -> our `status` column.
  *
  * We store only what Whapi reports, mapped onto the small set the app already
@@ -288,7 +301,9 @@ export async function runSyncStep(env, db, job) {
   if (scope.type === 'conversation') {
     return stepConversation(env, db, scope, cursor)
   }
-  if (scope.type === 'range') {
+  // Manual date range AND automatic outage recovery walk chats the same way;
+  // only the time window differs (see rangeWindow).
+  if (scope.type === 'range' || scope.type === 'auto') {
     return stepRange(env, db, scope, cursor)
   }
   return { done: true, cursor, error: `unknown scope type: ${scope.type}` }
@@ -299,6 +314,10 @@ async function stepConversation(env, db, scope, cursor) {
   const list = await listMessages(env, scope.chat_id, { offset, count: STEP_MESSAGES })
 
   if (!list.ok) {
+    // An account-level error halts the whole job — never a per-chat skip.
+    if (list.accountError) {
+      return { done: true, cursor: { ...cursor, offset }, error: list.error, accountError: true }
+    }
     // A dead chat ends this (single-conversation) job with the error recorded.
     return {
       done: true,
@@ -323,8 +342,7 @@ async function stepConversation(env, db, scope, cursor) {
 }
 
 async function stepRange(env, db, scope, cursor) {
-  const from = dayStartUnix(scope.from)
-  const to = dayEndUnix(scope.to)
+  const { from, to } = rangeWindow(scope)
   const windowSec = { from, to }
 
   const state = {
@@ -341,6 +359,11 @@ async function stepRange(env, db, scope, cursor) {
     }
     const page = await listChats(env, { offset: state.chatOffset, count: CHATS_PAGE })
     if (!page.ok) {
+      // Quota/account failure: stop the whole job so an auto-sync cannot retry
+      // it on every poll. A transient error just backs off and retries.
+      if (page.accountError) {
+        return { done: true, cursor: state, error: page.error, accountError: true }
+      }
       return { done: false, cursor: state, error: page.error, backoff: true }
     }
     state.pending = page.chats
@@ -369,6 +392,11 @@ async function stepRange(env, db, scope, cursor) {
   })
 
   if (!list.ok) {
+    // Account-level failure halts everything; a normal one just skips this chat.
+    if (list.accountError) {
+      state.current = null
+      return { done: true, cursor: state, error: list.error, accountError: true }
+    }
     // Skip this chat, record the failure, move on.
     const chatId = state.current.id
     state.current = null

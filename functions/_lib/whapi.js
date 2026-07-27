@@ -517,6 +517,14 @@ export function groupJidOf(msg) {
 /** Bare group id for URL paths — Whapi wants the full JID including @g.us. */
 export const groupIdForApi = (jid) => String(jid || '').trim()
 
+/**
+ * Account-level HTTP failures — they affect the whole channel, not one chat, so
+ * an auto-sync must halt (not retry every poll) rather than skip and continue.
+ * 402 = quota/payment. Kept deliberately narrow so a transient per-resource 4xx
+ * does not wrongly halt everything.
+ */
+export const isAccountError = (status) => status === 402
+
 // ---------------------------------------------------------------------------
 // History listing — used ONLY by the admin sync/backfill, never live.
 //
@@ -553,7 +561,15 @@ export async function listMessages(env, chatId, { offset = 0, count = 100, timeF
 
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 160)
-      return { ok: false, error: `list_${res.status}${detail ? `: ${detail}` : ''}`, messages: [] }
+      return {
+        ok: false,
+        error: `list_${res.status}${detail ? `: ${detail}` : ''}`,
+        // 402 (and other account-level failures) affect the whole account, not
+        // one chat — the caller must halt rather than skip-and-continue.
+        accountError: isAccountError(res.status),
+        status: res.status,
+        messages: [],
+      }
     }
 
     const data = await res.json().catch(() => null)
@@ -582,7 +598,13 @@ export async function listChats(env, { offset = 0, count = 100 } = {}) {
 
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 160)
-      return { ok: false, error: `chats_${res.status}${detail ? `: ${detail}` : ''}`, chats: [] }
+      return {
+        ok: false,
+        error: `chats_${res.status}${detail ? `: ${detail}` : ''}`,
+        accountError: isAccountError(res.status),
+        status: res.status,
+        chats: [],
+      }
     }
 
     const data = await res.json().catch(() => null)

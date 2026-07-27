@@ -2,6 +2,7 @@ import { getDb, unwrap } from '../../_lib/db.js'
 import { requireAdmin } from '../../_lib/auth.js'
 import { json, badRequest, notFound, serverError, readJson } from '../../_lib/respond.js'
 import { runSyncStep } from '../../_lib/sync.js'
+import { haltAutoRecovery } from '../../_lib/channel-gap.js'
 
 // How long a step may hold the job before another step is allowed to take over.
 // Long enough to cover a slow media-heavy step, short enough that a crashed
@@ -24,7 +25,7 @@ export async function onRequestPost({ request, env }) {
   const auth = await requireAdmin(request, env)
   if (auth.response) return auth.response
 
-  const { job_id } = await readJson(request)
+  const { job_id, promote } = await readJson(request)
   const jobId = Number(job_id)
   if (!Number.isInteger(jobId) || jobId <= 0) return badRequest('job_id is required')
 
@@ -37,9 +38,38 @@ export async function onRequestPost({ request, env }) {
     if (!job) return notFound('Sync job not found')
     if (TERMINAL.has(job.status)) return json({ ok: true, job, done: true })
 
+    const isAuto = job.scope?.type === 'auto'
+
+    // A DEFERRED job (a gap too long to auto-run) only runs when an admin
+    // explicitly promotes it from the Sync page. Automatic drivers never pass
+    // promote, so they leave it alone.
+    if (job.status === 'deferred' && !promote) {
+      return json({ ok: true, job, deferred: true })
+    }
+
+    const now = Date.now()
+
+    // Never run an auto-recovery while a MANUAL sync is actively running (a
+    // manual job holding a fresh lease). Auto waits — it does not compete. A
+    // pending/abandoned manual job (no fresh lease) does not block it, so this
+    // cannot deadlock.
+    if (isAuto) {
+      const others =
+        unwrap(
+          await db
+            .from('wp_chat_sync_jobs')
+            .select('id, scope, lease_until')
+            .in('status', ['pending', 'running'])
+            .neq('id', jobId)
+        ) || []
+      const manualRunning = others.some(
+        (o) => o?.scope?.type !== 'auto' && o.lease_until && new Date(o.lease_until).getTime() > now
+      )
+      if (manualRunning) return json({ ok: true, job, busy: true })
+    }
+
     // Lease: if a fresh lease is held, another step is mid-flight — tell the
     // client to back off rather than running the same unit twice.
-    const now = Date.now()
     if (job.lease_until && new Date(job.lease_until).getTime() > now) {
       return json({ ok: true, job, busy: true })
     }
@@ -73,6 +103,25 @@ export async function onRequestPost({ request, env }) {
         await db.from('wp_chat_sync_jobs').update(patch).eq('id', jobId).select('*').single()
       )
       return json({ ok: true, job: failed, done: true })
+    }
+
+    // Account-level failure (e.g. Whapi 402): halt the job AND pause automatic
+    // recovery so it does not retry the quota failure on every poll. An admin
+    // must intervene (starting a manual sync clears the halt).
+    if (result.accountError) {
+      await haltAutoRecovery(env, result.error)
+      const patch = {
+        status: 'failed',
+        lease_until: null,
+        last_error: `Account error — auto-recovery paused until an admin intervenes: ${String(result.error).slice(0, 300)}`,
+        cursor: result.cursor || job.cursor,
+        updated_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+      }
+      const halted = unwrap(
+        await db.from('wp_chat_sync_jobs').update(patch).eq('id', jobId).select('*').single()
+      )
+      return json({ ok: true, job: halted, done: true, accountError: true })
     }
 
     // Merge counters and record any soft (per-chat) error without stopping.

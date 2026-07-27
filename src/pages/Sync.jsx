@@ -1,17 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, Link } from 'react-router-dom'
-import { ArrowLeft, RefreshCw, Play, Square, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Play, Square, CheckCircle2, AlertTriangle, Zap } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useChannel } from '../context/ChannelContext.jsx'
 import { displayName } from '../lib/format.js'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const TERMINAL = new Set(['done', 'failed', 'canceled'])
 
+/** unix seconds -> a short local date/time. */
+function fmtTs(ts) {
+  const d = new Date(Number(ts) * 1000)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+/** Is this an automatic outage-recovery job? */
+const isAuto = (job) => job?.scope?.type === 'auto'
+
 /** Human label for a job's scope. */
 function scopeLabel(job, conversations) {
   const s = job?.scope || {}
+  if (s.type === 'auto') return `${fmtTs(s.from_ts)} → ${fmtTs(s.to_ts)}`
   if (s.type === 'range') return `${s.from} → ${s.to}`
   if (s.type === 'conversation') {
     const conv = conversations.find((c) => String(c.id) === String(s.conversation_id))
@@ -22,6 +34,7 @@ function scopeLabel(job, conversations) {
 
 export default function Sync() {
   const { isAdmin } = useAuth()
+  const channel = useChannel()
 
   const [mode, setMode] = useState('range') // 'range' | 'conversation'
   const [from, setFrom] = useState('')
@@ -30,54 +43,85 @@ export default function Sync() {
   const [conversations, setConversations] = useState([])
 
   const [job, setJob] = useState(null)
+  const [jobs, setJobs] = useState([])
   const [driving, setDriving] = useState(false)
   const [error, setError] = useState(null)
 
   // Lets Stop halt the loop cooperatively without tearing down the request.
   const drivingRef = useRef(false)
 
-  // Conversation picker + a resumable job, loaded once.
-  useEffect(() => {
-    let cancelled = false
-    api.conversations().then((d) => !cancelled && setConversations(d.conversations || [])).catch(() => {})
-    api
-      .syncStatus()
-      .then((d) => {
-        if (cancelled) return
-        const active = (d.jobs || []).find((j) => !TERMINAL.has(j.status))
-        if (active) setJob(active)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
+  const loadJobs = useCallback(async () => {
+    try {
+      const d = await api.syncStatus()
+      setJobs(d.jobs || [])
+      return d.jobs || []
+    } catch {
+      return []
     }
   }, [])
 
+  // Conversation picker + recent jobs, loaded once, then polled so auto
+  // recoveries (driven from ChannelContext) show up live.
+  useEffect(() => {
+    let cancelled = false
+    api.conversations().then((d) => !cancelled && setConversations(d.conversations || [])).catch(() => {})
+    loadJobs().then((list) => {
+      if (cancelled) return
+      // Resume a manual job that was mid-run (not an auto one — those drive
+      // themselves from the channel poll).
+      const active = list.find((j) => !TERMINAL.has(j.status) && !isAuto(j))
+      if (active) setJob(active)
+    })
+    const t = setInterval(() => !cancelled && loadJobs(), 5000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [loadJobs])
+
   const drive = useCallback(
-    async (jobId) => {
+    async (jobId, promote = false) => {
       drivingRef.current = true
       setDriving(true)
       setError(null)
       try {
         // Loop of bounded steps. Each returns the whole job, so progress
-        // updates every iteration.
+        // updates every iteration. `promote` runs a deferred (too-long) job.
         // eslint-disable-next-line no-constant-condition
         while (drivingRef.current) {
-          const res = await api.syncStep(jobId)
+          const res = await api.syncStep(jobId, { promote })
           setJob(res.job)
           if (res.done || TERMINAL.has(res.job?.status)) break
-          // Another driver holds the lease, or a soft backoff was requested.
-          if (res.busy || res.backoff) await sleep(1500)
+          // Another driver holds the lease, a manual sync is running, or a soft
+          // backoff was requested.
+          if (res.busy || res.backoff || res.deferred) await sleep(1500)
         }
       } catch (err) {
         if (err.status !== 401) setError(err.message || 'Sync step failed')
       } finally {
         drivingRef.current = false
         setDriving(false)
+        loadJobs()
       }
     },
-    []
+    [loadJobs]
   )
+
+  // Admin runs a deferred (too-long) auto-recovery deliberately.
+  const runDeferred = (deferred) => {
+    setJob(deferred)
+    drive(deferred.id, true)
+  }
+
+  const clearHalt = async () => {
+    try {
+      await api.clearAutoHalt()
+      channel.recheck?.()
+      loadJobs()
+    } catch (err) {
+      setError(err.message || 'Could not clear the halt')
+    }
+  }
 
   const start = async () => {
     setError(null)
@@ -119,6 +163,26 @@ export default function Sync() {
           <ArrowLeft size={14} />
           Back to inbox
         </Link>
+
+        {channel.autoHalted ? (
+          <div className="alert alert-error sync-halt">
+            <AlertTriangle size={15} />
+            <span>
+              Automatic recovery is paused after an account-level error:{' '}
+              <strong>{channel.autoHalted}</strong>. Resolve it with Whapi, then clear this.
+            </span>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={clearHalt}>
+              Clear
+            </button>
+          </div>
+        ) : null}
+
+        {channel.autoRecovering ? (
+          <div className="sync-auto-note" role="status">
+            <span className="spinner" />
+            Auto-recovering messages missed during a disconnection…
+          </div>
+        ) : null}
 
         <section className="card">
           <div className="card-head">
@@ -290,6 +354,51 @@ export default function Sync() {
                     : 'Everything was already up to date — nothing needed adding.'}
                 </p>
               ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {jobs.length ? (
+          <section className="card">
+            <div className="card-head">
+              <RefreshCw size={16} style={{ color: 'var(--text-2)' }} />
+              <h2 className="card-title">Recent syncs</h2>
+            </div>
+            <div className="sync-history">
+              {jobs.map((j) => {
+                const auto = isAuto(j)
+                const deferred = j.status === 'deferred'
+                return (
+                  <div className="sync-history-row" key={j.id}>
+                    <span className={`sync-tag${auto ? ' is-auto' : ''}`}>
+                      {auto ? <Zap size={11} /> : null}
+                      {auto ? 'Auto' : 'Manual'}
+                    </span>
+                    <span className="sync-history-scope">{scopeLabel(j, conversations)}</span>
+                    <span className={`sync-history-status is-${j.status}`}>
+                      {deferred ? 'Needs manual run' : j.status}
+                    </span>
+                    <span className="sync-history-counts">
+                      {TERMINAL.has(j.status) || j.status === 'running'
+                        ? `+${j.messages_added ?? 0} msgs`
+                        : ''}
+                    </span>
+                    {deferred ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => runDeferred(j)}
+                        disabled={driving}
+                      >
+                        <Play size={12} />
+                        Run
+                      </button>
+                    ) : (
+                      <span className="sync-history-spacer" />
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </section>
         ) : null}

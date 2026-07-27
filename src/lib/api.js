@@ -272,11 +272,19 @@ export const api = {
   // --- admin sync / backfill ---
   syncStart: (scope) => request('/sync/start', { method: 'POST', body: scope }),
 
-  syncStep: (jobId, signal) =>
-    request('/sync/step', { method: 'POST', body: { job_id: jobId }, signal }),
+  /** One sync step. `promote` runs a deferred (too-long auto) job on admin request. */
+  syncStep: (jobId, { promote = false, signal } = {}) =>
+    request('/sync/step', {
+      method: 'POST',
+      body: { job_id: jobId, ...(promote ? { promote: true } : {}) },
+      signal,
+    }),
 
   syncStatus: (jobId, signal) =>
     request(jobId != null ? `/sync/status?job_id=${encodeURIComponent(jobId)}` : '/sync/status', {
       signal,
     }),
+
+  /** Admin: clear an account-level auto-recovery halt. */
+  clearAutoHalt: () => request('/channel/clear-halt', { method: 'POST' }),
 }
