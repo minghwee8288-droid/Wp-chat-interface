@@ -923,7 +923,8 @@ button {
   align-items: flex-start;
   gap: 12px;
   width: 100%;
-  padding: 10px 16px;
+  /* Tightened from 10px to 8px vertical — denser, calmer, WhatsApp-like. */
+  padding: 8px 16px;
   text-align: left;
   background: var(--surface);
   transition: background 0.1s ease;
@@ -999,7 +1000,10 @@ button {
   flex: 1;
   min-width: 0;
   font-size: 14px;
-  font-weight: 500;
+  /* Read rows are regular weight so the list reads calm; unread names go
+     semibold below to carry the distinction. */
+  font-weight: 400;
+  line-height: 1.3;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1017,7 +1021,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .conv-snippet {
@@ -1025,6 +1029,7 @@ button {
   min-width: 0;
   font-size: 13px;
   font-weight: 400;
+  line-height: 1.3;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1057,8 +1062,11 @@ button {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-top: 2px;
-  font-size: 11px;
+  margin-top: 1px;
+  /* Line 3 is metadata now (a group's member count, and the assignee), so it
+     is a step smaller and quieter than the preview. */
+  font-size: 10.5px;
+  line-height: 1.2;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -1081,6 +1089,9 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-2);
+  /* Lower the contrast of the colour-coded label so it reads as quiet metadata
+     beside the name and preview, not a competing element. Hue is unchanged. */
+  opacity: 0.8;
 }
 
 /* Per-agent colour, keyed on the SAME hash the avatars use so one agent reads
@@ -1248,8 +1259,12 @@ button {
   white-space: nowrap;
 }
 
-/* Unread: the preview darkens and thickens, the stamp turns accent. Weight
-   carries the signal without the whole row shouting. */
+/* Unread: the name goes semibold (read names are regular), the preview darkens
+   and thickens, the stamp turns accent. Weight carries the signal without the
+   whole row shouting. */
+.conv-row.is-unread .conv-name {
+  font-weight: 600;
+}
 .conv-row.is-unread .conv-snippet {
   font-weight: 500;
   color: var(--text);

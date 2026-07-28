@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal } from 'lucide-react'
 import {
   displayName,
-  formatNumber,
   relativeStamp,
   matchesQuery,
   firstName,
@@ -138,9 +137,6 @@ export default function ConversationList({
             const name = displayName(conversation)
             // Whitespace-only bodies count as empty too.
             const preview = String(conversation.last_message_body || '').trim()
-            // A named contact keeps its number on line 3; an unnamed one has
-            // already been promoted to the name, so showing it twice is noise.
-            const hasRealName = Boolean(conversation.customer_name?.trim())
             const isGroup = Boolean(conversation.is_group)
             const assignee = firstName(conversation.assigned_to)
             // Same hash as the avatars, keyed on the USER ID so a rename never
@@ -184,18 +180,19 @@ export default function ConversationList({
                     ) : null}
                   </div>
 
-                  {/* Line 3 always renders so the row height is constant, and
-                      it is where the assignee lives — the badge never shares a
-                      line with it, so neither can displace the other. */}
+                  {/* Line 3 is quiet metadata. The phone number is dropped from
+                      the row (an unnamed contact already shows it as the name on
+                      line 1, and the contact panel has it otherwise); only a
+                      group keeps its member-count identity here. The assignee
+                      stays on its own line so the unread badge can never
+                      displace it. */}
                   <div className="conv-meta">
                     <span className="conv-number">
                       {isGroup
                         ? conversation.member_count
                           ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
                           : 'Group'
-                        : hasRealName
-                          ? formatNumber(conversation.customer_number)
-                          : ''}
+                        : ''}
                     </span>
                     <span
                       className={`conv-assignee${assignee ? '' : ' is-unassigned'}`}
