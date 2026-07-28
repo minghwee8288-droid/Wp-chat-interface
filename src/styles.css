@@ -923,9 +923,9 @@ button {
   align-items: flex-start;
   gap: 12px;
   width: 100%;
-  /* 11px vertical: comfortable, calm rows — the 8px density pass was too tight.
-     Fewer rows per screen on purpose. */
-  padding: 11px 16px;
+  /* 15px vertical → ~80px rows, so 8 fit a 390px screen (700px list viewport)
+     rather than 9. Slightly airier, closer to WhatsApp's row rhythm. */
+  padding: 15px 16px;
   text-align: left;
   background: var(--surface);
   transition: background 0.1s ease;
@@ -1001,9 +1001,9 @@ button {
   flex: 1;
   min-width: 0;
   font-size: 14px;
-  /* Read rows are regular weight so the list reads calm; unread names go
-     semibold below to carry the distinction. */
-  font-weight: 400;
+  /* Read rows are medium (500) for a little more presence; unread names go
+     heavier still (600) below to keep the read/unread distinction. */
+  font-weight: 500;
   line-height: 1.3;
   color: var(--text);
   overflow: hidden;
@@ -1041,6 +1041,19 @@ button {
 .conv-snippet.is-empty {
   font-style: italic;
   color: var(--text-3);
+}
+
+/* Group-row preview only: the "Sender:" label gets a medium weight so it reads
+   as a distinct name, heavier than the message body (400) yet deliberately
+   lighter than the group name on line 1 (500) so it never competes with it.
+   Stays inline so the whole preview still truncates on one line. */
+.conv-snippet-sender {
+  font-weight: 450;
+}
+/* Unread group rows lift the body to 500; keep the sender a step above it and
+   still under the unread name (600). */
+.conv-row.is-unread .conv-snippet-sender {
+  font-weight: 550;
 }
 
 .conv-badge {

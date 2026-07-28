@@ -16,6 +16,23 @@ import ConversationFilters, {
 import SearchResults from './SearchResults.jsx'
 import { useMessageSearch } from '../lib/useMessageSearch.js'
 
+// A group preview reads "Sender: message". Split on the FIRST ": " so the
+// sender label can be styled apart from the body; the message may itself
+// contain colons and stays intact. One-to-one previews (isGroup=false) render
+// as a plain string. The trailing space stays with the message so the two
+// segments keep their single space and truncate together on one line.
+function renderPreview(text, isGroup) {
+  if (!isGroup) return text
+  const sep = text.indexOf(': ')
+  if (sep === -1) return text
+  return (
+    <>
+      <span className="conv-snippet-sender">{text.slice(0, sep + 1)}</span>
+      {text.slice(sep + 1)}
+    </>
+  )
+}
+
 export default function ConversationList({
   conversations,
   openId,
@@ -168,9 +185,15 @@ export default function ConversationList({
                     <span className={`conv-snippet${preview ? '' : ' is-empty'}`}>
                       {/* A group's inbound preview already carries
                           "Sender: " from the webhook, so only outbound needs a
-                          prefix here. */}
+                          prefix here. In a group row the leading "Sender:" is
+                          split into its own span so it can carry a heavier
+                          weight than the message; one-to-one rows are rendered
+                          as a plain string, unchanged. */}
                       {preview
-                        ? `${conversation.last_direction === 'outbound' ? 'You: ' : ''}${preview}`
+                        ? renderPreview(
+                            `${conversation.last_direction === 'outbound' ? 'You: ' : ''}${preview}`,
+                            isGroup
+                          )
                         : 'No messages yet'}
                     </span>
                     {unread > 0 ? (
