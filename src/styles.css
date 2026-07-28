@@ -923,9 +923,10 @@ button {
   align-items: flex-start;
   gap: 12px;
   width: 100%;
-  /* 15px vertical → ~80px rows, so 8 fit a 390px screen (700px list viewport)
-     rather than 9. Slightly airier, closer to WhatsApp's row rhythm. */
-  padding: 15px 16px;
+  /* 16px vertical → ~84px rows (the 16px name adds height too), so exactly 8
+     fit a 390px screen (700px list viewport) with the 9th peeking. Closer to
+     WhatsApp's row rhythm. */
+  padding: 16px 16px;
   text-align: left;
   background: var(--surface);
   transition: background 0.1s ease;
@@ -1000,7 +1001,9 @@ button {
 .conv-name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  /* 16px — a clear step above the 13px preview so the name reads as the row's
+     primary line and everything else as secondary. */
+  font-size: 16px;
   /* Read rows are medium (500) for a little more presence; unread names go
      heavier still (600) below to keep the read/unread distinction. */
   font-weight: 500;
