@@ -923,8 +923,9 @@ button {
   align-items: flex-start;
   gap: 12px;
   width: 100%;
-  /* Tightened from 10px to 8px vertical — denser, calmer, WhatsApp-like. */
-  padding: 8px 16px;
+  /* 11px vertical: comfortable, calm rows — the 8px density pass was too tight.
+     Fewer rows per screen on purpose. */
+  padding: 11px 16px;
   text-align: left;
   background: var(--surface);
   transition: background 0.1s ease;
