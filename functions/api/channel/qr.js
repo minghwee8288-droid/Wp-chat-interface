@@ -82,14 +82,26 @@ export async function onRequestGet({ request, env }) {
   }
 
   if (!qr.ok) {
-    // A transitional 500 means the channel flipped out of QR-ready between the
-    // health check and the fetch — soft "starting", let the countdown refetch.
-    if (qr.status === 500) {
-      console.log('whapi QR: transitional 500, returning starting')
+    // Transitional: /health says QR-ready but the image is not materialised yet
+    // — a Whapi 5xx, an empty/no-data body, or a transport blip. All of these
+    // mean "not ready this instant", so soft "starting" and let the client's
+    // countdown refetch. This is the SAME treatment for every caller (initial,
+    // auto-refresh tick, and manual New-code all hit this one path).
+    const status = Number(qr.status) || 0
+    const transitional =
+      status >= 500 ||
+      status === 0 || // thrown/transport failure (fetchLoginQr catch → no status)
+      qr.error === 'qr_empty' ||
+      qr.error === 'qr_no_data'
+    if (transitional) {
+      console.log(
+        'whapi QR: transitional image failure, returning starting',
+        JSON.stringify({ channel_status: state.status, qr_status: qr.status ?? null, error: qr.error ?? null })
+      )
       return starting(state.status)
     }
-    // A real QR failure is not a server bug; report it so the UI can show the
-    // status and offer a retry rather than a spinner forever.
+    // Only a genuinely terminal failure (e.g. an unexpected 4xx) is surfaced,
+    // so the UI can show the status and offer a retry rather than spinning.
     return json(
       { ok: false, connected: false, status: state.status, error: qr.error || 'qr_unavailable' },
       502

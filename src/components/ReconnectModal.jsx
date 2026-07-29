@@ -14,6 +14,12 @@ const RELAUNCH_ATTEMPTS = 5
 const HEALTH_POLL_MS = 3000
 const QR_REFRESH_SECONDS = 20
 
+// A QR fetch can fail transiently while the channel is still coming up (Whapi
+// answers 500 until it can render a code). Any fetch — initial, auto-refresh,
+// or manual "New code" — retries quietly this many times before a hard error,
+// so a transitional failure never surfaces as qr_500.
+const MAX_QR_SOFT_RETRIES = 4
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
@@ -35,6 +41,7 @@ export default function ReconnectModal({ onClose }) {
   const [error, setError] = useState(null)
 
   const runRef = useRef(0)
+  const qrSoftFailsRef = useRef(0)
   const mountedRef = useRef(true)
   useEffect(() => () => { mountedRef.current = false }, [])
 
@@ -49,40 +56,52 @@ export default function ReconnectModal({ onClose }) {
 
   const loadQr = useCallback(async () => {
     const runId = runRef.current
+    // Hold the spinner and refetch shortly instead of showing an error.
+    const softRetry = (retryIn) => {
+      setError(null)
+      setQr(null)
+      setSecondsLeft(Number(retryIn) > 0 ? Number(retryIn) : 3)
+    }
     try {
       const data = await api.channelQr()
       if (!alive(runId)) return
       if (data.connected) return succeed()
       if (!data.qr) {
-        setError('Could not load a QR code. Try again in a moment.')
+        // ok, but the code is not ready this instant — treat as still starting.
+        softRetry(3)
         return
       }
+      qrSoftFailsRef.current = 0
       setError(null)
       setQr(data.qr)
       setSecondsLeft(Number(data.expires_in) > 0 ? Number(data.expires_in) : QR_REFRESH_SECONDS)
     } catch (err) {
       if (!alive(runId)) return
-      // The channel is still launching and cannot issue a QR yet. Not an error:
-      // hold the spinner and let the countdown refetch after retry_in seconds.
-      if (err.data?.status === 'starting') {
-        setError(null)
-        setQr(null)
-        const wait = Number(err.data.retry_in) > 0 ? Number(err.data.retry_in) : 3
-        setSecondsLeft(wait)
-        return
-      }
       if (err.status === 403) {
         setError('Only an admin can reconnect the channel.')
         setPhase('error')
-      } else {
-        setError(err.message || 'Could not load a QR code.')
+        return
       }
+      // 'starting' is the channel still coming up (server maps Whapi's
+      // transitional 500 to this) — always soft-retry it. Any other error gets
+      // the same soft treatment for a few attempts, so a transient Whapi 500 on
+      // the New-code or auto-refresh path never surfaces as qr_500; only a
+      // persistent failure becomes visible.
+      const isStarting = err.data?.status === 'starting'
+      if (isStarting) qrSoftFailsRef.current = 0
+      else qrSoftFailsRef.current += 1
+      if (isStarting || qrSoftFailsRef.current <= MAX_QR_SOFT_RETRIES) {
+        softRetry(err.data?.retry_in)
+        return
+      }
+      setError(err.message || 'Could not load a QR code.')
     }
   }, [alive, succeed])
 
   // The relaunch attempt — also the entry point.
   const startRelaunch = useCallback(async () => {
     const runId = ++runRef.current
+    qrSoftFailsRef.current = 0
     setPhase('relaunching')
     setError(null)
     setQr(null)
