@@ -62,6 +62,15 @@ export default function ReconnectModal({ onClose }) {
       setSecondsLeft(Number(data.expires_in) > 0 ? Number(data.expires_in) : QR_REFRESH_SECONDS)
     } catch (err) {
       if (!alive(runId)) return
+      // The channel is still launching and cannot issue a QR yet. Not an error:
+      // hold the spinner and let the countdown refetch after retry_in seconds.
+      if (err.data?.status === 'starting') {
+        setError(null)
+        setQr(null)
+        const wait = Number(err.data.retry_in) > 0 ? Number(err.data.retry_in) : 3
+        setSecondsLeft(wait)
+        return
+      }
       if (err.status === 403) {
         setError('Only an admin can reconnect the channel.')
         setPhase('error')

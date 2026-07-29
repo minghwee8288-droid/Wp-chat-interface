@@ -22,10 +22,14 @@ export function setSessionLostHandler(fn) {
 }
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, data = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    // The parsed response body, when there was one. Lets a caller inspect a
+    // structured soft-failure (e.g. { ok:false, status:'starting' }) that the
+    // wrapper still throws on because ok===false.
+    this.data = data
   }
 }
 
@@ -134,7 +138,7 @@ async function send(path, { method = 'GET', body, signal, raw = false } = {}, re
   }
 
   if (!res.ok || data?.ok === false) {
-    throw new ApiError(data?.error || `Request failed (${res.status})`, res.status)
+    throw new ApiError(data?.error || `Request failed (${res.status})`, res.status, data)
   }
 
   return data ?? {}

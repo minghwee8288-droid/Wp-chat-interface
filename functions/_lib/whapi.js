@@ -342,10 +342,15 @@ function base64FromBytes(buffer) {
  * Resolves to { ok, dataUrl } | { ok:false, alreadyAuthed } | { ok:false, error }.
  * Never throws.
  */
-export async function fetchLoginQr(env, { size = 400 } = {}) {
+export async function fetchLoginQr(env, { size = 400, wakeup = false } = {}) {
   try {
     const { token, apiUrl } = whapiConfig(env)
-    const qs = new URLSearchParams({ wakeup: 'true', size: String(size) })
+    // wakeup is OFF by default now: requesting the image with wakeup=true made
+    // Whapi launch the channel AND render a QR in the same call, and it 500s
+    // when the channel has not yet reached a QR-ready state. The caller launches
+    // first and waits for readiness, then fetches the image as a pure read.
+    const qs = new URLSearchParams({ size: String(size) })
+    if (wakeup) qs.set('wakeup', 'true')
     const url = `${apiUrl}/users/login/image?${qs}`
 
     // Diagnostic (Bug 2): log the EXACT outbound request so a Whapi-side 500 can
