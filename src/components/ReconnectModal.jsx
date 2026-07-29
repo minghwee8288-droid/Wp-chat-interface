@@ -43,6 +43,11 @@ export default function ReconnectModal({ onClose }) {
   const runRef = useRef(0)
   // When the current run of soft 'starting' retries began, so it can be capped.
   const startingSinceRef = useRef(0)
+  // Single-flight guard: only ONE QR fetch may be in flight. Without it the
+  // countdown tick and the "New code" button overlap, and a slightly-later
+  // 'starting' response overwrites a successful one (setQr(null)) — the QR
+  // flashes then vanishes back to the spinner.
+  const loadingRef = useRef(false)
   const mountedRef = useRef(true)
   useEffect(() => () => { mountedRef.current = false }, [])
 
@@ -56,6 +61,11 @@ export default function ReconnectModal({ onClose }) {
   }, [channel])
 
   const loadQr = useCallback(async () => {
+    // One fetch at a time — a second call while one is in flight is dropped, so
+    // a stale 'starting' can never land on top of a fresh success (or vice
+    // versa). The in-flight call owns the outcome.
+    if (loadingRef.current) return
+    loadingRef.current = true
     const runId = runRef.current
 
     // The channel is still coming up. Hold the spinner and refetch shortly — but
@@ -111,6 +121,8 @@ export default function ReconnectModal({ onClose }) {
           : err.message || 'Could not load a QR code.'
       )
       setPhase('error')
+    } finally {
+      loadingRef.current = false
     }
   }, [alive, succeed])
 
@@ -118,6 +130,9 @@ export default function ReconnectModal({ onClose }) {
   const startRelaunch = useCallback(async () => {
     const runId = ++runRef.current
     startingSinceRef.current = 0
+    // A superseded in-flight fetch (now invalidated by the runRef bump) must not
+    // keep the single-flight guard latched and block this run's QR fetch.
+    loadingRef.current = false
     setPhase('relaunching')
     setError(null)
     setQr(null)
