@@ -25,6 +25,15 @@ export async function onRequestGet({ request, env }) {
     return json({ ok: true, connected: true, status: health.status })
   }
 
+  // Diagnostic (Bug 2): the channel state we are about to request a QR against.
+  // A 500 from Whapi's login/image correlates with a non-QR-ready state here
+  // (e.g. LAUNCHING/STARTING), which is what distinguishes a state/race cause
+  // from a wrong endpoint shape.
+  console.log(
+    'whapi QR: channel state before fetch',
+    JSON.stringify({ status: health.status, code: health.code ?? null, connected: health.connected })
+  )
+
   const qr = await fetchLoginQr(env, { size: 400 })
 
   // Whapi answered 409 "already authenticated" — treat as connected.

@@ -189,6 +189,16 @@ export const api = {
     return request(`/search?${params}`, { signal })
   },
 
+  /**
+   * AI summary for one conversation. The server decides whether to return the
+   * cached summary or (re)generate per the 6-hour / new-activity rules, so the
+   * client just asks and renders whatever comes back.
+   */
+  summary: (conversationId, signal) =>
+    request(`/conversation/summary?conversation_id=${encodeURIComponent(conversationId)}`, {
+      signal,
+    }),
+
   send: (conversationId, body, media = null) =>
     request('/send', {
       method: 'POST',

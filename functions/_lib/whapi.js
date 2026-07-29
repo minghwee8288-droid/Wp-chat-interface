@@ -346,8 +346,17 @@ export async function fetchLoginQr(env, { size = 400 } = {}) {
   try {
     const { token, apiUrl } = whapiConfig(env)
     const qs = new URLSearchParams({ wakeup: 'true', size: String(size) })
+    const url = `${apiUrl}/users/login/image?${qs}`
 
-    const res = await fetch(`${apiUrl}/users/login/image?${qs}`, {
+    // Diagnostic (Bug 2): log the EXACT outbound request so a Whapi-side 500 can
+    // be correlated with the request shape and the channel state. The token
+    // lives only in the Authorization header and is never logged.
+    console.log(
+      'whapi QR request',
+      JSON.stringify({ method: 'GET', url, accept: 'image/png', authorization: 'Bearer <redacted>' })
+    )
+
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'image/png' },
     })
 
@@ -358,6 +367,11 @@ export async function fetchLoginQr(env, { size = 400 } = {}) {
     }
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 160)
+      // Whapi returns 500 "Internal Error" here when the channel is not yet in a
+      // QR-issuing state (e.g. still launching from the wakeup) — log status +
+      // body so the state/race vs endpoint-shape question is answerable from
+      // production logs.
+      console.error('whapi QR failed', JSON.stringify({ status: res.status, body: detail }))
       return { ok: false, status: res.status, error: `qr_${res.status}${detail ? `: ${detail}` : ''}` }
     }
 
