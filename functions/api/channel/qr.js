@@ -16,11 +16,13 @@ const QR_READY_STATE = 'QR'
 const READY_POLL_ATTEMPTS = 4
 const READY_POLL_MS = 1200
 
-// At the QR-ready state the image should render. Absorb a one-off blip with a
-// bounded internal retry; a failure that PERSISTS at 'QR' is a real, actionable
-// error — never an endless 'starting' loop.
-const IMAGE_FETCH_ATTEMPTS = 3
-const IMAGE_RETRY_MS = 800
+// Whapi's image endpoint is INTERMITTENT even at 'QR' — it often succeeds on a
+// later attempt. Give it several tries, spaced out, alternating no-wakeup /
+// wakeup (the two read modes fail independently). Only 502 after genuinely
+// exhausting these. A total-time cap keeps the request from hanging.
+const IMAGE_FETCH_ATTEMPTS = 6
+const IMAGE_RETRY_MS = 1500
+const IMAGE_MAX_TOTAL_MS = 12000
 
 // How long the client should wait before asking again while still starting.
 const STARTING_RETRY_SECONDS = 3
@@ -81,17 +83,13 @@ export async function onRequestGet({ request, env }) {
     return starting(state.status)
   }
 
-  // Channel reports 'QR' — the image SHOULD render now. Fetch it (pure read, no
-  // wakeup), with a bounded internal retry to absorb a one-off blip. Log the
-  // ACTUAL image status/body each time: an image failure while channel_status is
-  // already 'QR' is the real unknown, so it must be visible in the logs.
-  let lastFail = null
+  // Channel reports 'QR' — the image SHOULD render now, but Whapi's image
+  // endpoint is intermittent here. Retry several times, spaced out, alternating
+  // no-wakeup / wakeup, and record EXACTLY what Whapi returned on each attempt.
+  const attempts = []
+  const startedAt = Date.now()
   for (let attempt = 1; attempt <= IMAGE_FETCH_ATTEMPTS; attempt++) {
-    // Try a pure read first. If that fails at the QR-ready state, retry WITH
-    // wakeup — safe here because the channel is already up (no launch to race),
-    // and it covers a Whapi that only emits the image on a wakeup read. The
-    // no-wakeup failure is still logged, so the cause stays visible.
-    const wakeup = attempt > 1
+    const wakeup = attempt % 2 === 0 // alternate: 1 no-wakeup, 2 wakeup, 3 no-wakeup, …
     const qr = await fetchLoginQr(env, { size: 400, wakeup })
 
     // Whapi answered 409 "already authenticated" — treat as connected.
@@ -102,29 +100,36 @@ export async function onRequestGet({ request, env }) {
       return json({ ok: true, connected: false, status: 'QR', qr: qr.dataUrl, expires_in: QR_TTL_SECONDS })
     }
 
-    lastFail = { image_status: qr.status ?? null, image_error: qr.error ?? null }
+    const record = { attempt, wakeup, image_status: qr.status ?? null, image_body: qr.body ?? qr.error ?? null }
+    attempts.push(record)
     console.error(
       'whapi QR: image fetch FAILED while channel_status=QR',
-      JSON.stringify({ attempt, of: IMAGE_FETCH_ATTEMPTS, wakeup, channel_status: state.status, ...lastFail })
+      JSON.stringify({ of: IMAGE_FETCH_ATTEMPTS, channel_status: state.status, ...record })
     )
+
+    // Stop early if we have run out of time; otherwise space out the next try.
+    if (Date.now() - startedAt >= IMAGE_MAX_TOTAL_MS) break
     if (attempt < IMAGE_FETCH_ATTEMPTS) await sleep(IMAGE_RETRY_MS)
   }
 
-  // The image failed on every attempt while the channel says it is QR-ready.
-  // This is a REAL, persistent failure — surface it (with detail) so it is
-  // visible and actionable, instead of soft-looping forever.
+  // Genuinely exhausted at 'QR'. Surface EXACTLY what Whapi returned on every
+  // attempt (status + raw body, both read modes) in the 502 body, so it is
+  // visible in the network tab — not only the server logs.
   console.error(
     'whapi QR: image persistently unavailable at QR-ready state',
-    JSON.stringify({ channel_status: state.status, ...lastFail })
+    JSON.stringify({ channel_status: state.status, attempts })
   )
+  const last = attempts[attempts.length - 1] || {}
   return json(
     {
       ok: false,
       connected: false,
       status: state.status,
       channel_status: state.status,
-      image_status: lastFail?.image_status ?? null,
-      error: lastFail?.image_error || 'qr_unavailable',
+      image_status: last.image_status ?? null,
+      image_body: last.image_body ?? null,
+      attempts, // [{ attempt, wakeup, image_status, image_body }] — every Whapi response
+      error: 'qr_unavailable',
     },
     502
   )

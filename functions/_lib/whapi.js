@@ -371,13 +371,11 @@ export async function fetchLoginQr(env, { size = 400, wakeup = false } = {}) {
       return { ok: false, alreadyAuthed: true, status: 409 }
     }
     if (!res.ok) {
-      const detail = (await res.text()).slice(0, 160)
-      // Whapi returns 500 "Internal Error" here when the channel is not yet in a
-      // QR-issuing state (e.g. still launching from the wakeup) — log status +
-      // body so the state/race vs endpoint-shape question is answerable from
-      // production logs.
+      // Keep the raw body (widened to 400 chars) so the caller can surface
+      // EXACTLY what Whapi returned — status + body — not just a code.
+      const detail = (await res.text()).slice(0, 400)
       console.error('whapi QR failed', JSON.stringify({ status: res.status, body: detail }))
-      return { ok: false, status: res.status, error: `qr_${res.status}${detail ? `: ${detail}` : ''}` }
+      return { ok: false, status: res.status, body: detail || null, error: `qr_${res.status}${detail ? `: ${detail}` : ''}` }
     }
 
     const type = String(res.headers.get('content-type') || '')
@@ -389,16 +387,20 @@ export async function fetchLoginQr(env, { size = 400, wakeup = false } = {}) {
       const raw = [data?.qr, data?.image, data?.base64, data?.data].find(
         (v) => typeof v === 'string' && v
       )
-      if (!raw) return { ok: false, status: 200, error: 'qr_no_data' }
+      if (!raw) {
+        const keys = data && typeof data === 'object' ? Object.keys(data).join(',') : typeof data
+        return { ok: false, status: 200, body: `json_without_qr_field: ${keys}`, error: 'qr_no_data' }
+      }
       return { ok: true, dataUrl: raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}` }
     }
 
     const bytes = await res.arrayBuffer()
-    if (!bytes.byteLength) return { ok: false, status: 200, error: 'qr_empty' }
+    if (!bytes.byteLength) return { ok: false, status: 200, body: 'empty_image_body', error: 'qr_empty' }
     const mime = type.split(';')[0].trim() || 'image/png'
     return { ok: true, dataUrl: `data:${mime};base64,${base64FromBytes(bytes)}` }
   } catch (err) {
-    return { ok: false, error: String(err?.message || 'qr_failed') }
+    // Transport failure (no HTTP status) — carry the message as the body.
+    return { ok: false, status: null, body: String(err?.message || 'transport_error'), error: String(err?.message || 'qr_failed') }
   }
 }
 
