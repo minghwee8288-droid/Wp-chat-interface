@@ -14,11 +14,11 @@ const RELAUNCH_ATTEMPTS = 5
 const HEALTH_POLL_MS = 3000
 const QR_REFRESH_SECONDS = 20
 
-// A QR fetch can fail transiently while the channel is still coming up (Whapi
-// answers 500 until it can render a code). Any fetch — initial, auto-refresh,
-// or manual "New code" — retries quietly this many times before a hard error,
-// so a transitional failure never surfaces as qr_500.
-const MAX_QR_SOFT_RETRIES = 4
+// The server returns soft 'starting' while the channel is still coming up. We
+// retry quietly, but only for this long in total — then surface a real error
+// with a manual retry, so a stuck launch is visible rather than an eternal
+// spinner.
+const MAX_QR_STARTING_MS = 30000
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -41,7 +41,8 @@ export default function ReconnectModal({ onClose }) {
   const [error, setError] = useState(null)
 
   const runRef = useRef(0)
-  const qrSoftFailsRef = useRef(0)
+  // When the current run of soft 'starting' retries began, so it can be capped.
+  const startingSinceRef = useRef(0)
   const mountedRef = useRef(true)
   useEffect(() => () => { mountedRef.current = false }, [])
 
@@ -56,22 +57,34 @@ export default function ReconnectModal({ onClose }) {
 
   const loadQr = useCallback(async () => {
     const runId = runRef.current
-    // Hold the spinner and refetch shortly instead of showing an error.
-    const softRetry = (retryIn) => {
+
+    // The channel is still coming up. Hold the spinner and refetch shortly — but
+    // only until the total-time cap, then surface a real error so a stuck launch
+    // does not spin forever.
+    const handleStarting = (retryIn) => {
+      const now = Date.now()
+      if (!startingSinceRef.current) startingSinceRef.current = now
+      if (now - startingSinceRef.current >= MAX_QR_STARTING_MS) {
+        startingSinceRef.current = 0
+        setError('WhatsApp is taking longer than usual to produce a QR code.')
+        setPhase('error')
+        return
+      }
       setError(null)
       setQr(null)
       setSecondsLeft(Number(retryIn) > 0 ? Number(retryIn) : 3)
     }
+
     try {
       const data = await api.channelQr()
       if (!alive(runId)) return
       if (data.connected) return succeed()
       if (!data.qr) {
         // ok, but the code is not ready this instant — treat as still starting.
-        softRetry(3)
+        handleStarting(3)
         return
       }
-      qrSoftFailsRef.current = 0
+      startingSinceRef.current = 0
       setError(null)
       setQr(data.qr)
       setSecondsLeft(Number(data.expires_in) > 0 ? Number(data.expires_in) : QR_REFRESH_SECONDS)
@@ -82,26 +95,29 @@ export default function ReconnectModal({ onClose }) {
         setPhase('error')
         return
       }
-      // 'starting' is the channel still coming up (server maps Whapi's
-      // transitional 500 to this) — always soft-retry it. Any other error gets
-      // the same soft treatment for a few attempts, so a transient Whapi 500 on
-      // the New-code or auto-refresh path never surfaces as qr_500; only a
-      // persistent failure becomes visible.
-      const isStarting = err.data?.status === 'starting'
-      if (isStarting) qrSoftFailsRef.current = 0
-      else qrSoftFailsRef.current += 1
-      if (isStarting || qrSoftFailsRef.current <= MAX_QR_SOFT_RETRIES) {
-        softRetry(err.data?.retry_in)
+      // 'starting' means the channel is still coming up — soft-retry (capped).
+      if (err.data?.status === 'starting') {
+        handleStarting(err.data.retry_in)
         return
       }
-      setError(err.message || 'Could not load a QR code.')
+      // Anything else is a REAL failure — most tellingly, the server reached the
+      // QR-ready state but the image fetch persistently failed (channel_status
+      // 'QR'). Surface it with a manual retry rather than looping. The precise
+      // image status/body is in the server logs.
+      startingSinceRef.current = 0
+      setError(
+        err.data?.channel_status === 'QR'
+          ? 'WhatsApp reported the channel ready but did not return a QR code. Please try again.'
+          : err.message || 'Could not load a QR code.'
+      )
+      setPhase('error')
     }
   }, [alive, succeed])
 
   // The relaunch attempt — also the entry point.
   const startRelaunch = useCallback(async () => {
     const runId = ++runRef.current
-    qrSoftFailsRef.current = 0
+    startingSinceRef.current = 0
     setPhase('relaunching')
     setError(null)
     setQr(null)

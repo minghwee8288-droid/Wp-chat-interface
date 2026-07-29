@@ -6,16 +6,22 @@ import { json } from '../../_lib/respond.js'
 // this to show an expiry countdown and refetch before it dies.
 const QR_TTL_SECONDS = 20
 
-// A channel that can hand out a QR is in one of these states. Anything else
-// (LAUNCHING, INIT, unknown) is still coming up and cannot render one yet.
-const QR_READY = new Set(['QR', 'STARTING'])
+// Only 'QR' means Whapi can actually render the pairing image. STARTING/LAUNCHING
+// are still coming up — we poll THROUGH them but must NOT fetch the image there
+// (that is what 500s). Reaching 'QR' is what gates the fetch.
+const QR_READY_STATE = 'QR'
 
-// After asking Whapi to launch, wait briefly for the channel to reach a
-// QR-ready state before requesting the image. Bounded so the request stays
-// snappy — if it is not ready in time we hand back a soft "starting" and let
-// the client's countdown refetch, rather than blocking or 500ing.
+// After asking Whapi to launch, poll /health this many times waiting to reach
+// 'QR'. If it never does, we return soft "starting" and the client retries.
 const READY_POLL_ATTEMPTS = 4
 const READY_POLL_MS = 1200
+
+// At the QR-ready state the image should render. Absorb a one-off blip with a
+// bounded internal retry; a failure that PERSISTS at 'QR' is a real, actionable
+// error — never an endless 'starting' loop.
+const IMAGE_FETCH_ATTEMPTS = 3
+const IMAGE_RETRY_MS = 800
+
 // How long the client should wait before asking again while still starting.
 const STARTING_RETRY_SECONDS = 3
 
@@ -50,10 +56,11 @@ export async function onRequestGet({ request, env }) {
     return json({ ok: true, connected: true, status: health.status })
   }
 
-  // Launch, then wait for the channel to be able to issue a QR. launchChannel is
-  // GET /health?wakeup=true, so its result is already the first health read.
+  // Launch, then poll /health until the channel reaches 'QR' (or connects). We
+  // poll THROUGH STARTING/LAUNCHING but never fetch the image there. launchChannel
+  // is GET /health?wakeup=true, so its result is already the first health read.
   let state = await launchChannel(env)
-  for (let i = 0; i < READY_POLL_ATTEMPTS && !state.connected && !QR_READY.has(state.status); i++) {
+  for (let i = 0; i < READY_POLL_ATTEMPTS && !state.connected && state.status !== QR_READY_STATE; i++) {
     await sleep(READY_POLL_MS)
     state = await checkHealth(env)
   }
@@ -67,52 +74,58 @@ export async function onRequestGet({ request, env }) {
     JSON.stringify({ status: state.status, code: state.code ?? null, connected: state.connected })
   )
 
-  // Still not QR-ready: tell the client to retry shortly rather than erroring.
-  if (!QR_READY.has(state.status)) {
-    console.log('whapi QR: channel not QR-ready yet, returning starting', JSON.stringify({ status: state.status }))
+  // Still coming up (not yet 'QR'): soft "starting" — the client retries, but
+  // only up to a total-time cap so a stuck launch surfaces rather than spins.
+  if (state.status !== QR_READY_STATE) {
+    console.log('whapi QR: not QR-ready yet, returning starting', JSON.stringify({ status: state.status }))
     return starting(state.status)
   }
 
-  // The channel can render a QR now — fetch it as a pure read (no wakeup).
-  const qr = await fetchLoginQr(env, { size: 400, wakeup: false })
+  // Channel reports 'QR' — the image SHOULD render now. Fetch it (pure read, no
+  // wakeup), with a bounded internal retry to absorb a one-off blip. Log the
+  // ACTUAL image status/body each time: an image failure while channel_status is
+  // already 'QR' is the real unknown, so it must be visible in the logs.
+  let lastFail = null
+  for (let attempt = 1; attempt <= IMAGE_FETCH_ATTEMPTS; attempt++) {
+    // Try a pure read first. If that fails at the QR-ready state, retry WITH
+    // wakeup — safe here because the channel is already up (no launch to race),
+    // and it covers a Whapi that only emits the image on a wakeup read. The
+    // no-wakeup failure is still logged, so the cause stays visible.
+    const wakeup = attempt > 1
+    const qr = await fetchLoginQr(env, { size: 400, wakeup })
 
-  // Whapi answered 409 "already authenticated" — treat as connected.
-  if (qr.alreadyAuthed) {
-    return json({ ok: true, connected: true, status: 'AUTH' })
-  }
-
-  if (!qr.ok) {
-    // Transitional: /health says QR-ready but the image is not materialised yet
-    // — a Whapi 5xx, an empty/no-data body, or a transport blip. All of these
-    // mean "not ready this instant", so soft "starting" and let the client's
-    // countdown refetch. This is the SAME treatment for every caller (initial,
-    // auto-refresh tick, and manual New-code all hit this one path).
-    const status = Number(qr.status) || 0
-    const transitional =
-      status >= 500 ||
-      status === 0 || // thrown/transport failure (fetchLoginQr catch → no status)
-      qr.error === 'qr_empty' ||
-      qr.error === 'qr_no_data'
-    if (transitional) {
-      console.log(
-        'whapi QR: transitional image failure, returning starting',
-        JSON.stringify({ channel_status: state.status, qr_status: qr.status ?? null, error: qr.error ?? null })
-      )
-      return starting(state.status)
+    // Whapi answered 409 "already authenticated" — treat as connected.
+    if (qr.alreadyAuthed) {
+      return json({ ok: true, connected: true, status: 'AUTH' })
     }
-    // Only a genuinely terminal failure (e.g. an unexpected 4xx) is surfaced,
-    // so the UI can show the status and offer a retry rather than spinning.
-    return json(
-      { ok: false, connected: false, status: state.status, error: qr.error || 'qr_unavailable' },
-      502
+    if (qr.ok) {
+      return json({ ok: true, connected: false, status: 'QR', qr: qr.dataUrl, expires_in: QR_TTL_SECONDS })
+    }
+
+    lastFail = { image_status: qr.status ?? null, image_error: qr.error ?? null }
+    console.error(
+      'whapi QR: image fetch FAILED while channel_status=QR',
+      JSON.stringify({ attempt, of: IMAGE_FETCH_ATTEMPTS, wakeup, channel_status: state.status, ...lastFail })
     )
+    if (attempt < IMAGE_FETCH_ATTEMPTS) await sleep(IMAGE_RETRY_MS)
   }
 
-  return json({
-    ok: true,
-    connected: false,
-    status: 'QR',
-    qr: qr.dataUrl,
-    expires_in: QR_TTL_SECONDS,
-  })
+  // The image failed on every attempt while the channel says it is QR-ready.
+  // This is a REAL, persistent failure — surface it (with detail) so it is
+  // visible and actionable, instead of soft-looping forever.
+  console.error(
+    'whapi QR: image persistently unavailable at QR-ready state',
+    JSON.stringify({ channel_status: state.status, ...lastFail })
+  )
+  return json(
+    {
+      ok: false,
+      connected: false,
+      status: state.status,
+      channel_status: state.status,
+      image_status: lastFail?.image_status ?? null,
+      error: lastFail?.image_error || 'qr_unavailable',
+    },
+    502
+  )
 }
