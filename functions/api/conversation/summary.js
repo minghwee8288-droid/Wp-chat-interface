@@ -7,6 +7,7 @@ import {
   AiError,
   FIRST_MESSAGE_CAP,
   INCREMENTAL_MESSAGE_CAP,
+  SEED_WINDOW_DAYS,
 } from '../../_lib/ai.js'
 
 // A summary generation holds the lease for at most this long; a crashed request
@@ -16,19 +17,24 @@ const LEASE_MS = 120 * 1000
 // Only the columns a summary needs — never the full MESSAGE_COLUMNS. This
 // endpoint reads messages and writes wp_chat_summaries and nothing else: it
 // must not touch message rows, unread counts, or conversation state.
-const SUMMARY_MSG_COLUMNS = 'id, direction, body, sender_name, media_type, media_caption'
+const SUMMARY_MSG_COLUMNS = 'id, direction, body, sender_name, media_type, media_caption, created_at'
 
 const positiveInt = (v) => {
   const n = Number(v)
   return Number.isInteger(n) && n > 0 ? n : null
 }
 
-/** Shape a stored row for the client, or null when there is no summary yet. */
+/**
+ * Shape a stored row for the client, or null when there is no summary yet. The
+ * panel shows the SHORT summary; the big summary is the memory (EOD report,
+ * later phase) and is not sent to the panel.
+ */
 function toClient(row, extra = {}) {
   const summary =
-    row && row.summary_text && row.summary_text.trim()
+    row && row.short_summary && row.short_summary.trim()
       ? {
-          text: row.summary_text,
+          text: row.short_summary,
+          department: row.department || null,
           attention_required: !!row.attention_required,
           attention_level: row.attention_level || null,
           attention_reason: row.attention_reason || null,
@@ -114,7 +120,7 @@ export async function onRequestGet({ request, env }) {
         const inserted = unwrap(
           await db
             .from('wp_chat_summaries')
-            .insert({ conversation_id: conversationId, summary_text: '', lease_until: leaseIso })
+            .insert({ conversation_id: conversationId, lease_until: leaseIso })
             .select('*')
         )
         haveLease = Array.isArray(inserted) && inserted.length > 0
@@ -136,19 +142,29 @@ export async function onRequestGet({ request, env }) {
         .catch(() => {})
 
     try {
-      // Gather the messages to send. FIRST: newest N, oldest-first. INCREMENTAL:
-      // only ids past the cursor, newest N of them (truncating oldest-first),
-      // oldest-first. Ordered by id so the cursor and the ordering agree.
-      const cap = decision.mode === 'incremental' ? INCREMENTAL_MESSAGE_CAP : FIRST_MESSAGE_CAP
-      let q = db
-        .from('wp_chat_messages')
-        .select(SUMMARY_MSG_COLUMNS)
-        .eq('conversation_id', conversationId)
-        .order('id', { ascending: false })
-        .limit(cap)
-      if (decision.mode === 'incremental') q = q.gt('id', summaryRow.last_summarized_message_id ?? 0)
+      // Gather the messages to send, ordered by id so the cursor and ordering
+      // agree; always oldest-first for the prompt.
+      //   INCREMENTAL: only ids past the cursor (newest N, truncating oldest-first).
+      //   FIRST (seed): the last SEED_WINDOW_DAYS (newest N). If nothing falls in
+      //     that window (an old, just-reopened chat), fall back to newest N of all
+      //     so a first summary always seeds from something.
+      const base = () =>
+        db
+          .from('wp_chat_messages')
+          .select(SUMMARY_MSG_COLUMNS)
+          .eq('conversation_id', conversationId)
+          .order('id', { ascending: false })
 
-      const desc = unwrap(await q) || []
+      let desc
+      if (decision.mode === 'incremental') {
+        desc = unwrap(
+          await base().gt('id', summaryRow.last_summarized_message_id ?? 0).limit(INCREMENTAL_MESSAGE_CAP)
+        ) || []
+      } else {
+        const cutoff = new Date(Date.now() - SEED_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
+        desc = unwrap(await base().gte('created_at', cutoff).limit(FIRST_MESSAGE_CAP)) || []
+        if (!desc.length) desc = unwrap(await base().limit(FIRST_MESSAGE_CAP)) || []
+      }
       const messages = desc.reverse()
 
       if (!messages.length) {
@@ -161,7 +177,7 @@ export async function onRequestGet({ request, env }) {
       const result = await produceSummary({
         env,
         mode: decision.mode,
-        existingSummary: summaryRow?.summary_text || '',
+        existingBigSummary: summaryRow?.big_summary || '',
         messages,
         isGroup,
       })
@@ -170,7 +186,9 @@ export async function onRequestGet({ request, env }) {
         await db
           .from('wp_chat_summaries')
           .update({
-            summary_text: result.summary,
+            big_summary: result.big_summary,
+            short_summary: result.short_summary,
+            department: result.department,
             attention_required: result.attention_required,
             attention_level: result.attention_level,
             attention_reason: result.attention_reason,

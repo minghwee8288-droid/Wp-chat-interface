@@ -3328,6 +3328,19 @@ button {
   color: var(--text-2);
 }
 
+/* Small department chip above the short summary — hidden when unclear/null. */
+.summary-dept {
+  display: inline-block;
+  margin: 0 0 8px;
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
 .summary-text {
   margin: 0;
   font-size: 13px;

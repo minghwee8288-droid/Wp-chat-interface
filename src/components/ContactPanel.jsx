@@ -145,6 +145,13 @@ const ATTENTION = {
   general: 'General',
 }
 
+// A clean department chip is shown for a confident classification; 'unclear'
+// and null are hidden rather than adding noise.
+const DEPARTMENT = {
+  sales: 'Sales',
+  operations: 'Operations',
+}
+
 function SummarySection({ conversation }) {
   // 'loading' covers the in-flight request, which is also when the model may be
   // running server-side — hence the "Summarizing…" copy.
@@ -251,6 +258,10 @@ function SummarySection({ conversation }) {
                     ) : null}
                   </div>
                 </div>
+              ) : null}
+
+              {DEPARTMENT[summary.department] ? (
+                <span className="summary-dept">{DEPARTMENT[summary.department]}</span>
               ) : null}
 
               <p className="summary-text">{summary.text}</p>

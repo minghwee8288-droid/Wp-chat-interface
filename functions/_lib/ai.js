@@ -4,6 +4,10 @@ import { drainBody } from './http.js'
 // The one place the model lives. Swap the provider/model here and every
 // summary call follows. OpenRouter is OpenAI-compatible, so this is a plain
 // fetch — no SDK in the Worker bundle.
+//
+// Two-tier architecture: ONE call produces a BIG summary (the compacted memory,
+// source of truth) + a SHORT summary (what the panel shows) + the department
+// classification + the attention flag.
 // ====================================================================
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -15,15 +19,27 @@ export const AI_MODEL = 'deepseek/deepseek-v3.2'
 
 export const REFRESH_MS = 6 * 60 * 60 * 1000 // 6 hours
 
-// Input caps — the whole cost constraint. Even a first summary never sends more
-// than FIRST_MESSAGE_CAP messages; an incremental update never sends more than
-// INCREMENTAL_MESSAGE_CAP *new* ones. Long bodies are clipped, and the joined
-// transcript is hard-capped by characters, truncating oldest-first.
-export const FIRST_MESSAGE_CAP = 40
+// Input caps — the whole cost constraint.
+//   FIRST seed: the last SEED_WINDOW_DAYS of messages, capped to FIRST_MESSAGE_CAP.
+//   INCREMENTAL: only the NEW messages since the cursor, capped to INCREMENTAL_MESSAGE_CAP.
+// The full history is never re-read; compaction folds new activity into the big
+// summary and compresses older detail.
+export const SEED_WINDOW_DAYS = 30
+export const FIRST_MESSAGE_CAP = 60
 export const INCREMENTAL_MESSAGE_CAP = 40
+
+// The big summary is bounded by instruction to this target; the model compresses
+// older/resolved detail to stay under it, so incremental calls do not grow
+// without limit. Expected steady-state big summary ≈ this size.
+export const BIG_SUMMARY_TARGET_CHARS = 1500
+
 const PER_MESSAGE_CHARS = 800
-const MAX_TRANSCRIPT_CHARS = 12000 // ~3k tokens, a hard ceiling on every call
-const MAX_OUTPUT_TOKENS = 400
+const MAX_TRANSCRIPT_CHARS = 12000 // ~3k tokens, a hard ceiling on the transcript
+// Big (~375t) + short (~90t) + classification/attention fields — 700 is ample.
+const MAX_OUTPUT_TOKENS = 700
+
+const DEPARTMENTS = ['sales', 'operations', 'unclear']
+const LEVELS = ['management', 'team', 'general']
 
 /** A model/parse failure the endpoint turns into a graceful "couldn't refresh". */
 export class AiError extends Error {
@@ -70,27 +86,26 @@ export function formatTranscript(messages, isGroup) {
 }
 
 const SYSTEM_PROMPT = [
-  'You summarize a customer-support WhatsApp conversation for the team.',
-  'Return ONLY a JSON object, no prose and no markdown fences, with exactly these keys:',
-  '  "summary": a concise plain-language summary of the conversation so far (2-4 sentences).',
+  'You maintain a running memory of a customer-support WhatsApp conversation for the team.',
+  'Return ONLY a JSON object — no prose, no markdown fences — with EXACTLY these keys:',
+  `  "big_summary": a detailed, factual running record of the WHOLE conversation — what is pending, the stage of any process (e.g. a verification), key facts, decisions, amounts, dates. This is the memory. Keep it UNDER ~${BIG_SUMMARY_TARGET_CHARS} characters: compress older or resolved detail to make room for new activity, but NEVER drop an item that is still pending or unresolved, however old.`,
+  '  "short_summary": a brief, current 2-3 sentence summary derived from big_summary. This is what the team sees at a glance.',
+  '  "department": one of "sales" (pricing, negotiation, quotes, sales enquiries), "operations" (documents, paperwork, process/operational matters), or "unclear" (cannot confidently determine).',
   '  "attention_required": boolean — true if a human should look at this soon.',
   '  "attention_level": one of "management", "team", "general", or null when attention_required is false.',
   '  "attention_reason": a short string (why), or null when attention_required is false.',
-  'Flag attention for things like: an angry or upset customer, a stalled or at-risk deal,',
-  'an unanswered question, or an explicit escalation request. Use "management" for the most',
-  'serious (churn/complaint/legal), "team" for something the handling team should act on,',
-  '"general" for a mild flag. If nothing needs attention, set attention_required=false and the',
-  'other two fields to null. For a group chat, note it is a group and you may reference senders.',
+  'Attention: flag an angry/upset customer, a stalled/at-risk deal, an unanswered question, or an explicit escalation. "management" = most serious (churn/complaint/legal), "team" = the handling team should act, "general" = mild. If nothing needs attention: attention_required=false and the other two null.',
+  'For a group chat, note it is a group and you may reference senders.',
 ].join('\n')
 
 /**
  * Build the OpenAI-format messages array.
- *   mode 'first'       — summarize the supplied recent history.
- *   mode 'incremental' — update existingSummary using ONLY the supplied new
- *                        messages; the full history is never included.
- * Returns { messages, truncated } where truncated notes oldest-first char clipping.
+ *   mode 'first'       — seed the big summary from the supplied recent history.
+ *   mode 'incremental' — compact: fold ONLY the supplied new messages into the
+ *                        supplied existing big summary. The full history is never
+ *                        included.
  */
-export function buildSummaryRequest({ mode, existingSummary, messages, isGroup }) {
+export function buildSummaryRequest({ mode, existingBigSummary, messages, isGroup }) {
   let transcript = formatTranscript(messages, isGroup)
   let truncated = false
   if (transcript.length > MAX_TRANSCRIPT_CHARS) {
@@ -104,10 +119,11 @@ export function buildSummaryRequest({ mode, existingSummary, messages, isGroup }
 
   const user =
     mode === 'incremental'
-      ? `${groupNote}Here is the existing summary of this conversation:\n"""\n${existingSummary || ''}\n"""\n\n` +
-        `Update it to incorporate ONLY these new messages (oldest to newest). Preserve important earlier context from the existing summary; do not drop it.\n\n` +
+      ? `${groupNote}Here is the existing big_summary (the memory so far):\n"""\n${existingBigSummary || ''}\n"""\n\n` +
+        `Update it by folding in ONLY these NEW messages (oldest to newest) and compacting older/resolved detail to stay under ~${BIG_SUMMARY_TARGET_CHARS} characters. Do NOT re-summarize from scratch and do NOT drop still-pending items. Then derive short_summary, department and attention from the updated big_summary.\n\n` +
         `New messages:\n${transcript}${truncNote}`
-      : `${groupNote}Summarize this conversation. Messages (oldest to newest):\n${transcript}${truncNote}`
+      : `${groupNote}Build the big_summary from these recent messages (about the last ${SEED_WINDOW_DAYS} days, oldest to newest), then derive short_summary, department and attention from it.\n\n` +
+        `Messages:\n${transcript}${truncNote}`
 
   return {
     messages: [
@@ -118,13 +134,11 @@ export function buildSummaryRequest({ mode, existingSummary, messages, isGroup }
   }
 }
 
-const LEVELS = ['management', 'team', 'general']
-
 /**
  * Defensive parse of the model's reply. Strips markdown fences, extracts the
- * outermost {...}, JSON.parses, then validates and coerces every field so a
- * plausible-but-sloppy response still yields a well-formed record. Throws
- * AiError only when there is no usable summary at all.
+ * outermost {...}, JSON.parses, then validates and coerces every field. Throws
+ * AiError only when there is NO usable summary at all — so a partially-sloppy
+ * response still yields a record and the endpoint never blanks a good summary.
  */
 export function parseSummaryResponse(text) {
   if (!text || typeof text !== 'string') throw new AiError('empty model response')
@@ -142,8 +156,14 @@ export function parseSummaryResponse(text) {
   }
   if (!obj || typeof obj !== 'object') throw new AiError('model response was not an object')
 
-  const summary = typeof obj.summary === 'string' ? obj.summary.trim() : ''
-  if (!summary) throw new AiError('model response had no summary')
+  const big = typeof obj.big_summary === 'string' ? obj.big_summary.trim() : ''
+  const short = typeof obj.short_summary === 'string' ? obj.short_summary.trim() : ''
+  if (!big && !short) throw new AiError('model response had no summary')
+  // Tolerate one-of-two: derive the missing side rather than failing.
+  const bigOut = big || short
+  const shortOut = short || (big.length > 300 ? big.slice(0, 300).trim() + '…' : big)
+
+  const department = DEPARTMENTS.includes(obj.department) ? obj.department : 'unclear'
 
   const attention = obj.attention_required === true
   let level = null
@@ -157,7 +177,9 @@ export function parseSummaryResponse(text) {
   }
 
   return {
-    summary,
+    big_summary: bigOut,
+    short_summary: shortOut,
+    department,
     attention_required: attention,
     attention_level: level,
     attention_reason: reason,
@@ -165,33 +187,39 @@ export function parseSummaryResponse(text) {
 }
 
 /**
- * Decide, without any model call, what to do on open:
- *   - no messages at all, no prior summary            -> { action: 'empty' }
- *   - messages but no prior summary                   -> { action: 'generate', mode: 'first' }
- *   - prior summary, no NEW messages since its cursor -> { action: 'cached' }   (never call the model)
- *   - prior summary, new messages, but < 6h old       -> { action: 'cached' }
- *   - prior summary, new messages, and >= 6h old      -> { action: 'generate', mode: 'incremental' }
+ * Decide, without any model call, what to do on open. The big summary is the
+ * memory; the short is what is shown.
+ *   - nothing stored, messages exist            -> generate/first   (seed)
+ *   - nothing stored, no messages               -> empty
+ *   - stored summary, NO new messages           -> cached           (DORMANT: never call the model, any age)
+ *   - stored summary, new messages, < 6h old    -> cached
+ *   - stored, new messages, >= 6h, has big       -> generate/incremental  (compact)
+ *   - stored, new messages, >= 6h, no big (e.g.
+ *     a migrated short-only row)                 -> generate/first        (seed the big)
  *
- * "No new activity => never regenerate, regardless of age" and "regenerate only
- * when stale AND new messages exist" both fall out of this ordering.
+ * The dormant guard (no new messages -> cached) is absolute and is what makes a
+ * closed/quiet conversation cost zero forever.
  */
 export function decideRefresh({ summaryRow, latestMessageId, hasMessages, now, refreshMs = REFRESH_MS }) {
-  // An empty-text row is a placeholder (e.g. a first attempt that failed to
-  // parse) — treat it as "no summary yet" so the next open regenerates rather
-  // than caching emptiness for six hours.
-  const hasSummary = summaryRow && summaryRow.summary_text && summaryRow.summary_text.trim()
-  if (!hasSummary) {
+  const big = summaryRow && summaryRow.big_summary && summaryRow.big_summary.trim()
+  const short = summaryRow && summaryRow.short_summary && summaryRow.short_summary.trim()
+
+  // Nothing usable stored: behave like a first generation, ignoring the 6h gate.
+  if (!big && !short) {
     return hasMessages ? { action: 'generate', mode: 'first' } : { action: 'empty' }
   }
 
   const cursor = summaryRow.last_summarized_message_id
   const hasNew =
     latestMessageId != null && (cursor == null || Number(latestMessageId) > Number(cursor))
-  if (!hasNew) return { action: 'cached' }
+  if (!hasNew) return { action: 'cached' } // dormant — the critical cost guard
 
   const generatedAt = summaryRow.generated_at ? new Date(summaryRow.generated_at).getTime() : 0
   const stale = now - generatedAt >= refreshMs
-  return stale ? { action: 'generate', mode: 'incremental' } : { action: 'cached' }
+  if (!stale) return { action: 'cached' }
+
+  // New activity + stale: compact if we have a big summary, otherwise (re)seed it.
+  return { action: 'generate', mode: big ? 'incremental' : 'first' }
 }
 
 // --------------------------------------------------------------------
@@ -243,13 +271,13 @@ export async function callOpenRouter(env, requestMessages) {
 }
 
 /**
- * Produce a parsed summary from a set of messages. `generate` is injectable so
- * the endpoint (and tests) can stub the network. Returns the parsed fields plus
- * the new cursor (id of the newest message folded in).
+ * Produce a parsed two-tier summary. `generate` is injectable so the endpoint
+ * (and tests) can stub the network. Returns the parsed fields plus the new
+ * cursor (id of the newest message folded in) and the model.
  */
-export async function produceSummary({ env, mode, existingSummary, messages, isGroup, generate }) {
+export async function produceSummary({ env, mode, existingBigSummary, messages, isGroup, generate }) {
   const run = generate || ((rm) => callOpenRouter(env, rm))
-  const { messages: requestMessages } = buildSummaryRequest({ mode, existingSummary, messages, isGroup })
+  const { messages: requestMessages } = buildSummaryRequest({ mode, existingBigSummary, messages, isGroup })
   const raw = await run(requestMessages)
   const parsed = parseSummaryResponse(raw)
   const lastId = messages && messages.length ? messages[messages.length - 1].id : null
