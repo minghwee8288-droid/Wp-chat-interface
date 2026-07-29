@@ -1670,6 +1670,22 @@ button {
   border-radius: var(--r-md);
 }
 
+/* Show-all / show-less toggle under the 3-member preview. */
+.member-toggle {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.member-toggle:hover {
+  text-decoration: underline;
+}
+
 .member-row {
   display: flex;
   align-items: center;
@@ -3245,6 +3261,51 @@ button {
   font-size: 11px;
   color: var(--text-3);
   white-space: nowrap;
+}
+
+/* Collapsible header: the title + chevron form the toggle; the stamp stays to
+   its right in the section head. */
+.summary-toggle {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+.summary-chevron {
+  flex-shrink: 0;
+  color: var(--text-3);
+  transition: transform 0.2s ease;
+}
+.summary-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+/* Compact attention marker shown beside the title while collapsed. */
+.summary-flag {
+  flex-shrink: 0;
+}
+.summary-flag--management { color: var(--attn-management-fg); }
+.summary-flag--team { color: var(--attn-team-fg); }
+.summary-flag--general { color: var(--attn-general-fg); }
+
+/* Height animates via grid rows 1fr↔0fr — no fixed max-height, no jump. */
+.summary-collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.summary-collapsible.is-collapsed {
+  grid-template-rows: 0fr;
+}
+.summary-collapsible-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .summary-loading {

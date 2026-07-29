@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, ArrowLeft, Image as ImageIcon, FileText, LinkIcon,
   Users, Shield, RefreshCw, Download, Film, ExternalLink,
-  Sparkles, AlertTriangle,
+  Sparkles, AlertTriangle, ChevronDown,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import {
@@ -92,7 +92,7 @@ export default function ContactPanel({ conversation, onClose, onJumpToMessage })
 
         <SummarySection key={`summary-${conversation.id}`} conversation={conversation} />
 
-        {isGroup ? <MembersSection conversation={conversation} /> : null}
+        {isGroup ? <MembersSection key={`members-${conversation.id}`} conversation={conversation} /> : null}
 
         <div className="contact-tabs" role="tablist" aria-label="Shared content">
           {TABS.map(({ key, label, Icon }) => (
@@ -152,6 +152,7 @@ function SummarySection({ conversation }) {
   const [summary, setSummary] = useState(null)
   const [refreshFailed, setRefreshFailed] = useState(false)
   const [attempt, setAttempt] = useState(0) // bumping this re-runs the fetch
+  const [collapsed, setCollapsed] = useState(false) // default expanded
 
   useEffect(() => {
     const controller = new AbortController()
@@ -194,50 +195,73 @@ function SummarySection({ conversation }) {
   return (
     <section className="contact-section summary-section">
       <div className="contact-section-head">
-        <span className="contact-section-title">
-          <Sparkles size={14} />
-          AI summary
-        </span>
+        <button
+          type="button"
+          className="summary-toggle"
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          <ChevronDown size={15} className={`summary-chevron${collapsed ? ' is-collapsed' : ''}`} />
+          <span className="contact-section-title">
+            <Sparkles size={14} />
+            AI summary
+          </span>
+          {/* Collapsed but flagged: keep a compact attention marker by the title
+              so a flagged conversation still signals while the body is hidden. */}
+          {collapsed && level ? (
+            <AlertTriangle
+              size={13}
+              className={`summary-flag summary-flag--${level}`}
+              aria-label={`${ATTENTION[level]} attention`}
+            />
+          ) : null}
+        </button>
         {status === 'ready' && summary?.generated_at ? (
           <span className="summary-stamp">Updated {relativeAge(summary.generated_at)}</span>
         ) : null}
       </div>
 
-      {status === 'loading' ? (
-        <div className="summary-loading">
-          <span className="spinner" />
-          Summarizing…
-        </div>
-      ) : status === 'empty' ? (
-        <div className="contact-section-note">No messages to summarize yet.</div>
-      ) : status === 'error' ? (
-        <div className="summary-failed">
-          <span>Couldn’t load the summary.</span>
-          <button type="button" className="summary-retry" onClick={() => setAttempt((a) => a + 1)}>
-            Try again
-          </button>
-        </div>
-      ) : (
-        <>
-          {level ? (
-            <div className={`summary-attention summary-attention--${level}`}>
-              <AlertTriangle size={14} className="summary-attention-icon" />
-              <div className="summary-attention-body">
-                <span className="summary-attention-level">{ATTENTION[level]} attention</span>
-                {summary.attention_reason ? (
-                  <span className="summary-attention-reason">{summary.attention_reason}</span>
-                ) : null}
-              </div>
+      {/* grid-rows 1fr↔0fr collapses to the header with a smooth, jump-free
+          transition regardless of the body's height. */}
+      <div className={`summary-collapsible${collapsed ? ' is-collapsed' : ''}`}>
+        <div className="summary-collapsible-inner">
+          {status === 'loading' ? (
+            <div className="summary-loading">
+              <span className="spinner" />
+              Summarizing…
             </div>
-          ) : null}
+          ) : status === 'empty' ? (
+            <div className="contact-section-note">No messages to summarize yet.</div>
+          ) : status === 'error' ? (
+            <div className="summary-failed">
+              <span>Couldn’t load the summary.</span>
+              <button type="button" className="summary-retry" onClick={() => setAttempt((a) => a + 1)}>
+                Try again
+              </button>
+            </div>
+          ) : (
+            <>
+              {level ? (
+                <div className={`summary-attention summary-attention--${level}`}>
+                  <AlertTriangle size={14} className="summary-attention-icon" />
+                  <div className="summary-attention-body">
+                    <span className="summary-attention-level">{ATTENTION[level]} attention</span>
+                    {summary.attention_reason ? (
+                      <span className="summary-attention-reason">{summary.attention_reason}</span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
-          <p className="summary-text">{summary.text}</p>
+              <p className="summary-text">{summary.text}</p>
 
-          {refreshFailed ? (
-            <div className="summary-stale-note">Couldn’t refresh — showing the last summary.</div>
-          ) : null}
-        </>
-      )}
+              {refreshFailed ? (
+                <div className="summary-stale-note">Couldn’t refresh — showing the last summary.</div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </div>
     </section>
   )
 }
@@ -245,12 +269,16 @@ function SummarySection({ conversation }) {
 /* ------------------------------------------------------------------ *
  * Members (group only) — folded in from the old standalone modal.
  * ------------------------------------------------------------------ */
+// Group member lists can run long; show a short preview and expand on demand.
+const MEMBER_PREVIEW_COUNT = 3
+
 function MembersSection({ conversation }) {
   const [members, setMembers] = useState([])
   const [syncedAt, setSyncedAt] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
+  const [expanded, setExpanded] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -314,28 +342,40 @@ function MembersSection({ conversation }) {
       ) : members.length === 0 ? (
         <div className="contact-empty-inline">No members recorded yet. Try refreshing.</div>
       ) : (
-        <div className="member-list">
-          {members.map((m) => {
-            const name = m.member_name || formatNumber(m.member_number)
-            return (
-              <div className="member-row" key={m.id}>
-                <span className="conv-avatar member-avatar" data-color={avatarIndex(m.member_number)}>
-                  {initials(name)}
-                </span>
-                <span className="member-id">
-                  <span className="member-name">{name}</span>
-                  <span className="member-number">{formatNumber(m.member_number)}</span>
-                </span>
-                {m.is_admin ? (
-                  <span className="member-admin" title="Group admin">
-                    <Shield size={11} />
-                    Admin
+        <>
+          <div className="member-list">
+            {(expanded ? members : members.slice(0, MEMBER_PREVIEW_COUNT)).map((m) => {
+              const name = m.member_name || formatNumber(m.member_number)
+              return (
+                <div className="member-row" key={m.id}>
+                  <span className="conv-avatar member-avatar" data-color={avatarIndex(m.member_number)}>
+                    {initials(name)}
                   </span>
-                ) : null}
-              </div>
-            )
-          })}
-        </div>
+                  <span className="member-id">
+                    <span className="member-name">{name}</span>
+                    <span className="member-number">{formatNumber(m.member_number)}</span>
+                  </span>
+                  {m.is_admin ? (
+                    <span className="member-admin" title="Group admin">
+                      <Shield size={11} />
+                      Admin
+                    </span>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+          {members.length > MEMBER_PREVIEW_COUNT ? (
+            <button
+              type="button"
+              className="member-toggle"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? 'Show less' : `Show all (${members.length})`}
+            </button>
+          ) : null}
+        </>
       )}
     </section>
   )
