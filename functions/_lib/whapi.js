@@ -334,35 +334,32 @@ function base64FromBytes(buffer) {
  * data URL, so the browser renders an <img> with NO QR library and the
  * WHAPI_TOKEN never leaves the Worker.
  *
- * GET /users/login/image — documented to answer with a PNG (accept:image/png)
- * or JSON. Both are handled. Status 409 means the channel is already
- * authenticated, which is surfaced as { alreadyAuthed } rather than an error so
- * the caller can show "connected" instead of a dead QR.
+ * GET /users/login — the JSON endpoint. It answers
+ *   { status:"OK", type:"qr", expire:19, base64:"data:image/png;base64,…" }
+ * where `base64` is already a complete data URL. Chosen over /users/login/image,
+ * which intermittently 500s even at the QR-ready state. Status 409 (or an AUTH
+ * body) means already authenticated, surfaced as { alreadyAuthed }.
  *
- * Resolves to { ok, dataUrl } | { ok:false, alreadyAuthed } | { ok:false, error }.
- * Never throws.
+ * Resolves to { ok, dataUrl, expiresIn } | { ok:false, alreadyAuthed }
+ * | { ok:false, status, body, error }. Never throws.
  */
 export async function fetchLoginQr(env, { size = 400, wakeup = false } = {}) {
   try {
     const { token, apiUrl } = whapiConfig(env)
-    // wakeup is OFF by default now: requesting the image with wakeup=true made
-    // Whapi launch the channel AND render a QR in the same call, and it 500s
-    // when the channel has not yet reached a QR-ready state. The caller launches
-    // first and waits for readiness, then fetches the image as a pure read.
-    const qs = new URLSearchParams({ size: String(size) })
+    // size is accepted for signature compatibility; the JSON login endpoint
+    // returns a ready-to-render base64 QR and does not need it.
+    const qs = new URLSearchParams()
     if (wakeup) qs.set('wakeup', 'true')
-    const url = `${apiUrl}/users/login/image?${qs}`
+    const url = `${apiUrl}/users/login?${qs}`
 
-    // Diagnostic (Bug 2): log the EXACT outbound request so a Whapi-side 500 can
-    // be correlated with the request shape and the channel state. The token
-    // lives only in the Authorization header and is never logged.
+    // Log the EXACT outbound request (token is header-only, never logged).
     console.log(
       'whapi QR request',
-      JSON.stringify({ method: 'GET', url, accept: 'image/png', authorization: 'Bearer <redacted>' })
+      JSON.stringify({ method: 'GET', url, accept: 'application/json', authorization: 'Bearer <redacted>' })
     )
 
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'image/png' },
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     })
 
     // 409 = "Channel already authenticated" — not an error, just no QR needed.
@@ -378,26 +375,31 @@ export async function fetchLoginQr(env, { size = 400, wakeup = false } = {}) {
       return { ok: false, status: res.status, body: detail || null, error: `qr_${res.status}${detail ? `: ${detail}` : ''}` }
     }
 
-    const type = String(res.headers.get('content-type') || '')
+    const data = await res.json().catch(() => null)
+    const type = String(data?.type || '').toLowerCase()
+    const statusText = String(data?.status || '').toUpperCase()
 
-    // Whapi may honour accept:image/png (binary) or answer with JSON carrying a
-    // base64 string — handle both rather than assuming one.
-    if (type.includes('application/json')) {
-      const data = await res.json().catch(() => null)
-      const raw = [data?.qr, data?.image, data?.base64, data?.data].find(
-        (v) => typeof v === 'string' && v
-      )
-      if (!raw) {
-        const keys = data && typeof data === 'object' ? Object.keys(data).join(',') : typeof data
-        return { ok: false, status: 200, body: `json_without_qr_field: ${keys}`, error: 'qr_no_data' }
-      }
-      return { ok: true, dataUrl: raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}` }
+    // Some builds report an already-linked channel here instead of via 409.
+    if (statusText === 'AUTH' || type === 'auth') {
+      return { ok: false, alreadyAuthed: true, status: 200 }
     }
 
-    const bytes = await res.arrayBuffer()
-    if (!bytes.byteLength) return { ok: false, status: 200, body: 'empty_image_body', error: 'qr_empty' }
-    const mime = type.split(';')[0].trim() || 'image/png'
-    return { ok: true, dataUrl: `data:${mime};base64,${base64FromBytes(bytes)}` }
+    // Expected QR shape: base64 is a complete data:image/png URL, ready to render.
+    const b64 = typeof data?.base64 === 'string' ? data.base64 : null
+    if (type === 'qr' && b64) {
+      const dataUrl = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`
+      const expire = Number(data?.expire)
+      return { ok: true, dataUrl, expiresIn: Number.isFinite(expire) && expire > 0 ? Math.floor(expire) : null }
+    }
+
+    // OK response without a usable QR — surface the shape so it stays diagnosable.
+    const keys = data && typeof data === 'object' ? Object.keys(data).join(',') : typeof data
+    return {
+      ok: false,
+      status: 200,
+      body: `login_without_qr: status=${data?.status ?? null} type=${data?.type ?? null} keys=${keys}`,
+      error: 'qr_no_data',
+    }
   } catch (err) {
     // Transport failure (no HTTP status) — carry the message as the body.
     return { ok: false, status: null, body: String(err?.message || 'transport_error'), error: String(err?.message || 'qr_failed') }

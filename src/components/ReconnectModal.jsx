@@ -245,6 +245,9 @@ export default function ReconnectModal({ onClose }) {
                 alt="WhatsApp login QR code"
                 width={256}
                 height={256}
+                // If a code ever fails to decode, fall back to the spinner rather
+                // than letting the browser draw its broken-image icon over the QR.
+                onError={() => setQr(null)}
               />
             ) : (
               <div className="reconnect-qr-img is-loading">

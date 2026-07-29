@@ -97,7 +97,8 @@ export async function onRequestGet({ request, env }) {
       return json({ ok: true, connected: true, status: 'AUTH' })
     }
     if (qr.ok) {
-      return json({ ok: true, connected: false, status: 'QR', qr: qr.dataUrl, expires_in: QR_TTL_SECONDS })
+      // Use Whapi's own `expire` (seconds) for the refresh countdown when given.
+      return json({ ok: true, connected: false, status: 'QR', qr: qr.dataUrl, expires_in: qr.expiresIn ?? QR_TTL_SECONDS })
     }
 
     const record = { attempt, wakeup, image_status: qr.status ?? null, image_body: qr.body ?? qr.error ?? null }
