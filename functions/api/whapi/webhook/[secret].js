@@ -8,6 +8,7 @@ import {
   previewLine,
 } from '../../../_lib/ingest.js'
 import { notifyNewMessage } from '../../../_lib/notify.js'
+import { autoAssign } from '../../../_lib/assign.js'
 import { ingestAvatar } from '../../../_lib/avatar.js'
 import { syncGroup } from '../../../_lib/group.js'
 
@@ -113,8 +114,8 @@ async function handleMessage(env, msg, pending = []) {
   const db = getDb(env)
 
   const conversation = groupJid
-    ? await findOrCreateGroup(db, groupJid, businessNumber, msg?.chat_name)
-    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName)
+    ? await findOrCreateGroup(db, groupJid, businessNumber, msg?.chat_name, 'webhook')
+    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName, 'webhook')
 
   // On creation only — no refresh, no backfill. Fire-and-forget via the same
   // waitUntil the push fan-out uses, so it can never delay the 200.
@@ -124,6 +125,22 @@ async function handleMessage(env, msg, pending = []) {
         ? syncGroup(env, conversation.id, groupJid)
         : ingestAvatar(env, conversation.id, customerNumber)
     )
+
+    // A fresh 1:1 lead is auto-assigned to sales, round-robin, at creation —
+    // before the push below, so the existing routing notifies the assigned
+    // agent. Department is not consulted for fresh leads. Groups are never
+    // auto-assigned. If sales has no active agents it stays unassigned.
+    if (!groupJid) {
+      try {
+        const result = await autoAssign(db, conversation.id, 'sales')
+        if (result.assigned) {
+          conversation.assigned_user_id = result.agent.id
+          conversation.assigned_to = result.agent.name
+        }
+      } catch (err) {
+        console.error('auto-assign (fresh) failed', conversation.id, err?.message)
+      }
+    }
   }
 
   // Pull the bytes into our own bucket. A failure here must degrade to a

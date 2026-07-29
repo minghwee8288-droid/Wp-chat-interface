@@ -231,7 +231,7 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
  * participants write in. Returns the row; a freshly created one carries
  * __created so the caller can kick off the one-time group sync.
  */
-export async function findOrCreateGroup(db, groupJid, businessNumber, chatName) {
+export async function findOrCreateGroup(db, groupJid, businessNumber, chatName, source = null) {
   const existing = unwrap(
     await db
       .from('wp_chat_conversations')
@@ -253,6 +253,7 @@ export async function findOrCreateGroup(db, groupJid, businessNumber, chatName) 
       customer_name: subject,
       unread_count: 0,
       status: 'open',
+      created_source: source,
     })
     .select('id, customer_name, assigned_user_id')
     .single()
@@ -278,7 +279,7 @@ export async function findOrCreateGroup(db, groupJid, businessNumber, chatName) 
  * Find-or-create by customer_number. Fills a blank name only — never clobbers a
  * name a human may have corrected.
  */
-export async function findOrCreateConversation(db, customerNumber, businessNumber, customerName) {
+export async function findOrCreateConversation(db, customerNumber, businessNumber, customerName, source = null) {
   const existing = unwrap(
     await db
       .from('wp_chat_conversations')
@@ -307,6 +308,7 @@ export async function findOrCreateConversation(db, customerNumber, businessNumbe
       customer_name: customerName,
       unread_count: 0,
       status: 'open',
+      created_source: source,
     })
     .select('id, customer_name, assigned_user_id')
     .single()

@@ -136,8 +136,8 @@ export async function persistHistorical(env, db, msg, chatName) {
   } = shaped
 
   const conversation = groupJid
-    ? await findOrCreateGroup(db, groupJid, businessNumber, chatName)
-    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName)
+    ? await findOrCreateGroup(db, groupJid, businessNumber, chatName, 'sync')
+    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName, 'sync')
 
   // Same fetch-and-store pipeline for BOTH directions. An expired media id
   // (common on year-old messages) comes back as media_error rather than
