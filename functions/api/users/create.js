@@ -7,7 +7,7 @@ export async function onRequestPost({ request, env }) {
   const auth = await requireAdmin(request, env)
   if (auth.response) return auth.response
 
-  const { name, email, password, role } = await readJson(request)
+  const { name, email, password, role, department } = await readJson(request)
 
   if (typeof name !== 'string' || !name.trim()) return badRequest('Name is required')
   if (typeof email !== 'string' || !email.includes('@')) {
@@ -17,6 +17,15 @@ export async function onRequestPost({ request, env }) {
     return badRequest('Password must be at least 8 characters')
   }
   const userRole = role === 'admin' ? 'admin' : 'agent'
+
+  // Department: admins have none; a new agent must be given one. Existing agents
+  // may already be department-less (the column is nullable) — that is only about
+  // pre-existing rows, not new creations.
+  const dept = department == null || department === '' ? null : department
+  if (userRole === 'agent' && !['sales', 'operations'].includes(dept)) {
+    return badRequest("An agent's department must be 'sales' or 'operations'")
+  }
+  const finalDepartment = userRole === 'admin' ? null : dept
 
   try {
     const existing = await findUserByEmail(env, email, 'id, email')
@@ -32,10 +41,11 @@ export async function onRequestPost({ request, env }) {
           email: email.trim().toLowerCase(),
           password_hash: passwordHash,
           role: userRole,
+          department: finalDepartment,
           is_active: true,
           created_at: new Date().toISOString(),
         })
-        .select('id, name, email, role, is_active, created_at')
+        .select('id, name, email, role, is_active, created_at, department')
         .single()
     )
 

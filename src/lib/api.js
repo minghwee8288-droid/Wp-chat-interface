@@ -271,6 +271,9 @@ export const api = {
 
   createUser: (payload) => request('/users/create', { method: 'POST', body: payload }),
 
+  setUserDepartment: (id, department) =>
+    request('/users/department', { method: 'POST', body: { id, department } }),
+
   changePassword: (currentPassword, newPassword) =>
     request('/password/change', {
       method: 'POST',

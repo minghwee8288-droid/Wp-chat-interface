@@ -6,7 +6,9 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
 import ResetPasswordModal from '../components/ResetPasswordModal.jsx'
 
-const EMPTY_FORM = { name: '', email: '', password: '', role: 'agent' }
+const EMPTY_FORM = { name: '', email: '', password: '', role: 'agent', department: '' }
+
+const DEPARTMENT_LABEL = { sales: 'Sales', operations: 'Operations' }
 
 export default function Team() {
   const { isAdmin } = useAuth()
@@ -45,6 +47,10 @@ export default function Team() {
       setFormError('Password must be at least 8 characters')
       return
     }
+    if (form.role === 'agent' && !DEPARTMENT_LABEL[form.department]) {
+      setFormError('Choose a department for the agent')
+      return
+    }
 
     setCreating(true)
     try {
@@ -53,6 +59,7 @@ export default function Team() {
         email: form.email.trim(),
         password: form.password,
         role: form.role,
+        department: form.role === 'agent' ? form.department : null,
       })
       toast.success('Agent added', `${form.name.trim()} can now sign in.`)
       setForm(EMPTY_FORM)
@@ -65,6 +72,20 @@ export default function Team() {
   }
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+
+  // Inline department edit from the team list. Optimistic, with revert on error.
+  const changeDepartment = async (user, department) => {
+    const previous = user.department ?? null
+    if (previous === department) return
+    setUsers((list) => list.map((u) => (u.id === user.id ? { ...u, department } : u)))
+    try {
+      await api.setUserDepartment(user.id, department)
+      toast.success('Department updated', `${user.name} is now in ${DEPARTMENT_LABEL[department]}.`)
+    } catch (err) {
+      setUsers((list) => list.map((u) => (u.id === user.id ? { ...u, department: previous } : u)))
+      toast.error('Could not update department', err.message)
+    }
+  }
 
   return (
     <div className="page-scroll">
@@ -104,6 +125,24 @@ export default function Team() {
                     {user.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </div>
+
+                {/* Admins have no department, so no control. An agent shows and
+                    edits theirs inline; a department-less agent starts on the
+                    disabled placeholder. */}
+                {user.role === 'agent' ? (
+                  <select
+                    className="select user-dept-select"
+                    aria-label={`Department for ${user.name}`}
+                    value={user.department || ''}
+                    onChange={(e) => changeDepartment(user, e.target.value)}
+                  >
+                    <option value="" disabled>
+                      No department
+                    </option>
+                    <option value="sales">Sales</option>
+                    <option value="operations">Operations</option>
+                  </select>
+                ) : null}
 
                 <div className="user-row-actions">
                   <button
@@ -194,6 +233,29 @@ export default function Team() {
                   <option value="admin">Admin</option>
                 </select>
               </div>
+
+              {/* Department is required for agents; admins have none, so the
+                  selector is hidden when the role is Admin. */}
+              {form.role === 'agent' ? (
+                <div className="field">
+                  <label className="label" htmlFor="new-department">
+                    Department
+                  </label>
+                  <select
+                    id="new-department"
+                    className="select"
+                    value={form.department}
+                    onChange={update('department')}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select department
+                    </option>
+                    <option value="sales">Sales</option>
+                    <option value="operations">Operations</option>
+                  </select>
+                </div>
+              ) : null}
 
               <div className="form-grid-actions">
                 <button type="submit" className="btn btn-primary" disabled={creating}>

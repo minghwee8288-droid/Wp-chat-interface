@@ -12,7 +12,7 @@ export async function onRequestGet({ request, env }) {
       unwrap(
         await getDb(env)
           .from('wp_chat_users')
-          .select('id, name, email, role, is_active, created_at')
+          .select('id, name, email, role, is_active, created_at, department')
           .order('is_active', { ascending: false })
       ) || []
 
