@@ -990,22 +990,51 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Desktop target = the visual chip (28px). On mobile the media query below
+     grows this to a 44px touch target; the chip inside stays 28px. */
   width: 28px;
   height: 28px;
+  padding: 0;
   border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.conv-summary-btn:focus-visible {
+  outline: none;
+}
+/* The visible chip — a fixed 28px accent glyph; never resized by the touch
+   target. Centered in the button, so it keeps the same on-screen position
+   whether the target is 28px (desktop) or 44px (mobile). */
+.conv-summary-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--accent-tint, var(--surface-3));
   color: var(--accent);
-  opacity: 1;
-  cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+  transition: color 0.12s ease, background 0.12s ease;
 }
-.conv-row-wrap:hover .conv-summary-btn,
-.conv-summary-btn:hover,
-.conv-summary-btn:focus-visible {
+.conv-row-wrap:hover .conv-summary-chip,
+.conv-summary-btn:hover .conv-summary-chip,
+.conv-summary-btn:focus-visible .conv-summary-chip {
   background: var(--accent);
   color: var(--accent-contrast, #fff);
-  outline: none;
+}
+
+/* Mobile: a 44×44 touch target (Apple HIG) via a larger invisible hit area —
+   the chip stays 28px and in the same spot. Row keeps a comfortable floor
+   height. Both scoped to touch widths so desktop is untouched. */
+@media (max-width: 768px) {
+  .conv-summary-btn {
+    width: 44px;
+    height: 44px;
+    right: 0;
+  }
+  .conv-row {
+    min-height: 76px;
+  }
 }
 
 /* AI short-summary popover, launched from a row icon. Fixed + clamped so it

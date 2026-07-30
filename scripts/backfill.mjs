@@ -114,6 +114,10 @@ function installLogFilter() {
 
 const EMPTY_TOTALS = { chats: 0, found: 0, added: 0, duplicate: 0, skipped: 0, mediaStored: 0, mediaExpired: 0 }
 
+/** Only 1:1 chats and groups can be paged by /messages/list; everything else 400s. */
+const isChatJid = (id) =>
+  typeof id === 'string' && (id.endsWith('@s.whatsapp.net') || id.endsWith('@g.us'))
+
 /** Enumerate every chat, paging /chats until exhausted. ~ceil(N/100)+1 calls. */
 async function allChats(env) {
   const chats = []
@@ -240,6 +244,19 @@ export async function runBackfill({
       if (isStopping()) {
         interrupted = true
         break
+      }
+
+      // Whapi's /chats also returns pseudo-chats (status@broadcast, newsletters,
+      // …) whose JIDs are rejected by /messages/list with a 400. Only real 1:1
+      // chats (@s.whatsapp.net) and groups (@g.us) can be paged, so mark
+      // anything else done and move on.
+      if (!isChatJid(chat.id)) {
+        log(`[${index}/${chats.length}] SKIP: ${chat.id} (not a chat)`)
+        done.add(chat.id)
+        cursor.processed = [...done]
+        cursor.current = null
+        persist()
+        continue
       }
 
       const startOffset =

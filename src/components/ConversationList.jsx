@@ -235,7 +235,9 @@ export default function ConversationList({
               {/* Sibling of the row button (never nested — a button can't
                   contain a button). Absolutely placed in a reserved right
                   gutter so it doesn't disturb the 2-line rows or 8-row density.
-                  Lazy: only taps fetch the summary. */}
+                  The button is the (touch) target; the inner chip is the small
+                  visual, so the hit area can grow on mobile without the icon
+                  changing size. Lazy: only taps fetch the summary. */}
               <button
                 type="button"
                 className="conv-summary-btn"
@@ -245,7 +247,9 @@ export default function ConversationList({
                   setPopover({ conversation, rect: e.currentTarget.getBoundingClientRect() })
                 }}
               >
-                <Sparkles size={14} />
+                <span className="conv-summary-chip">
+                  <Sparkles size={14} />
+                </span>
               </button>
               </div>
             )
