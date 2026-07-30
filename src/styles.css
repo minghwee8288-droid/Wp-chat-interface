@@ -969,70 +969,64 @@ button {
 .conv-row-wrap {
   position: relative;
 }
-.conv-row-wrap .conv-top {
-  padding-right: 30px;
-}
 /* With rows wrapped, hide the last ROW's divider off the wrapper. */
 .conv-row-wrap:last-child .conv-row::after {
   display: none;
 }
 
-/* The summary control: a small accent sparkle on LINE 1, to the right of the
-   timestamp — no pill, no label. The button is just the (invisible) touch
-   target; the icon inside stays 14px. Rendered on every row; the popover
-   handles the "no summary yet" case. */
-.conv-summary-btn {
-  position: absolute;
-  /* Aligned to line 1's centre (row padding-top + half the name line) so the
-     sparkle sits on the timestamp line, not vertically centred on the row. */
-  top: 26px;
-  right: 8px;
-  transform: translateY(-50%);
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Desktop target 28px; the mobile media query below grows it to 44px. The
-     14px icon stays centred, so its on-screen position is identical either way. */
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--accent);
+/* The row is a role=button div now — restore the pointer + a keyboard focus ring. */
+.conv-row {
   cursor: pointer;
 }
-.conv-summary-btn:focus-visible {
+.conv-row:focus-visible {
   outline: none;
-}
-/* The visible chip — a fixed 28px accent glyph; never resized by the touch
-   target. Centered in the button, so it keeps the same on-screen position
-   whether the target is 28px (desktop) or 44px (mobile). */
-/* Plain 14px accent glyph — no circle, no background. Brightens on hover. */
-.conv-summary-chip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-  transition: color 0.12s ease;
-}
-.conv-row-wrap:hover .conv-summary-chip,
-.conv-summary-btn:hover .conv-summary-chip,
-.conv-summary-btn:focus-visible .conv-summary-chip {
-  color: var(--accent-hover, var(--accent));
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-/* Mobile: a 44×44 touch target (Apple HIG) via a larger invisible hit area —
-   the 14px icon stays put. Row keeps a comfortable floor height. Both scoped to
-   touch widths so desktop is untouched. */
+/* Compact "Summary" text button, line 3 right — a subtle outlined pill, not a
+   big control. The sparkle is accent; the label stays quiet until hover. */
+.conv-summary-btn {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.conv-summary-spark {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.conv-summary-btn:hover,
+.conv-summary-btn:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  outline: none;
+}
+
+/* Mobile: a 44px invisible touch target around the small pill, without
+   enlarging it — a centred overlay that is still part of the button. */
 @media (max-width: 768px) {
-  .conv-summary-btn {
-    width: 44px;
-    height: 44px;
-    right: 0;
-  }
-  .conv-row {
-    min-height: 76px;
+  .conv-summary-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px;
+    min-height: 44px;
+    width: 100%;
+    height: 100%;
   }
 }
 
@@ -1258,11 +1252,11 @@ button {
 
 .conv-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  margin-top: 1px;
-  /* Line 3 is metadata now (a group's member count, and the assignee), so it
-     is a step smaller and quieter than the preview. */
+  margin-top: 3px;
+  /* Line 3: the member count / "Direct" on the left, the ✦ Summary button on
+     the right. Centre-aligned so the small pill sits level with the text. */
   font-size: 10.5px;
   line-height: 1.2;
   color: var(--text-3);
@@ -1277,24 +1271,27 @@ button {
   white-space: nowrap;
 }
 
-/* Agent badge — now on line 2, to the right of the preview (and the unread
-   badge). Its own small, quiet size since it no longer inherits from .conv-meta. */
+/* Agent badge — a small rounded pill on line 2 right, colour-coded per agent
+   (a tint of the agent's colour behind the agent-coloured name). */
 .conv-assignee {
   flex-shrink: 0;
-  max-width: 45%;
+  max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding: 1px 9px;
+  border-radius: 10px;
   font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
-  /* Lower the contrast of the colour-coded label so it reads as quiet metadata
-     beside the name and preview, not a competing element. Hue is unchanged. */
-  opacity: 0.8;
+  background: var(--surface-3);
 }
 
 /* Per-agent colour, keyed on the SAME hash the avatars use so one agent reads
-   as one colour throughout. Weight is untouched — colour is the only change. */
+   as one colour throughout. The pill background is a light tint of that colour.
+   (.assign-static keeps colour only — it is not a pill.) */
 .conv-assignee[data-agent='0'],
 .assign-static[data-agent='0'] { color: var(--agent-0); }
 .conv-assignee[data-agent='1'],
@@ -1312,12 +1309,19 @@ button {
 .conv-assignee[data-agent='7'],
 .assign-static[data-agent='7'] { color: var(--agent-7); }
 
-/* An absence, not a name — lighter than an assigned agent so the two read
-   differently at a glance. */
+.conv-assignee[data-agent='0'] { background: color-mix(in srgb, var(--agent-0) 15%, transparent); }
+.conv-assignee[data-agent='1'] { background: color-mix(in srgb, var(--agent-1) 15%, transparent); }
+.conv-assignee[data-agent='2'] { background: color-mix(in srgb, var(--agent-2) 15%, transparent); }
+.conv-assignee[data-agent='3'] { background: color-mix(in srgb, var(--agent-3) 15%, transparent); }
+.conv-assignee[data-agent='4'] { background: color-mix(in srgb, var(--agent-4) 15%, transparent); }
+.conv-assignee[data-agent='5'] { background: color-mix(in srgb, var(--agent-5) 15%, transparent); }
+.conv-assignee[data-agent='6'] { background: color-mix(in srgb, var(--agent-6) 15%, transparent); }
+.conv-assignee[data-agent='7'] { background: color-mix(in srgb, var(--agent-7) 15%, transparent); }
+
+/* Unassigned — a quiet grey pill, distinct from a coloured agent. */
 .conv-assignee.is-unassigned {
   color: var(--text-3);
-  opacity: 0.75;
-  font-style: italic;
+  background: var(--surface-3);
 }
 
 /* ------------------------------------------------------------------ *

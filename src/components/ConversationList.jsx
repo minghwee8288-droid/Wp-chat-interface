@@ -170,11 +170,20 @@ export default function ConversationList({
 
             return (
               <div key={conversation.id} className="conv-row-wrap">
-              <button
-                type="button"
+              {/* A role=button div (not a <button>) so the ✦ Summary control can
+                  nest inside on line 3. Keyboard behaviour is added back below. */}
+              <div
                 className={`conv-row${isActive ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`}
+                role="button"
+                tabIndex={0}
                 aria-current={isActive ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onOpen(conversation.id)
+                  }
+                }}
               >
                 <ContactAvatar conversation={conversation} />
 
@@ -216,39 +225,34 @@ export default function ConversationList({
                     </span>
                   </div>
 
-                  {/* Line 3 exists only for a group's member count; 1:1 rows omit
-                      it entirely. */}
-                  {isGroup ? (
-                    <div className="conv-meta">
-                      <span className="conv-number">
-                        {conversation.member_count
+                  {/* Line 3: member count / "Direct" on the left, the compact
+                      ✦ Summary button on the right (under the agent badge).
+                      Nested here since the row is a role=button div; a tap on it
+                      opens the popover, not the chat (stopPropagation). Only taps
+                      fetch the summary — lazy. */}
+                  <div className="conv-meta">
+                    <span className="conv-number">
+                      {isGroup
+                        ? conversation.member_count
                           ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
-                          : 'Group'}
-                      </span>
-                    </div>
-                  ) : null}
+                          : 'Group'
+                        : 'Direct'}
+                    </span>
+                    <button
+                      type="button"
+                      className="conv-summary-btn"
+                      aria-label={`AI summary for ${name}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setPopover({ conversation, rect: e.currentTarget.getBoundingClientRect() })
+                      }}
+                    >
+                      <Sparkles size={12} className="conv-summary-spark" />
+                      <span className="conv-summary-label">Summary</span>
+                    </button>
+                  </div>
                 </div>
-              </button>
-
-              {/* Sibling of the row button (never nested — a button can't
-                  contain a button). Absolutely placed in a reserved right
-                  gutter so it doesn't disturb the 2-line rows or 8-row density.
-                  The button is the (touch) target; the inner chip is the small
-                  visual, so the hit area can grow on mobile without the icon
-                  changing size. Lazy: only taps fetch the summary. */}
-              <button
-                type="button"
-                className="conv-summary-btn"
-                aria-label={`AI summary for ${name}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setPopover({ conversation, rect: e.currentTarget.getBoundingClientRect() })
-                }}
-              >
-                <span className="conv-summary-chip">
-                  <Sparkles size={14} />
-                </span>
-              </button>
+              </div>
               </div>
             )
           })
