@@ -25,23 +25,6 @@ export function pickByRotation(agents, cursor) {
   return agents[((n % len) + len) % len]
 }
 
-/**
- * Which department a SYNCED conversation should be auto-assigned to, or null to
- * leave it unassigned. Applies only to the sync path:
- *   - already assigned            -> null (never auto-reassign)
- *   - group                       -> null (auto-assignment is 1:1 only)
- *   - not created by sync         -> null (a fresh/webhook lead is handled at
- *                                    creation and never department-assigned)
- *   - department unclear / null   -> null (stays unassigned, flagged for manual)
- *   - 'sales' | 'operations'      -> that department
- */
-export function eligibleSyncedDepartment({ assigned_user_id, is_group, created_source, department }) {
-  if (assigned_user_id != null) return null
-  if (is_group) return null
-  if (created_source !== 'sync') return null
-  return ASSIGNABLE_DEPARTMENTS.includes(department) ? department : null
-}
-
 // --------------------------------------------------------------------
 // DB-backed assignment.
 // --------------------------------------------------------------------

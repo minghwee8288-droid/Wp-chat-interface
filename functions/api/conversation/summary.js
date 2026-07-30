@@ -1,8 +1,6 @@
 import { getDb, unwrap, UNIQUE_VIOLATION } from '../../_lib/db.js'
 import { requireAuth, requireConversationAccess } from '../../_lib/auth.js'
 import { json, badRequest, serverError } from '../../_lib/respond.js'
-import { autoAssign, eligibleSyncedDepartment } from '../../_lib/assign.js'
-import { notifyNewMessage } from '../../_lib/notify.js'
 import {
   decideRefresh,
   produceSummary,
@@ -55,48 +53,7 @@ function toClient(row, extra = {}) {
  * stored cursor; 6-hour staleness gate; never regenerate without new activity).
  * One generation in flight per conversation via a soft lease.
  */
-/**
- * Phase-2 auto-assignment ride-along. A SYNCED, still-unassigned 1:1 is assigned
- * to its classified department once the summary has classified it; the newly
- * assigned agent gets the same push they'd get for a message. Never touches an
- * assigned conversation, a group, a webhook lead, or an 'unclear' one. Never
- * throws — it is a side effect of the summary, not part of it.
- */
-async function maybeAutoAssignSynced(env, db, conversationId, saved) {
-  try {
-    const conv = unwrap(
-      await db
-        .from('wp_chat_conversations')
-        .select('assigned_user_id, is_group, created_source, customer_name, customer_number, last_message_body')
-        .eq('id', conversationId)
-        .maybeSingle()
-    )
-    if (!conv) return
-    const department = eligibleSyncedDepartment({
-      assigned_user_id: conv.assigned_user_id,
-      is_group: conv.is_group,
-      created_source: conv.created_source,
-      department: saved.department,
-    })
-    if (!department) return
-
-    const result = await autoAssign(db, conversationId, department)
-    if (!result.assigned) return
-
-    // Reuse the message-push routing: assigned agent alone gets notified.
-    await notifyNewMessage(env, {
-      conversation: { id: conversationId, assigned_user_id: result.agent.id },
-      message: { id: null, body: conv.last_message_body || '' },
-      title: conv.customer_name || (conv.customer_number ? `+${conv.customer_number}` : 'New conversation'),
-      senderName: null,
-    })
-  } catch (err) {
-    console.error('auto-assign (synced) failed', conversationId, err?.message)
-  }
-}
-
-export async function onRequestGet(context) {
-  const { request, env } = context
+export async function onRequestGet({ request, env }) {
   const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
@@ -245,11 +202,6 @@ export async function onRequestGet(context) {
           .select('*')
           .single()
       )
-
-      // Fire-and-forget auto-assignment so it never delays the summary response.
-      const assignTask = maybeAutoAssignSynced(env, db, conversationId, saved)
-      if (typeof context.waitUntil === 'function') context.waitUntil(assignTask)
-      else await assignTask
 
       return toClient(saved, { generated: true })
     } catch (err) {
