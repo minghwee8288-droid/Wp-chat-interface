@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, ArrowLeft, Image as ImageIcon, FileText, LinkIcon,
   Users, Shield, RefreshCw, Download, Film, ExternalLink,
-  Sparkles, AlertTriangle, ChevronDown,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import {
@@ -90,8 +89,6 @@ export default function ContactPanel({ conversation, onClose, onJumpToMessage })
           ) : null}
         </div>
 
-        <SummarySection key={`summary-${conversation.id}`} conversation={conversation} />
-
         {isGroup ? <MembersSection key={`members-${conversation.id}`} conversation={conversation} /> : null}
 
         <div className="contact-tabs" role="tablist" aria-label="Shared content">
@@ -129,151 +126,6 @@ export default function ContactPanel({ conversation, onClose, onJumpToMessage })
 
       <Lightbox image={lightbox} onClose={() => setLightbox(null)} />
     </div>
-  )
-}
-
-/* ------------------------------------------------------------------ *
- * AI summary — first block in the panel. The panel opens from the thread
- * name (the header is at capacity at 390px, so there is no new header
- * control); this section auto-resolves the summary on open. The server owns
- * the caching / 6-hour-refresh / incremental rules — the client only asks
- * once and renders the result, including a quiet couldn't-refresh note.
- * ------------------------------------------------------------------ */
-const ATTENTION = {
-  management: 'Management',
-  team: 'Team',
-  general: 'General',
-}
-
-// A clean department chip is shown for a confident classification; 'unclear'
-// and null are hidden rather than adding noise.
-const DEPARTMENT = {
-  sales: 'Sales',
-  operations: 'Operations',
-}
-
-function SummarySection({ conversation }) {
-  // 'loading' covers the in-flight request, which is also when the model may be
-  // running server-side — hence the "Summarizing…" copy.
-  const [status, setStatus] = useState('loading')
-  const [summary, setSummary] = useState(null)
-  const [refreshFailed, setRefreshFailed] = useState(false)
-  const [attempt, setAttempt] = useState(0) // bumping this re-runs the fetch
-  const [collapsed, setCollapsed] = useState(false) // default expanded
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let retry = null
-    setStatus('loading')
-
-    api
-      .summary(conversation.id, controller.signal)
-      .then((res) => {
-        if (controller.signal.aborted) return
-        setRefreshFailed(Boolean(res?.refresh_failed))
-        if (res?.summary) {
-          setSummary(res.summary)
-          setStatus('ready')
-        } else if (res?.generating) {
-          // Another open is generating and nothing is cached yet. Wait briefly
-          // and ask again — bounded so it can never spin forever.
-          if (attempt < 3) retry = setTimeout(() => setAttempt((a) => a + 1), 2500)
-          else setStatus('empty')
-        } else if (res?.empty) {
-          setStatus('empty')
-        } else {
-          // ok:true but no summary and not generating — nothing to show.
-          setStatus(res?.ok ? 'empty' : 'error')
-        }
-      })
-      .catch((err) => {
-        if (controller.signal.aborted || err?.name === 'AbortError') return
-        setStatus('error')
-      })
-
-    return () => {
-      controller.abort()
-      if (retry) clearTimeout(retry)
-    }
-  }, [conversation.id, attempt])
-
-  const level = summary?.attention_required ? summary.attention_level || 'general' : null
-
-  return (
-    <section className="contact-section summary-section">
-      <div className="contact-section-head">
-        <button
-          type="button"
-          className="summary-toggle"
-          aria-expanded={!collapsed}
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          <ChevronDown size={15} className={`summary-chevron${collapsed ? ' is-collapsed' : ''}`} />
-          <span className="contact-section-title">
-            <Sparkles size={14} />
-            AI summary
-          </span>
-          {/* Collapsed but flagged: keep a compact attention marker by the title
-              so a flagged conversation still signals while the body is hidden. */}
-          {collapsed && level ? (
-            <AlertTriangle
-              size={13}
-              className={`summary-flag summary-flag--${level}`}
-              aria-label={`${ATTENTION[level]} attention`}
-            />
-          ) : null}
-        </button>
-        {status === 'ready' && summary?.generated_at ? (
-          <span className="summary-stamp">Updated {relativeAge(summary.generated_at)}</span>
-        ) : null}
-      </div>
-
-      {/* grid-rows 1fr↔0fr collapses to the header with a smooth, jump-free
-          transition regardless of the body's height. */}
-      <div className={`summary-collapsible${collapsed ? ' is-collapsed' : ''}`}>
-        <div className="summary-collapsible-inner">
-          {status === 'loading' ? (
-            <div className="summary-loading">
-              <span className="spinner" />
-              Summarizing…
-            </div>
-          ) : status === 'empty' ? (
-            <div className="contact-section-note">No messages to summarize yet.</div>
-          ) : status === 'error' ? (
-            <div className="summary-failed">
-              <span>Couldn’t load the summary.</span>
-              <button type="button" className="summary-retry" onClick={() => setAttempt((a) => a + 1)}>
-                Try again
-              </button>
-            </div>
-          ) : (
-            <>
-              {level ? (
-                <div className={`summary-attention summary-attention--${level}`}>
-                  <AlertTriangle size={14} className="summary-attention-icon" />
-                  <div className="summary-attention-body">
-                    <span className="summary-attention-level">{ATTENTION[level]} attention</span>
-                    {summary.attention_reason ? (
-                      <span className="summary-attention-reason">{summary.attention_reason}</span>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {DEPARTMENT[summary.department] ? (
-                <span className="summary-dept">{DEPARTMENT[summary.department]}</span>
-              ) : null}
-
-              <p className="summary-text">{summary.text}</p>
-
-              {refreshFailed ? (
-                <div className="summary-stale-note">Couldn’t refresh — showing the last summary.</div>
-              ) : null}
-            </>
-          )}
-        </div>
-      </div>
-    </section>
   )
 }
 

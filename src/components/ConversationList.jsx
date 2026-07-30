@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
-import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal, Sparkles } from 'lucide-react'
+import SummaryPopover from './SummaryPopover.jsx'
 import {
   displayName,
   relativeStamp,
@@ -44,6 +45,10 @@ export default function ConversationList({
   const [query, setQuery] = useState('')
   // Filters live here, not in the URL — they reset on reload by design.
   const [filters, setFilters] = useState(EMPTY_FILTERS)
+  // The open short-summary popover ({ conversation, rect }) and a per-session
+  // cache so re-opening a row's summary is instant and taps stay lazy.
+  const [popover, setPopover] = useState(null)
+  const summaryCache = useRef(new Map())
 
   // Name and number matching stays client-side: every conversation the caller
   // may see is already loaded, so this is instant and needs no round trip.
@@ -164,8 +169,8 @@ export default function ConversationList({
                 : null
 
             return (
+              <div key={conversation.id} className="conv-row-wrap">
               <button
-                key={conversation.id}
                 type="button"
                 className={`conv-row${isActive ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`}
                 aria-current={isActive ? 'true' : undefined}
@@ -226,6 +231,23 @@ export default function ConversationList({
                   </div>
                 </div>
               </button>
+
+              {/* Sibling of the row button (never nested — a button can't
+                  contain a button). Absolutely placed in a reserved right
+                  gutter so it doesn't disturb the 2-line rows or 8-row density.
+                  Lazy: only taps fetch the summary. */}
+              <button
+                type="button"
+                className="conv-summary-btn"
+                aria-label={`AI summary for ${name}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setPopover({ conversation, rect: e.currentTarget.getBoundingClientRect() })
+                }}
+              >
+                <Sparkles size={14} />
+              </button>
+              </div>
             )
           })
         )}
@@ -241,6 +263,15 @@ export default function ConversationList({
       >
         <Plus size={24} />
       </button>
+
+      {popover ? (
+        <SummaryPopover
+          conversation={popover.conversation}
+          anchorRect={popover.rect}
+          cache={summaryCache.current}
+          onClose={() => setPopover(null)}
+        />
+      ) : null}
     </>
   )
 }

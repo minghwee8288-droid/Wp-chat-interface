@@ -963,6 +963,143 @@ button {
   display: none;
 }
 
+/* Each list row is wrapped so the AI-summary icon sits BESIDE the row button
+   (a button can't contain a button). Height is untouched, so the 8-row density
+   holds; only a right gutter is reserved inside the body. */
+.conv-row-wrap {
+  position: relative;
+}
+.conv-row-wrap .conv-body {
+  padding-right: 30px;
+}
+/* With rows wrapped, hide the last ROW's divider off the wrapper. */
+.conv-row-wrap:last-child .conv-row::after {
+  display: none;
+}
+
+/* A clearly-visible chip on EVERY row (not a faint ghost): full opacity, a
+   tinted circle that reads as a button, and the brand-accent AI glyph. Brightens
+   further on hover/focus. Rendered unconditionally — the popover handles the
+   "no summary yet" case. */
+.conv-summary-btn {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent-tint, var(--surface-3));
+  color: var(--accent);
+  opacity: 1;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+.conv-row-wrap:hover .conv-summary-btn,
+.conv-summary-btn:hover,
+.conv-summary-btn:focus-visible {
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  outline: none;
+}
+
+/* AI short-summary popover, launched from a row icon. Fixed + clamped so it
+   never overflows a 390px screen; closes on tap-outside (backdrop) or Escape. */
+.summary-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: transparent;
+}
+.summary-pop {
+  z-index: 201;
+  max-height: min(56vh, 340px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-menu);
+  padding: 12px 14px 14px;
+}
+.summary-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.summary-pop-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.summary-pop-close {
+  display: flex;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 6px;
+}
+.summary-pop-close:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.summary-pop-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 4px 0;
+}
+.summary-pop-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.summary-pop-attn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: var(--attn-general-bg);
+  color: var(--attn-general-fg);
+}
+.summary-pop-attn--management {
+  background: var(--attn-management-bg);
+  color: var(--attn-management-fg);
+}
+.summary-pop-attn--team {
+  background: var(--attn-team-bg);
+  color: var(--attn-team-fg);
+}
+.summary-pop-attn-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.summary-pop-stale {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
 .conv-row:hover {
   background: var(--surface-2);
 }
