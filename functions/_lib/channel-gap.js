@@ -66,9 +66,11 @@ export async function observeChannel(env, health) {
 
     // First observation ever: seed, no gap to recover.
     if (!prev) {
-      await db
-        .from('wp_chat_channel_state')
-        .insert({ key: STATE_KEY, connected, status, checked_at: nowIso, changed_at: nowIso, updated_at: nowIso })
+      unwrap(
+        await db
+          .from('wp_chat_channel_state')
+          .insert({ key: STATE_KEY, connected, status, checked_at: nowIso, changed_at: nowIso })
+      )
       return { auto: null, halted: null }
     }
 
@@ -80,7 +82,7 @@ export async function observeChannel(env, health) {
       unwrap(
         await db
           .from('wp_chat_channel_state')
-          .update({ status, checked_at: nowIso, updated_at: nowIso })
+          .update({ status, checked_at: nowIso })
           .eq('id', prev.id)
       )
       return { auto: await currentAutoJob(db), halted: prev.auto_halted_reason || null }
@@ -100,7 +102,6 @@ export async function observeChannel(env, health) {
             checked_at: nowIso,
             changed_at: nowIso,
             gap_started_at: prev.checked_at || prev.changed_at || nowIso,
-            updated_at: nowIso,
           })
           .eq('id', prev.id)
           .eq('connected', true)
@@ -120,7 +121,6 @@ export async function observeChannel(env, health) {
             checked_at: nowIso,
             changed_at: nowIso,
             gap_started_at: null,
-            updated_at: nowIso,
           })
           .eq('id', prev.id)
           .eq('connected', false)
@@ -209,10 +209,12 @@ async function currentAutoJob(db) {
 /** Record an account-level halt (e.g. Whapi 402). Never throws. */
 export async function haltAutoRecovery(env, reason) {
   try {
-    await getDb(env)
-      .from('wp_chat_channel_state')
-      .update({ auto_halted_reason: String(reason || 'account_error').slice(0, 300), updated_at: iso(new Date()) })
-      .eq('key', STATE_KEY)
+    unwrap(
+      await getDb(env)
+        .from('wp_chat_channel_state')
+        .update({ auto_halted_reason: String(reason || 'account_error').slice(0, 300) })
+        .eq('key', STATE_KEY)
+    )
   } catch (err) {
     console.error('haltAutoRecovery failed:', err?.message || err)
   }
@@ -221,10 +223,12 @@ export async function haltAutoRecovery(env, reason) {
 /** Clear the account-level halt (admin intervened). Never throws. */
 export async function clearAutoHalt(env) {
   try {
-    await getDb(env)
-      .from('wp_chat_channel_state')
-      .update({ auto_halted_reason: null, updated_at: iso(new Date()) })
-      .eq('key', STATE_KEY)
+    unwrap(
+      await getDb(env)
+        .from('wp_chat_channel_state')
+        .update({ auto_halted_reason: null })
+        .eq('key', STATE_KEY)
+    )
   } catch (err) {
     console.error('clearAutoHalt failed:', err?.message || err)
   }
