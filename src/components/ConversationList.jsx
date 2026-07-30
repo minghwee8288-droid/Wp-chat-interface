@@ -206,22 +206,8 @@ export default function ConversationList({
                         {unread > 99 ? '99+' : unread}
                       </span>
                     ) : null}
-                  </div>
-
-                  {/* Line 3 is quiet metadata. The phone number is dropped from
-                      the row (an unnamed contact already shows it as the name on
-                      line 1, and the contact panel has it otherwise); only a
-                      group keeps its member-count identity here. The assignee
-                      stays on its own line so the unread badge can never
-                      displace it. */}
-                  <div className="conv-meta">
-                    <span className="conv-number">
-                      {isGroup
-                        ? conversation.member_count
-                          ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
-                          : 'Group'
-                        : ''}
-                    </span>
+                    {/* The agent badge now shares line 2 with the preview, so a
+                        1:1 row is just two lines and sits shorter. */}
                     <span
                       className={`conv-assignee${assignee ? '' : ' is-unassigned'}`}
                       data-agent={agentColor ?? undefined}
@@ -229,6 +215,18 @@ export default function ConversationList({
                       {assignee || 'Unassigned'}
                     </span>
                   </div>
+
+                  {/* Line 3 exists only for a group's member count; 1:1 rows omit
+                      it entirely. */}
+                  {isGroup ? (
+                    <div className="conv-meta">
+                      <span className="conv-number">
+                        {conversation.member_count
+                          ? `${conversation.member_count} member${conversation.member_count === 1 ? '' : 's'}`
+                          : 'Group'}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </button>
 

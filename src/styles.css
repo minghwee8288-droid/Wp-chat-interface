@@ -964,12 +964,12 @@ button {
 }
 
 /* Each list row is wrapped so the AI-summary icon sits BESIDE the row button
-   (a button can't contain a button). Height is untouched, so the 8-row density
-   holds; only a right gutter is reserved inside the body. */
+   (a button can't contain a button). The gutter is reserved on LINE 1 only, so
+   the icon rides beside the timestamp while lines 2–3 use the full width. */
 .conv-row-wrap {
   position: relative;
 }
-.conv-row-wrap .conv-body {
+.conv-row-wrap .conv-top {
   padding-right: 30px;
 }
 /* With rows wrapped, hide the last ROW's divider off the wrapper. */
@@ -977,26 +977,29 @@ button {
   display: none;
 }
 
-/* A clearly-visible chip on EVERY row (not a faint ghost): full opacity, a
-   tinted circle that reads as a button, and the brand-accent AI glyph. Brightens
-   further on hover/focus. Rendered unconditionally — the popover handles the
-   "no summary yet" case. */
+/* The summary control: a small accent sparkle on LINE 1, to the right of the
+   timestamp — no pill, no label. The button is just the (invisible) touch
+   target; the icon inside stays 14px. Rendered on every row; the popover
+   handles the "no summary yet" case. */
 .conv-summary-btn {
   position: absolute;
-  top: 50%;
+  /* Aligned to line 1's centre (row padding-top + half the name line) so the
+     sparkle sits on the timestamp line, not vertically centred on the row. */
+  top: 26px;
   right: 8px;
   transform: translateY(-50%);
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Desktop target = the visual chip (28px). On mobile the media query below
-     grows this to a 44px touch target; the chip inside stays 28px. */
+  /* Desktop target 28px; the mobile media query below grows it to 44px. The
+     14px icon stays centred, so its on-screen position is identical either way. */
   width: 28px;
   height: 28px;
   padding: 0;
   border: none;
   background: transparent;
+  color: var(--accent);
   cursor: pointer;
 }
 .conv-summary-btn:focus-visible {
@@ -1005,27 +1008,23 @@ button {
 /* The visible chip — a fixed 28px accent glyph; never resized by the touch
    target. Centered in the button, so it keeps the same on-screen position
    whether the target is 28px (desktop) or 44px (mobile). */
+/* Plain 14px accent glyph — no circle, no background. Brightens on hover. */
 .conv-summary-chip {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--accent-tint, var(--surface-3));
   color: var(--accent);
-  transition: color 0.12s ease, background 0.12s ease;
+  transition: color 0.12s ease;
 }
 .conv-row-wrap:hover .conv-summary-chip,
 .conv-summary-btn:hover .conv-summary-chip,
 .conv-summary-btn:focus-visible .conv-summary-chip {
-  background: var(--accent);
-  color: var(--accent-contrast, #fff);
+  color: var(--accent-hover, var(--accent));
 }
 
 /* Mobile: a 44×44 touch target (Apple HIG) via a larger invisible hit area —
-   the chip stays 28px and in the same spot. Row keeps a comfortable floor
-   height. Both scoped to touch widths so desktop is untouched. */
+   the 14px icon stays put. Row keeps a comfortable floor height. Both scoped to
+   touch widths so desktop is untouched. */
 @media (max-width: 768px) {
   .conv-summary-btn {
     width: 44px;
@@ -1278,15 +1277,16 @@ button {
   white-space: nowrap;
 }
 
-/* Assignee sits under the timestamp on line 3. Deliberately NOT on line 2
-   with the unread badge: on separate lines neither can ever displace the
-   other, so the row geometry is identical with or without a badge. */
+/* Agent badge — now on line 2, to the right of the preview (and the unread
+   badge). Its own small, quiet size since it no longer inherits from .conv-meta. */
 .conv-assignee {
   flex-shrink: 0;
   max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: var(--text-2);
   /* Lower the contrast of the colour-coded label so it reads as quiet metadata
      beside the name and preview, not a competing element. Hue is unchanged. */

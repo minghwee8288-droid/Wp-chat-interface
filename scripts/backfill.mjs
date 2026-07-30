@@ -52,20 +52,50 @@ export class AccountError extends Error {}
 
 const MAX_429_RETRIES = 8
 const MAX_MESSAGES_PER_CHAT = 100000 // safety valve against a pathological loop
+const REQUEST_TIMEOUT_MS = 30000 // per Whapi request — a stuck /messages/list must not stall the run
 
 // The shared persistence emits diagnostic and expected-media-failure logs;
 // silence just those known-noisy lines so per-chat progress stays readable.
 const NOISE = /^(sync\.diag|ingest: media fetch failed|ingest: media upload failed|ingest: recovered media)/
 
 /**
- * Wrap the current global fetch so that ONLY Whapi-gate calls are throttled and
- * 429-retried. Supabase (our DB) and direct media CDN downloads pass straight
- * through. The shared modules call the global fetch, so this covers list AND
- * media fetches without touching shared code. Returns a restore fn.
+ * Wrap the current global fetch so that ONLY Whapi-gate calls are throttled,
+ * timed out and 429-retried. Supabase (our DB) and direct media CDN downloads
+ * pass straight through. The shared modules call the global fetch, so this
+ * covers list AND media fetches without touching shared code. Returns a
+ * restore fn.
  */
 function installThrottle(whapiHost, delayMs, warn) {
   const realFetch = globalThis.fetch.bind(globalThis)
   let lastAt = 0
+
+  // One attempt, bounded by REQUEST_TIMEOUT_MS. A timeout becomes a synthetic
+  // 408 rather than a throw, so the shared whapi.js turns it into an ordinary
+  // { ok: false, error: 'list_408' } and the caller's existing per-chat error
+  // path handles it — no shared-code change, no special case downstream.
+  const attemptFetch = async (input, init) => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    // Respect a caller-supplied signal too, rather than silently dropping it.
+    const signal = init?.signal
+      ? AbortSignal.any([init.signal, controller.signal])
+      : controller.signal
+    try {
+      const res = await realFetch(input, { ...init, signal })
+      return res
+    } catch (err) {
+      // Only OUR timer's abort becomes a 408; a caller abort or a genuine
+      // transport error must still surface as itself.
+      if (controller.signal.aborted) {
+        warn(`   … request timed out after ${REQUEST_TIMEOUT_MS / 1000}s — treating as a failure`)
+        return new Response(null, { status: 408, statusText: 'Timeout' })
+      }
+      throw err
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   globalThis.fetch = async (input, init) => {
     let host
     try {
@@ -80,7 +110,9 @@ function installThrottle(whapiHost, delayMs, warn) {
       if (wait > 0) await sleep(wait)
       lastAt = Date.now()
 
-      const res = await realFetch(input, init)
+      // Fresh controller/timer per attempt, so the 30s budget is per-attempt
+      // and a 429 backoff does not eat into the next attempt's time.
+      const res = await attemptFetch(input, init)
       if (res.status !== 429) return res
       try {
         await res.body?.cancel()
