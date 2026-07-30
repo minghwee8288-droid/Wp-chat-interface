@@ -88,14 +88,20 @@ export function formatTranscript(messages, isGroup) {
 const SYSTEM_PROMPT = [
   'You maintain a running memory of a customer-support WhatsApp conversation for the team.',
   'Return ONLY a JSON object — no prose, no markdown fences — with EXACTLY these keys:',
-  `  "big_summary": a detailed, factual running record of the WHOLE conversation — what is pending, the stage of any process (e.g. a verification), key facts, decisions, amounts, dates. This is the memory. Keep it UNDER ~${BIG_SUMMARY_TARGET_CHARS} characters: compress older or resolved detail to make room for new activity, but NEVER drop an item that is still pending or unresolved, however old.`,
-  '  "short_summary": a brief, current 2-3 sentence summary derived from big_summary. This is what the team sees at a glance.',
+  `  "big_summary": a detailed, factual running record of the WHOLE conversation, formatted as a structured list of bullet points (each line starting with "• ") grouped under these headings, each heading on its own line ending with a colon:`,
+  '      Key facts: names, numbers, dates, amounts, decisions',
+  '      Current status: what is pending and the stage of any process (e.g. a verification)',
+  '      Recent activity: what happened in the latest messages',
+  '      Action needed: what needs follow-up',
+  `    Put a newline between the heading and its bullets and between every bullet; omit a heading only when it genuinely has nothing. This is the memory. Keep it UNDER ~${BIG_SUMMARY_TARGET_CHARS} characters: compress older or resolved detail to make room for new activity, but NEVER drop an item that is still pending or unresolved, however old.`,
+  '  "short_summary": 2-3 concise bullet points (each line starting with "• ") covering the most important current state — NOT a paragraph. Derived from big_summary.',
   '  "department": one of "sales" (pricing, negotiation, quotes, sales enquiries), "operations" (documents, paperwork, process/operational matters), or "unclear" (cannot confidently determine).',
   '  "attention_required": boolean — true if a human should look at this soon.',
   '  "attention_level": one of "management", "team", "general", or null when attention_required is false.',
   '  "attention_reason": a short string (why), or null when attention_required is false.',
   'Attention: flag an angry/upset customer, a stalled/at-risk deal, an unanswered question, or an explicit escalation. "management" = most serious (churn/complaint/legal), "team" = the handling team should act, "general" = mild. If nothing needs attention: attention_required=false and the other two null.',
   'For a group chat, note it is a group and you may reference senders.',
+  'Format the big_summary as a structured list with bullet points ("• "), grouped under the headings above. Format the short_summary as 2-3 bullet points ("• "), not a paragraph. Both stay plain-text JSON strings: use "• " for bullets and "\\n" for line breaks inside the string — no markdown fences.',
 ].join('\n')
 
 /**
