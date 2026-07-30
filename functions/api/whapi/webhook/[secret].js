@@ -9,6 +9,7 @@ import {
 } from '../../../_lib/ingest.js'
 import { notifyNewMessage } from '../../../_lib/notify.js'
 import { autoAssign } from '../../../_lib/assign.js'
+import { refreshConversationSummary } from '../../../_lib/summarize.js'
 import { ingestAvatar } from '../../../_lib/avatar.js'
 import { syncGroup } from '../../../_lib/group.js'
 
@@ -225,6 +226,17 @@ async function handleMessage(env, msg, pending = []) {
       // Prefixes the body with the sender inside a group, as WhatsApp does.
       senderName: groupJid ? sender.name || (sender.number ? `+${sender.number}` : null) : null,
     })
+  )
+
+  // Fire-and-forget: keep the conversation's AI summary current as new inbound
+  // activity arrives, so the EOD digest has coverage without a manual click. The
+  // dormant guard + 6-hour gate live inside refreshConversationSummary
+  // (decideRefresh), so a busy chat does NOT generate on every message — most
+  // calls are a cheap cached no-op. Flushed via waitUntil; never blocks the 200.
+  pending.push(
+    refreshConversationSummary(env, conversation.id, Boolean(groupJid)).catch((err) =>
+      console.error('summary refresh (webhook) failed', conversation.id, err?.message)
+    )
   )
 
   return 'inserted'
