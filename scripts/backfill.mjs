@@ -223,24 +223,38 @@ async function listAllChats(env, log) {
 }
 
 /**
- * PHASE 2 — Step A. Fetch ALL messages for one conversation within the window,
- * paging /messages/list and collecting into an in-memory array until a page
- * comes back empty. 60s timeout per page (via installThrottle -> 408); one
- * retry on a timeout, and on a SECOND timeout the whole conversation is skipped.
+ * PHASE 2 — Step A. Fetch ALL messages for one conversation within the window.
  *
- * Returns { messages, done? , stopped?, timedOut?, capped?, error? }.
- * Throws AccountError on a 402 so the caller halts the run.
+ * TIMESTAMP pagination, NOT offset pagination: Whapi's /messages/list has to
+ * scan every earlier message to satisfy a high offset, so it slows down and
+ * eventually times out on big chats (~offset 1500+). Instead every page is
+ * offset=0 with time_to narrowed to just before the oldest message seen so far,
+ * so Whapi never scans past offset 0 — speed is independent of conversation size.
+ *
+ *   Page 1: time_from=windowStart, time_to=windowEnd
+ *   Page 2: time_from=windowStart, time_to=oldestTsOfPage1 - 1
+ *   Page 3: time_from=windowStart, time_to=oldestTsOfPage2 - 1
+ *   … time_to only ever shrinks, so it terminates and never re-fetches a page.
+ *
+ * Messages arrive newest-first; the collected array is reversed on return so
+ * persistHistorical writes oldest-first (its last_message_at only moves forward).
+ *
+ * 60s timeout per page (via installThrottle -> 408); one retry on a timeout, and
+ * on a SECOND timeout the whole conversation is skipped.
+ *
+ * Returns { messages, done? , stopped?, timedOut?, capped?, error? } — `messages`
+ * is oldest-first on every persisting return. Throws AccountError on a 402.
  */
-async function fetchAllMessages(env, chat, opts, label, isStopping, log) {
+export async function fetchAllMessages(env, chat, opts, label, isStopping, log) {
   const { fromTs, toTs, page } = opts
   const collected = []
-  let offset = 0
   let nextProgressAt = PROGRESS_EVERY
+  let timeTo = toTs // the moving ceiling; starts at the window end
 
   for (;;) {
     if (isStopping()) return { messages: collected, stopped: true }
 
-    const query = { offset, count: page, timeFrom: fromTs, timeTo: toTs }
+    const query = { offset: 0, count: page, timeFrom: fromTs, timeTo }
     let list = await listMessages(env, chat.id, query)
 
     // Retry ONCE on a timeout; a second timeout skips the conversation.
@@ -251,26 +265,40 @@ async function fetchAllMessages(env, chat, opts, label, isStopping, log) {
 
     if (!list.ok) {
       if (list.accountError) throw new AccountError(list.error)
-      // A non-timeout per-chat failure is not fatal — surface it and skip.
-      return { messages: collected, error: list.error }
+      // A non-timeout per-chat failure is not fatal — surface what we have.
+      return { messages: collected.reverse(), error: list.error }
     }
 
     const msgs = list.messages
-    if (!msgs.length) return { messages: collected, done: true }
+    if (!msgs.length) return { messages: collected.reverse(), done: true }
 
+    // Collect in-window messages and track the OLDEST timestamp on this page,
+    // which becomes the NEXT page's ceiling.
+    let pageMin = Infinity
     for (const msg of msgs) {
-      // Defensive window guard (time_from/time_to should already bound it).
       const ts = Number(msg?.timestamp)
-      if (Number.isFinite(ts) && (ts < fromTs || ts > toTs)) continue
+      if (Number.isFinite(ts)) {
+        if (ts < pageMin) pageMin = ts
+        // Defensive window guard (time_from/time_to should already bound it).
+        if (ts < fromTs || ts > toTs) continue
+      }
       collected.push(msg)
     }
 
-    offset += msgs.length
     if (collected.length >= nextProgressAt) {
       log(`${label} — fetching... ${collected.length} msgs`)
       while (collected.length >= nextProgressAt) nextProgressAt += PROGRESS_EVERY
     }
-    if (offset > MAX_MESSAGES_PER_CHAT) return { messages: collected, capped: true }
+    if (collected.length > MAX_MESSAGES_PER_CHAT) return { messages: collected.reverse(), capped: true }
+
+    // Stop once the page reached the window floor (nothing older remains), or if
+    // no message carried a usable timestamp to advance on (guards an endless loop).
+    if (!Number.isFinite(pageMin) || pageMin <= fromTs) return { messages: collected.reverse(), done: true }
+
+    // Narrow strictly below the oldest message so the ceiling always decreases —
+    // this is what keeps every request at offset 0.
+    timeTo = pageMin - 1
+    if (timeTo < fromTs) return { messages: collected.reverse(), done: true }
   }
 }
 
