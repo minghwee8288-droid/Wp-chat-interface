@@ -184,38 +184,13 @@ async function handleMessage(env, msg, pending = []) {
     throw new Error(inserted.error.message)
   }
 
-  // Preview + unread badge, only for a message we actually stored.
-  //
-  // PostgREST has no atomic `unread_count = unread_count + 1`, so this is a
-  // read-modify-write. Two messages arriving in the same instant can lose a
-  // count; the badge is a hint and opening the thread resets it, so that is an
-  // acceptable trade for not adding a DB function.
-  const current = unwrap(
-    await db
-      .from('wp_chat_conversations')
-      .select('unread_count')
-      .eq('id', conversation.id)
-      .maybeSingle()
-  )
-
-  unwrap(
-    await db
-      .from('wp_chat_conversations')
-      .update({
-        // Media with no caption still needs a readable preview line. In a
-        // group the sender is prefixed here rather than in a separate column —
-        // it is what the list AND the toast both want to show.
-        last_message_body: previewLine(groupJid, sender, body, media),
-        last_message_at: createdAt,
-        last_direction: 'inbound',
-        unread_count: (Number(current?.unread_count) || 0) + 1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', conversation.id)
-  )
-
-  // Only genuine inbound messages reach here — from_me echoes and duplicates
-  // returned earlier, so no push is ever sent for our own replies.
+  // Queue the push FIRST — the moment the insert is confirmed, before any of the
+  // unread/preview bookkeeping below. The notification needs only the
+  // conversation id and the message body, so it must never be lost to a failure
+  // in that read-modify-write (previously an unwrap() throw here left the message
+  // stored but the push silently unsent). Only genuine inbound reaches here —
+  // from_me echoes and duplicates returned earlier, so no push is ever sent for
+  // our own replies.
   pending.push(
     notifyNewMessage(env, {
       conversation: { id: conversation.id, assigned_user_id: conversation.assigned_user_id },
@@ -227,6 +202,43 @@ async function handleMessage(env, msg, pending = []) {
       senderName: groupJid ? sender.name || (sender.number ? `+${sender.number}` : null) : null,
     })
   )
+
+  // Preview + unread badge, only for a message we actually stored. Wrapped in its
+  // own try/catch so a PostgREST hiccup degrades to a stale badge/preview and a
+  // log line — it can no longer throw out of handleMessage and take the push (or
+  // the summary refresh) down with it.
+  //
+  // PostgREST has no atomic `unread_count = unread_count + 1`, so this is a
+  // read-modify-write. Two messages arriving in the same instant can lose a
+  // count; the badge is a hint and opening the thread resets it, so that is an
+  // acceptable trade for not adding a DB function.
+  try {
+    const current = unwrap(
+      await db
+        .from('wp_chat_conversations')
+        .select('unread_count')
+        .eq('id', conversation.id)
+        .maybeSingle()
+    )
+
+    unwrap(
+      await db
+        .from('wp_chat_conversations')
+        .update({
+          // Media with no caption still needs a readable preview line. In a
+          // group the sender is prefixed here rather than in a separate column —
+          // it is what the list AND the toast both want to show.
+          last_message_body: previewLine(groupJid, sender, body, media),
+          last_message_at: createdAt,
+          last_direction: 'inbound',
+          unread_count: (Number(current?.unread_count) || 0) + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', conversation.id)
+    )
+  } catch (err) {
+    console.error('whapi webhook: unread/preview update failed', conversation.id, err?.message || err)
+  }
 
   // Fire-and-forget: keep the conversation's AI summary current as new inbound
   // activity arrives, so the EOD digest has coverage without a manual click. The
