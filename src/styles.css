@@ -55,7 +55,7 @@
      the focus-ring variant that has to redraw it), and they must not drift.
      The cap is the row's 16px left padding — past that it starts crowding
      the avatar. */
-  --attn-bar-w: 10px;
+  --attn-bar-w: 5px;
 
   --danger: #e24b4a;
   --danger-soft: #fdeceb;
