@@ -44,12 +44,33 @@ export async function onRequestGet({ request, env }) {
       names = new Map(users.map((u) => [String(u.id), u.name]))
     }
 
+    // Attention level for the row colour-coding. Joined in a second round trip
+    // for the same reason as the assignee names — no reliance on PostgREST
+    // inferring the FK. Only flagged rows are fetched (that is exactly what the
+    // partial index on wp_chat_summaries covers), so this stays small however
+    // many conversations exist, and every other row simply gets null.
+    const attentionRows =
+      unwrap(
+        await db
+          .from('wp_chat_summaries')
+          .select('conversation_id, attention_level')
+          .eq('attention_required', true)
+      ) || []
+
+    const attention = new Map(
+      attentionRows
+        .filter((r) => r.attention_level)
+        .map((r) => [String(r.conversation_id), r.attention_level])
+    )
+
     return json({
       ok: true,
       conversations: conversations.map((c) => ({
         ...c,
         // Prefer the live name, fall back to the denormalized copy.
         assigned_to: names.get(String(c.assigned_user_id)) ?? c.assigned_to ?? null,
+        // 'team' | 'management' | 'general', null when not flagged.
+        attention_level: attention.get(String(c.id)) ?? null,
       })),
     })
   } catch (err) {
