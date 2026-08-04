@@ -17,7 +17,7 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 // corrected without a code change.
 export const AI_MODEL = 'deepseek/deepseek-v3.2'
 
-export const REFRESH_MS = 6 * 60 * 60 * 1000 // 6 hours
+export const REFRESH_MS = 2 * 60 * 60 * 1000 // 2 hours
 
 // Input caps — the whole cost constraint.
 //   FIRST seed: the last SEED_WINDOW_DAYS of messages, capped to FIRST_MESSAGE_CAP.
@@ -198,9 +198,9 @@ export function parseSummaryResponse(text) {
  *   - nothing stored, messages exist            -> generate/first   (seed)
  *   - nothing stored, no messages               -> empty
  *   - stored summary, NO new messages           -> cached           (DORMANT: never call the model, any age)
- *   - stored summary, new messages, < 6h old    -> cached
- *   - stored, new messages, >= 6h, has big       -> generate/incremental  (compact)
- *   - stored, new messages, >= 6h, no big (e.g.
+ *   - stored summary, new messages, < 2h old    -> cached
+ *   - stored, new messages, >= 2h, has big       -> generate/incremental  (compact)
+ *   - stored, new messages, >= 2h, no big (e.g.
  *     a migrated short-only row)                 -> generate/first        (seed the big)
  *
  * The dormant guard (no new messages -> cached) is absolute and is what makes a
@@ -210,7 +210,7 @@ export function decideRefresh({ summaryRow, latestMessageId, hasMessages, now, r
   const big = summaryRow && summaryRow.big_summary && summaryRow.big_summary.trim()
   const short = summaryRow && summaryRow.short_summary && summaryRow.short_summary.trim()
 
-  // Nothing usable stored: behave like a first generation, ignoring the 6h gate.
+  // Nothing usable stored: behave like a first generation, ignoring the 2h gate.
   if (!big && !short) {
     return hasMessages ? { action: 'generate', mode: 'first' } : { action: 'empty' }
   }
