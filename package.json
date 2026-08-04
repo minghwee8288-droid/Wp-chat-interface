@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "pages:dev": "wrangler pages dev -- npm run dev",
+    "pages:dev": "npm run build && wrangler pages dev",
     "make-hash": "node scripts/make-hash.mjs"
   },
   "dependencies": {

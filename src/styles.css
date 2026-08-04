@@ -4231,3 +4231,383 @@ button {
     display: none;
   }
 }
+
+/* ====================================================================
+   Message forwarding — context menu, selection mode, conversation picker.
+   Written against the existing custom properties, so both themes and the
+   dark override at [data-theme='dark'] apply without duplicate rules.
+   ==================================================================== */
+
+/* --- context menu --------------------------------------------------- */
+
+/* A button rather than a div: it is the click-away dismiss target, so it
+   must be reachable and operable without a pointer. */
+.ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+  animation: fade 0.12s ease-out;
+}
+
+.ctx-menu {
+  position: fixed;
+  min-width: 168px;
+  padding: 6px;
+  background: var(--surface);
+  border: var(--divider-w) solid var(--border);
+  border-radius: var(--r-lg, 12px);
+  box-shadow: var(--shadow-pop);
+  text-align: left;
+  animation: ctx-pop 0.12s ease-out;
+}
+
+@keyframes ctx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  /* 44px tall: the same touch target the spec asks of the checkboxes. */
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-md, 8px);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-item:hover {
+  background: var(--surface-2);
+}
+
+/* --- selection mode ------------------------------------------------- */
+
+.msg-row.is-selectable {
+  cursor: pointer;
+  /* Suppress the iOS text-selection/callout that a long press would
+     otherwise trigger on top of our own menu. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.msg-row.is-selected {
+  background: var(--row-selected);
+}
+
+.sel-box {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  /* The visible circle is 22px but the tap target is padded out to 44px, so
+     the touch area meets the guideline without a heavy-looking control. */
+  width: 22px;
+  height: 22px;
+  margin: 0 2px 0 6px;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--accent-contrast);
+  cursor: pointer;
+  position: relative;
+}
+
+.sel-box::after {
+  content: '';
+  position: absolute;
+  /* -11px on each side takes the 22px box out to a 44px hit area. */
+  inset: -11px;
+}
+
+.sel-box.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The real checkbox stays in the DOM for keyboard and assistive tech, but the
+   styled circle above is what is seen. Not display:none — that would remove it
+   from the tab order and from the accessibility tree. */
+.sel-box-input {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sel-box-input:focus-visible {
+  /* Focus has to be visible on the circle, since the input itself is not. */
+  outline: 2px solid var(--accent);
+  outline-offset: 12px;
+  border-radius: 50%;
+}
+
+.sel-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  /* Clears the home indicator on a notched phone. */
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: var(--divider-w) solid var(--border);
+}
+
+.sel-count {
+  flex: 1;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- conversation picker -------------------------------------------- */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-pop);
+}
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 18px 18px 12px;
+}
+
+.picker-head .modal-title {
+  flex: 1;
+}
+
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin: 0 18px 10px;
+  padding: 0 12px;
+  background: var(--search-bg);
+  border-radius: var(--r-lg, 12px);
+  color: var(--text-3);
+}
+
+.picker-search input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  outline: none;
+}
+
+.picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  /* Comfortably over the 44px touch minimum. */
+  min-height: 56px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-lg, 12px);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-row:hover {
+  background: var(--surface-2);
+}
+
+.picker-row.is-selected {
+  background: var(--row-selected);
+}
+
+.pick-box {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--accent-contrast);
+}
+
+.pick-box.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.picker-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.picker-row-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-row-snippet {
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: var(--divider-w) solid var(--border);
+}
+
+/* Full-screen on a phone: a centred sheet would leave the list too short to
+   scan once the keyboard is up. */
+@media (max-width: 720px) {
+  .picker-overlay {
+    padding: 0;
+  }
+
+  .picker {
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
+}
+
+/* --- per-file forward shortcut -------------------------------------- */
+
+/* Wrappers exist only so the forward button can sit outside the image
+   button / doc anchor — a button cannot be nested inside either. */
+.media-image-wrap {
+  display: block;
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.media-doc-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Floating over the image, opposite the timestamp. */
+.media-fwd-float {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  /* Fixed dark scrim rather than a themed colour: it sits on top of arbitrary
+     photo content, where a light surface would vanish against a bright image. */
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.media-image-wrap:hover .media-fwd-float,
+.media-fwd-float:focus-visible {
+  opacity: 1;
+}
+
+/* Touch has no hover, so the control would otherwise be unreachable —
+   it stays visible there permanently. */
+@media (hover: none) {
+  .media-fwd-float {
+    opacity: 1;
+  }
+}
+
+/* Beside the document chip rather than inside it, so it never competes with
+   the chip's own download click target. */
+.media-fwd-chip {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  /* 34px keeps it comfortably tappable while still reading as secondary to
+     the chip it accompanies. */
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: var(--divider-w) solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.media-fwd-chip:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.media-fwd-float:focus-visible,
+.media-fwd-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

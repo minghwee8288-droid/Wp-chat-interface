@@ -18,7 +18,10 @@
       "Bash(cd \"c:/Users/Growwstacks/Desktop/Thomas_Chat_interface/functions/api/media\" && mv '[...path].js' '[[path]].js' && ls)",
       "Bash(python -c ' *)",
       "Bash(python -)",
-      "Bash(node --input-type=module -e ' *)"
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(grep -n \"const who = \\\\|aria-label={\\\\`Select message\" src/components/Thread.jsx)",
+      "Bash(grep -n \"API_BASE\\\\|baseUrl\\\\|fetch\\(\\\\`\\\\|const request\" src/lib/api.js)",
+      "Bash(git check-ignore *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Growwstacks\\Desktop\\Thomas_Chat_interface"

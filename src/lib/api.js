@@ -209,6 +209,17 @@ export const api = {
       body: { conversation_id: conversationId, body, ...(media || {}) },
     }),
 
+  /**
+   * Forward existing messages into other conversations.
+   * Resolves to { forwarded, failed, ... } — a partial failure still resolves,
+   * so the caller reports counts rather than treating it as a thrown error.
+   */
+  forward: (messageIds, targetConversationIds) =>
+    request('/messages/forward', {
+      method: 'POST',
+      body: { message_ids: messageIds, target_conversation_ids: targetConversationIds },
+    }),
+
   /** Uploads one file as multipart/form-data. Returns the media_* fields. */
   upload: (conversationId, file, signal) => {
     const form = new FormData()

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AlertCircle, Clock } from 'lucide-react'
+import { AlertCircle, Clock, Check } from 'lucide-react'
 import {
   clockTime,
   dayKey,
@@ -29,6 +29,15 @@ const LOAD_THRESHOLD_PX = 300
 /** How long a jumped-to message stays highlighted. Matches the CSS animation. */
 const FLASH_MS = 2200
 
+/** Hold duration that turns a touch into a context-menu request. */
+const LONG_PRESS_MS = 450
+
+/**
+ * How far a finger may drift during a hold and still count as a press rather
+ * than a scroll. Generous enough to tolerate a resting thumb's wobble.
+ */
+const LONG_PRESS_SLOP_PX = 10
+
 export default function Thread({
   messages,
   loading,
@@ -42,6 +51,11 @@ export default function Thread({
   highlightQuery = '',
   searchActive = false,
   onRestoreFailed,
+  selectionMode = false,
+  selectedIds = null,
+  onToggleSelect,
+  onRequestMenu,
+  onForwardMedia,
 }) {
   const isGroup = Boolean(conversation?.is_group)
   const [lightbox, setLightbox] = useState(null)
@@ -66,6 +80,58 @@ export default function Thread({
   // once the window that contains it has rendered — which, for a jump into
   // history, is a whole round trip later.
   const pendingJumpRef = useRef(null)
+
+  // In-flight long press: the timer, where the finger went down, and whether
+  // it has already fired. Kept in a ref because none of it should re-render.
+  const pressRef = useRef(null)
+
+  const cancelPress = () => {
+    if (pressRef.current?.timer) clearTimeout(pressRef.current.timer)
+    pressRef.current = null
+  }
+
+  // Cancel on unmount so a pending timer can never fire a menu for a thread
+  // that is no longer on screen.
+  useEffect(() => cancelPress, [])
+
+  const startPress = (event, message) => {
+    // Secondary touches (a second finger, a pinch) are not a long press.
+    if (event.touches?.length !== 1) return cancelPress()
+    const touch = event.touches[0]
+
+    pressRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      fired: false,
+      timer: setTimeout(() => {
+        if (!pressRef.current) return
+        pressRef.current.fired = true
+        onRequestMenu?.({ x: touch.clientX, y: touch.clientY, message })
+      }, LONG_PRESS_MS),
+    }
+  }
+
+  const movePress = (event) => {
+    const press = pressRef.current
+    if (!press || press.fired) return
+    const touch = event.touches?.[0]
+    if (!touch) return
+    // Drifted far enough to be a scroll — abandon the press so the thread
+    // scrolls normally instead of opening a menu under the moving finger.
+    if (
+      Math.abs(touch.clientX - press.x) > LONG_PRESS_SLOP_PX ||
+      Math.abs(touch.clientY - press.y) > LONG_PRESS_SLOP_PX
+    ) {
+      cancelPress()
+    }
+  }
+
+  const endPress = (event) => {
+    // The menu already opened, so the lifting finger must not also register as
+    // a tap on the message underneath.
+    if (pressRef.current?.fired) event.preventDefault()
+    cancelPress()
+  }
 
   /**
    * Offset of a message within the scroll content.
@@ -325,6 +391,8 @@ export default function Thread({
             <span className="msg-spacer" aria-hidden="true" />
           )
 
+          const isSelected = Boolean(selectedIds?.has(message.id))
+
           return (
             <div
               key={message.id}
@@ -338,8 +406,42 @@ export default function Thread({
               ) : null}
 
               <div
-                className={`msg-row ${isOut ? 'out' : 'in'}${isRunStart ? ' run-start' : ''}`}
+                className={`msg-row ${isOut ? 'out' : 'in'}${isRunStart ? ' run-start' : ''}${
+                  selectionMode ? ' is-selectable' : ''
+                }${isSelected ? ' is-selected' : ''}`}
+                onContextMenu={(e) => {
+                  if (selectionMode) return
+                  e.preventDefault()
+                  onRequestMenu?.({ x: e.clientX, y: e.clientY, message })
+                }}
+                onTouchStart={(e) => (selectionMode ? undefined : startPress(e, message))}
+                onTouchMove={movePress}
+                onTouchEnd={endPress}
+                onTouchCancel={cancelPress}
+                // In selection mode the whole row is the hit target — tapping
+                // anywhere toggles, matching how WhatsApp behaves. The real
+                // checkbox below is the accessible control; this is a
+                // convenience for pointers, so it is deliberately not a second
+                // tab stop announcing the same message twice.
+                onClick={selectionMode ? () => onToggleSelect?.(message.id) : undefined}
+                role={selectionMode ? 'presentation' : undefined}
               >
+                {selectionMode ? (
+                  <label className={`sel-box${isSelected ? ' is-on' : ''}`}>
+                    <input
+                      type="checkbox"
+                      className="sel-box-input"
+                      checked={isSelected}
+                      aria-label={`Select message from ${who}`}
+                      // The row's onClick already toggles; without this the
+                      // event would bubble up to it and toggle a second time.
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => onToggleSelect?.(message.id)}
+                    />
+                    {isSelected ? <Check size={14} strokeWidth={3} aria-hidden="true" /> : null}
+                  </label>
+                ) : null}
+
                 {!isOut ? avatar : null}
 
                 <div
@@ -370,6 +472,14 @@ export default function Thread({
                          on an image, inline on a chip — so it never costs a
                          whole extra row. */
                       stamp={mediaOnly ? meta : null}
+                      /* Shortcut straight to the picker for this one file.
+                         Hidden during selection mode, where the row's own
+                         checkbox is the interaction. */
+                      onForward={
+                        selectionMode || !onForwardMedia
+                          ? null
+                          : () => onForwardMedia(message.id)
+                      }
                     />
                   ) : null}
 

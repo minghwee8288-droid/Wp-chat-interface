@@ -12,6 +12,9 @@ import NewMessageModal from '../components/NewMessageModal.jsx'
 import ContactAvatar from '../components/ContactAvatar.jsx'
 import ContactPanel from '../components/ContactPanel.jsx'
 import ThreadSearch from '../components/ThreadSearch.jsx'
+import MessageContextMenu from '../components/MessageContextMenu.jsx'
+import SelectionBar from '../components/SelectionBar.jsx'
+import ConversationPicker from '../components/ConversationPicker.jsx'
 import { useSwipeBack } from '../lib/useSwipeBack.js'
 import { mergeMessages } from '../lib/thread.js'
 
@@ -64,6 +67,34 @@ export default function Inbox() {
   // The contact/group info panel — opened by tapping the thread-header name.
   const [showInfo, setShowInfo] = useState(false)
 
+  // --- forwarding ---
+  // The open context menu: {x, y, message}, or null.
+  const [menu, setMenu] = useState(null)
+  // Non-null puts the thread in selection mode. A Set of message ids, so
+  // toggling is O(1) and the empty set is a valid "mode on, nothing picked".
+  const [selection, setSelection] = useState(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [forwarding, setForwarding] = useState(false)
+  // True when the picker was opened by the per-file shortcut rather than from
+  // selection mode. Closing it must then leave the thread as it was found,
+  // instead of stranding the user in a selection mode they never chose.
+  const [quickForward, setQuickForward] = useState(false)
+
+  const exitSelection = useCallback(() => {
+    setSelection(null)
+    setPickerOpen(false)
+    setQuickForward(false)
+  }, [])
+
+  const toggleSelected = useCallback((messageId) => {
+    setSelection((current) => {
+      const next = new Set(current ?? [])
+      if (next.has(messageId)) next.delete(messageId)
+      else next.add(messageId)
+      return next
+    })
+  }, [])
+
   const openIdRef = useRef(null)
   openIdRef.current = openId
 
@@ -108,6 +139,12 @@ export default function Inbox() {
       setThreadSearchOpen(false)
       setThreadSearchQuery('')
       setShowInfo(false)
+      // Selection holds message ids from the thread being left. Carrying them
+      // into a different one would show a stale count and forward messages the
+      // user can no longer see, so every mode-piece resets with the thread.
+      setSelection(null)
+      setPickerOpen(false)
+      setMenu(null)
       // Optimistic — the GET /messages side effect clears it server-side.
       clearUnread(conversationId)
       setMobileView('thread')
@@ -344,6 +381,54 @@ export default function Inbox() {
     }
   }
 
+  /**
+   * Forward the current selection into the picked conversations.
+   *
+   * On failure the selection is deliberately KEPT and the picker stays open, so
+   * a network blip is one retry away rather than a re-selection from scratch.
+   */
+  const forward = async (targetIds) => {
+    const messageIds = [...(selection ?? [])]
+    if (!messageIds.length || !targetIds.length) return
+
+    setForwarding(true)
+    try {
+      const data = await api.forward(messageIds, targetIds)
+
+      // Targets changed their preview and ordering; refresh picks that up.
+      refresh()
+
+      // Forwarding INTO the open thread: if the reader is looking at history,
+      // clearing the anchor reloads the tail where the new messages are.
+      // Otherwise the 4s poll appends them on its own, exactly as it does for
+      // a message that arrives from anywhere else.
+      if (
+        threadRef.current.hasMoreAfter &&
+        targetIds.some((id) => String(id) === String(openIdRef.current))
+      ) {
+        setAnchor(null)
+      }
+
+      if (data.failed > 0) {
+        toast.error(
+          'Some forwards failed',
+          `${data.forwarded} sent, ${data.failed} could not be delivered.`
+        )
+        // Partial failure still leaves the mode open so the user can retry the
+        // remainder against the same selection.
+        setForwarding(false)
+        return
+      }
+
+      toast.success(`Forwarded to ${targetIds.length} ${targetIds.length === 1 ? 'chat' : 'chats'}`)
+      exitSelection()
+    } catch (err) {
+      toast.error('Could not forward', err.message)
+    } finally {
+      setForwarding(false)
+    }
+  }
+
   return (
     <div className="inbox" data-view={mobileView}>
       <aside className="pane-list">
@@ -477,16 +562,37 @@ export default function Inbox() {
               // nothing left to scroll back to. Reloading the tail is the
               // honest fallback.
               onRestoreFailed={() => setAnchor(null)}
+              selectionMode={selection !== null}
+              selectedIds={selection}
+              onToggleSelect={toggleSelected}
+              onRequestMenu={setMenu}
+              // The per-file shortcut: select just this message and jump
+              // straight to the picker, skipping selection mode entirely.
+              onForwardMedia={(messageId) => {
+                setSelection(new Set([messageId]))
+                setPickerOpen(true)
+                setQuickForward(true)
+              }}
             />
 
-            {/* No assignment gate: assignment is a label now, so any signed-in
-                user can reply to any conversation. The server agrees —
-                requireConversationAccess no longer 403s on assignment. */}
-            <ReplyBox
-              conversationId={conversation.id}
-              onSend={send}
-              isGroup={conversation.is_group}
-            />
+            {/* Selection mode replaces the composer: they are alternative
+                modes for the same space, and on a phone both will not fit. */}
+            {selection !== null ? (
+              <SelectionBar
+                count={selection.size}
+                onCancel={exitSelection}
+                onForward={() => setPickerOpen(true)}
+              />
+            ) : (
+              /* No assignment gate: assignment is a label now, so any signed-in
+                 user can reply to any conversation. The server agrees —
+                 requireConversationAccess no longer 403s on assignment. */
+              <ReplyBox
+                conversationId={conversation.id}
+                onSend={send}
+                isGroup={conversation.is_group}
+              />
+            )}
           </>
         )}
       </section>
@@ -501,6 +607,36 @@ export default function Inbox() {
             goToMessage(messageId)
             setShowInfo(false)
           }}
+        />
+      ) : null}
+
+      {menu ? (
+        <MessageContextMenu
+          x={menu.x}
+          y={menu.y}
+          message={menu.message}
+          onClose={() => setMenu(null)}
+          onForward={() => {
+            // Entering selection mode pre-selects the message that was pressed,
+            // so "Forward" on a single message is two taps, not three.
+            setSelection(new Set([menu.message.id]))
+            setMenu(null)
+          }}
+        />
+      ) : null}
+
+      {pickerOpen && selection?.size ? (
+        <ConversationPicker
+          conversations={conversations}
+          excludeId={conversation?.id ?? null}
+          count={selection.size}
+          sending={forwarding}
+          onSend={forward}
+          // Backing out returns to selection mode with the messages still
+          // picked, rather than discarding the work — unless the picker was
+          // opened by the per-file shortcut, where selection mode was never
+          // asked for and dropping back into it would be a surprise.
+          onClose={quickForward ? exitSelection : () => setPickerOpen(false)}
         />
       ) : null}
 
