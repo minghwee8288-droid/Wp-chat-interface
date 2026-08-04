@@ -17,6 +17,13 @@ import ConversationFilters, {
 import SearchResults from './SearchResults.jsx'
 import { useMessageSearch } from '../lib/useMessageSearch.js'
 
+// Attention levels that get a coloured bar down the row's left edge. The
+// colours and the bar itself live in the stylesheet
+// (.conv-row[data-attention]); this only decides which rows are marked.
+// 'general' is deliberately absent — it, and any conversation with no flagged
+// summary, leaves the row exactly as it was.
+const FLAGGED_LEVELS = new Set(['team', 'management'])
+
 // A group preview reads "Sender: message". Split on the FIRST ": " so the
 // sender label can be styled apart from the body; the message may itself
 // contain colons and stays intact. One-to-one previews (isGroup=false) render
@@ -167,6 +174,14 @@ export default function ConversationList({
               assignee && conversation.assigned_user_id != null
                 ? avatarIndex(conversation.assigned_user_id)
                 : null
+            // undefined omits the attribute entirely, so an unflagged row is
+            // left alone. The open row is NOT excluded: the flag is a bar down
+            // the left edge now, not a background, so it no longer competes
+            // with the selected-row highlight and a flagged conversation stays
+            // flagged while you are reading it.
+            const attention = FLAGGED_LEVELS.has(conversation.attention_level)
+              ? conversation.attention_level
+              : undefined
 
             return (
               <div key={conversation.id} className="conv-row-wrap">
@@ -177,6 +192,7 @@ export default function ConversationList({
                 role="button"
                 tabIndex={0}
                 aria-current={isActive ? 'true' : undefined}
+                data-attention={attention}
                 onClick={() => onOpen(conversation.id)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {

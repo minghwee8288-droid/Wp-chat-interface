@@ -43,6 +43,20 @@
   --badge-text: #ffffff;
   --row-selected: #f5f9fe;
 
+  /* Conversation-row attention flag: a solid bar down the row's left edge, so
+     the flagged rows read as a strip when scanning the list. One pair serves
+     both themes — both are dark and saturated enough to hold against --surface
+     here and against #1b1915 in the dark block, so there is deliberately no
+     override down there. Not to be confused with the --attn-*-bg/-fg pairs
+     below, which colour the summary popover's badge, not the row. */
+  --attn-team-bar: #FB225D;
+  --attn-management-bar: #0073EA;
+  /* Bar thickness. Lives here because two rules draw it (the bar itself and
+     the focus-ring variant that has to redraw it), and they must not drift.
+     The cap is the row's 16px left padding — past that it starts crowding
+     the avatar. */
+  --attn-bar-w: 5px;
+
   --danger: #e24b4a;
   --danger-soft: #fdeceb;
   --success: #1d9e75;
@@ -137,6 +151,9 @@
   --badge: #c4453f;
   --badge-text: #ffffff;
   --row-selected: #202b36;
+
+  /* No --attn-*-bar override: the row flag is a solid bar on --surface rather
+     than a wash behind the text, so the same two colours carry both themes. */
 
   --danger: #e0665f;
   --danger-soft: #2c1a1a;
@@ -1133,6 +1150,40 @@ button {
 /* The selected row owns its edges — no divider under it. */
 .conv-row.is-active::after {
   display: none;
+}
+
+/* Attention flag, from the conversation's summary (wp_chat_summaries.
+   attention_level). Only 'team' and 'management' carry the attribute —
+   'general' and unflagged rows have none and are left completely alone.
+
+   An inset box-shadow rather than border-left: the row is `width: 100%` under
+   a global border-box, so the border would come out of the 16px left padding
+   and push the avatar and both text lines right by its width on flagged rows
+   only — the list would stop aligning down the column, and every widening of
+   the bar would shift them further. An inset shadow paints over that padding
+   instead and costs no layout at any width.
+
+   Nothing here touches `background`, so .conv-row:hover keeps working
+   unchanged on flagged rows and the bar simply rides through the hover.
+   Declared after .is-active so a selected row that is ALSO flagged keeps its
+   bar; it still reads as selected through --row-selected and its suppressed
+   divider. */
+.conv-row[data-attention='team'] {
+  --attn-bar: var(--attn-team-bar);
+}
+.conv-row[data-attention='management'] {
+  --attn-bar: var(--attn-management-bar);
+}
+.conv-row[data-attention] {
+  box-shadow: inset var(--attn-bar-w) 0 0 var(--attn-bar);
+}
+
+/* The focus ring is an inset shadow on the same edge, so a flagged row would
+   otherwise swallow it. Carrying both in one declaration is the only way to
+   show both, and at (0,3,0) this outranks the bar rule above whatever the
+   order. Ring first so it paints on top. */
+.conv-row[data-attention]:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent), inset var(--attn-bar-w) 0 0 var(--attn-bar);
 }
 
 .conv-avatar {
