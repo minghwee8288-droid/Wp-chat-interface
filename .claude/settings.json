@@ -17,7 +17,8 @@
       "PowerShell(Set-Location \"c:\\\\Users\\\\Growwstacks\\\\Desktop\\\\Thomas_Chat_interface\"; $out=\"C:\\\\Users\\\\GROWWS~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Growwstacks-Desktop-Thomas-Chat-interface\\\\c3f958ea-8255-4ad2-8f07-640dbf7edf03\\\\scratchpad\\\\fnbuild4\"; npx wrangler pages functions build --outdir=\"$out\" 2>&1 | Select-Object -Last 6; \"\"; Get-Content \\(Join-Path $out \"index.js\"\\) | Select-String -Pattern 'routePath: \"' | ForEach-Object { $_.Line.Trim\\(\\) })",
       "Bash(cd \"c:/Users/Growwstacks/Desktop/Thomas_Chat_interface/functions/api/media\" && mv '[...path].js' '[[path]].js' && ls)",
       "Bash(python -c ' *)",
-      "Bash(python -)"
+      "Bash(python -)",
+      "Bash(node --input-type=module -e ' *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Growwstacks\\Desktop\\Thomas_Chat_interface"

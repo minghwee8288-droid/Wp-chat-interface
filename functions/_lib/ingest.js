@@ -158,12 +158,19 @@ export function previewLine(groupJid, sender, body, media) {
  * the fields every downstream write needs, or {skip: reason} for anything that
  * is not a storable conversation message.
  *
- * `allowOutbound` is the ONE difference between live and historical handling:
- *   - LIVE webhook (default false): a from_me message is an echo of a reply we
- *     already wrote in /api/send, so it is skipped. This must never change.
- *   - SYNC (true): nothing has been written yet, so a from_me message is a real
- *     outbound record to keep — shaped with `fromMe: true` so the caller writes
- *     it with direction 'outbound'.
+ * `allowOutbound` controls whether from_me messages survive shaping:
+ *   - true — used by BOTH the sync backfill and the live webhook. A from_me
+ *     message is kept and shaped with `fromMe: true` so the caller writes it
+ *     with direction 'outbound'.
+ *   - false (default) — from_me is skipped outright. No caller uses this today;
+ *     it remains for a consumer that genuinely only wants inbound.
+ *
+ * The webhook used to pass false, on the theory that every from_me message was
+ * an echo of a reply /api/send had already written. That also silently dropped
+ * replies an agent sent from the WhatsApp Business app, which have no local row
+ * at all. Distinguishing the two needs a DB lookup, so it cannot happen here —
+ * this function is pure. The webhook now keeps from_me messages and reconciles
+ * them against the pending outbound row itself.
  *
  * Pure: no I/O, no side effects — which is what lets both callers share it and
  * what makes it unit-testable without a database.

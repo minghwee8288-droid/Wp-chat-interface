@@ -7,6 +7,7 @@ import {
   findOrCreateConversation,
   previewLine,
 } from '../../../_lib/ingest.js'
+import { persistHistorical } from '../../../_lib/sync.js'
 import { notifyNewMessage } from '../../../_lib/notify.js'
 import { autoAssign } from '../../../_lib/assign.js'
 import { refreshConversationSummary } from '../../../_lib/summarize.js'
@@ -93,10 +94,79 @@ export async function onRequest(context) {
   return accepted({ processed, skipped })
 }
 
+// How far back an un-idded outbound row is still considered a candidate echo of
+// the message now arriving. Whapi echoes land within seconds; the generous
+// window only has to cover a slow send + patch, while staying short enough that
+// an old stuck 'queued' row can never be mistaken for a fresh echo.
+const ECHO_WINDOW_MS = 5 * 60 * 1000
+
+/**
+ * Reconcile a from_me webhook message against a reply we sent from the inbox.
+ *
+ * /api/send writes its row BEFORE calling Whapi and patches whapi_message_id in
+ * only after the response arrives — so an echo can overtake that patch, and a
+ * send that returns no messageId never gets one at all. Either way the row's
+ * whapi_dedup_id is NULL, which the partial unique index does not cover, so the
+ * echo would insert a second copy. Matching on the un-idded row closes both
+ * cases without depending on the echo losing that race.
+ *
+ * Returns true when this message was an echo and has been reconciled (the
+ * caller must not insert), false when it is a genuinely new outbound message
+ * (sent from the WhatsApp Business app) that still needs storing.
+ */
+async function reconcileOutboundEcho(db, conversationId, whapiMessageId) {
+  // No id to backfill means nothing to match on — treat as un-reconciled and
+  // let the normal insert path decide.
+  if (!whapiMessageId) return false
+
+  const since = new Date(Date.now() - ECHO_WINDOW_MS).toISOString()
+
+  const candidates = unwrap(
+    await db
+      .from('wp_chat_messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('direction', 'outbound')
+      .is('whapi_message_id', null)
+      .in('status', ['queued', 'sent'])
+      .gt('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
+  )
+
+  const match = candidates?.[0]
+  if (!match) return false
+
+  // Backfill the id onto the row /api/send already wrote. This also populates
+  // the generated whapi_dedup_id, so any LATER duplicate of this same message
+  // (e.g. an auto-sync recovery) hits the unique index and is dropped.
+  //
+  // Re-assert the null check in the UPDATE itself: two echoes processed
+  // concurrently could both read the same candidate, and only one may claim it.
+  // The loser matches zero rows and falls through to a fresh insert, where the
+  // unique index is the final backstop.
+  const claimed = unwrap(
+    await db
+      .from('wp_chat_messages')
+      .update({ whapi_message_id: whapiMessageId })
+      .eq('id', match.id)
+      .is('whapi_message_id', null)
+      .select('id')
+  )
+
+  return Boolean(claimed?.length)
+}
+
 async function handleMessage(env, msg, pending = []) {
   // Shared with the sync backfill — see functions/_lib/ingest.js. Everything
   // from here down is the LIVE-only behaviour: unread bump and push fan-out.
-  const shaped = shapeInboundMessage(msg, env)
+  //
+  // allowOutbound: from_me messages are no longer dropped as echoes. An agent
+  // replying from the WhatsApp Business app produces one, and it is a real
+  // message we would otherwise never capture. Echoes of our OWN inbox replies
+  // are separated out below by reconcileOutboundEcho, not by discarding the
+  // whole class.
+  const shaped = shapeInboundMessage(msg, env, { allowOutbound: true })
   if (shaped.skip) {
     if (shaped.skip === 'broadcast' || shaped.skip === 'over_long_id') {
       console.log(
@@ -108,7 +178,7 @@ async function handleMessage(env, msg, pending = []) {
   }
 
   const {
-    groupJid, sender, customerNumber, customerName,
+    fromMe, groupJid, sender, customerNumber, customerName,
     whapiMessageId, body, createdAt, explicitMedia, attachment, businessNumber,
   } = shaped
 
@@ -142,6 +212,38 @@ async function handleMessage(env, msg, pending = []) {
         console.error('auto-assign (fresh) failed', conversation.id, err?.message)
       }
     }
+  }
+
+  // --- from_me: our own outbound, from one of two very different sources -----
+  //
+  // Handled before the media ingest below, so an echo never re-downloads bytes
+  // /api/send already stored.
+  if (fromMe) {
+    // (a) Echo of an inbox reply: backfill the id onto the row we already wrote
+    //     and stop. No second row, no preview churn — /api/send set the preview.
+    const reconciled = await reconcileOutboundEcho(db, conversation.id, whapiMessageId)
+    if (reconciled) return 'skipped'
+
+    // (b) No pending row to claim, so this was sent from the WhatsApp Business
+    //     app and we have never seen it. persistHistorical writes exactly the
+    //     outbound row we want (direction, status, sent_by, forward-only
+    //     preview) and already treats a UNIQUE violation as a no-op duplicate,
+    //     which covers a Whapi retry of this same echo.
+    const stored = await persistHistorical(env, db, msg, msg?.chat_name)
+
+    // Summary refresh fires for outbound too — an agent replying from their
+    // phone is exactly the activity the digest must not miss. Push and unread
+    // are deliberately NOT touched: we do not notify ourselves about our own
+    // message, and our own reply cannot make a thread unread.
+    if (stored.added) {
+      pending.push(
+        refreshConversationSummary(env, conversation.id, Boolean(groupJid)).catch((err) =>
+          console.error('summary refresh (webhook outbound) failed', conversation.id, err?.message)
+        )
+      )
+    }
+
+    return stored.added ? 'inserted' : 'skipped'
   }
 
   // Pull the bytes into our own bucket. A failure here must degrade to a
@@ -184,13 +286,19 @@ async function handleMessage(env, msg, pending = []) {
     throw new Error(inserted.error.message)
   }
 
+  // Everything from here down is INBOUND-ONLY, and structurally so: the from_me
+  // branch above returns in every case, so a message that reaches this line has
+  // from_me false. That is what keeps push and the unread bump off our own
+  // outbound — including replies sent from the WhatsApp Business app, which are
+  // now stored but must not notify us about ourselves or mark a thread unread.
+  // If that early return is ever softened, both guarantees below need explicit
+  // `if (!fromMe)` guards.
+  //
   // Queue the push FIRST — the moment the insert is confirmed, before any of the
   // unread/preview bookkeeping below. The notification needs only the
   // conversation id and the message body, so it must never be lost to a failure
   // in that read-modify-write (previously an unwrap() throw here left the message
-  // stored but the push silently unsent). Only genuine inbound reaches here —
-  // from_me echoes and duplicates returned earlier, so no push is ever sent for
-  // our own replies.
+  // stored but the push silently unsent).
   pending.push(
     notifyNewMessage(env, {
       conversation: { id: conversation.id, assigned_user_id: conversation.assigned_user_id },
