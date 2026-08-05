@@ -33,7 +33,11 @@ function computePosition(rect) {
 export default function SummaryPopover({ conversation, anchorRect, cache, onClose }) {
   const cached = cache.get(conversation.id)
   const [pos] = useState(() => computePosition(anchorRect))
-  const [status, setStatus] = useState(cached ? (cached.summary ? 'ready' : 'empty') : 'loading')
+  // A cached summary paints on the FIRST render — no request, no spinner. Only
+  // a genuine miss starts in 'loading'; the batch preload no longer caches
+  // misses, so those fall through to the fetch below instead of sticking on a
+  // permanent "No summary yet".
+  const [status, setStatus] = useState(cached?.summary ? 'ready' : 'loading')
   const [summary, setSummary] = useState(cached?.summary ?? null)
   const [stale, setStale] = useState(Boolean(cached?.stale))
 
@@ -51,11 +55,16 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
     }
   }, [onClose])
 
-  // Lazy fetch — only when opened, and only if not already cached. A response
-  // flagged `generating` means the model is running server-side, so we show any
-  // stale text right away and re-poll until the fresh summary lands.
+  // Lazy fetch — only when opened, and only if not already cached. A cache HIT
+  // is rendered synchronously by the useState initialisers above, so a
+  // preloaded row paints instantly and never reaches this effect.
+  //
+  // A response flagged `generating` means the model is running server-side, so
+  // we show any stale text right away and re-poll until the fresh summary
+  // lands. A cache MISS is deliberately not stored by the batch preload, so it
+  // falls through to here and triggers that generation.
   useEffect(() => {
-    if (cache.has(conversation.id)) return
+    if (cache.get(conversation.id)?.summary) return
     const controller = new AbortController()
     let timer = null
     let attempts = 0

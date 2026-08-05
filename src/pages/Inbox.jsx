@@ -25,11 +25,19 @@ const THREAD_POLL_MS = 4000
 const CHAT_PARAM = 'chat'
 
 /**
- * How many conversations to warm the summary cache for. Matches the batch
- * endpoint's own cap; the list is newest-first, so these are the rows a user is
- * realistically going to tap.
+ * How many conversations to warm the summary cache for. The list is
+ * newest-first, but users scroll well past the first screenful, and a row that
+ * was never preloaded pays a full model generation on tap — so this covers far
+ * more than one screen.
  */
-const PRELOAD_LIMIT = 30
+const PRELOAD_LIMIT = 150
+
+/**
+ * The batch endpoint caps each request at 30 ids (MAX_IDS), so a preload wider
+ * than that is split into chunks and issued in parallel. These are read-only
+ * indexed lookups — no model calls — so several at once is cheap.
+ */
+const PRELOAD_CHUNK = 30
 
 const EMPTY_THREAD = {
   conversationId: null,
@@ -235,31 +243,47 @@ export default function Inbox() {
 
     const controller = new AbortController()
 
-    api
-      .summariesBatch(
-        wanted.map((c) => c.id),
-        controller.signal
-      )
-      .then((res) => {
-        if (controller.signal.aborted) return
-        const summaries = res?.summaries || {}
+    // Split into MAX_IDS-sized requests; anything larger is rejected by the
+    // endpoint as a bad request rather than truncated.
+    const chunks = []
+    for (let i = 0; i < wanted.length; i += PRELOAD_CHUNK) {
+      chunks.push(wanted.slice(i, i + PRELOAD_CHUNK))
+    }
 
-        for (const conversation of wanted) {
-          // The response keys are strings (JSON object keys always are); the
-          // cache is keyed by the raw id, which is what the popover reads.
-          const summary = summaries[String(conversation.id)] ?? null
+    for (const chunk of chunks) {
+      api
+        .summariesBatch(
+          chunk.map((c) => c.id),
+          controller.signal
+        )
+        .then((res) => {
+          if (controller.signal.aborted) return
+          const summaries = res?.summaries || {}
 
-          // A miss means "nothing stored yet", which is exactly the { summary:
-          // null } shape the popover already renders as "No summary yet" — and
-          // it stops that row re-requesting on every poll.
-          summaryCache.current.set(conversation.id, { summary, stale: false })
-          preloadedRef.current.set(conversation.id, conversation.last_message_at)
-        }
-      })
-      .catch(() => {
-        // Silent by design: this is an optimisation, and the popover's own
-        // fetch is the fallback. Nothing is shown to the user.
-      })
+          for (const conversation of chunk) {
+            // The response keys are strings (JSON object keys always are); the
+            // cache is keyed by the raw id, which is what the popover reads.
+            const summary = summaries[String(conversation.id)] ?? null
+
+            // A HIT is authoritative — the popover renders it with no request
+            // at all. A MISS only means "nothing generated yet"; it must NOT be
+            // cached as a final answer, or the popover would short-circuit on
+            // it and show a permanent "No summary yet" without ever asking the
+            // server to generate one. Leaving the key absent sends that row
+            // down the popover's own fetch path, which triggers generation.
+            if (summary) {
+              summaryCache.current.set(conversation.id, { summary, stale: false })
+            } else {
+              summaryCache.current.delete(conversation.id)
+            }
+            preloadedRef.current.set(conversation.id, conversation.last_message_at)
+          }
+        })
+        .catch(() => {
+          // Silent by design: this is an optimisation, and the popover's own
+          // fetch is the fallback. Nothing is shown to the user.
+        })
+    }
 
     return () => controller.abort()
   }, [conversations, loading])
