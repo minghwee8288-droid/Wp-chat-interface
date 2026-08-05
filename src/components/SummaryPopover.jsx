@@ -40,6 +40,9 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
   const [status, setStatus] = useState(cached?.summary ? 'ready' : 'loading')
   const [summary, setSummary] = useState(cached?.summary ?? null)
   const [stale, setStale] = useState(Boolean(cached?.stale))
+  // A background regenerate is running while we already have text on screen.
+  // Purely a footnote — it never suppresses the summary.
+  const [refreshing, setRefreshing] = useState(false)
 
   // Close on anything that moves the anchor or on Escape.
   useEffect(() => {
@@ -84,23 +87,35 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
         .then((res) => {
           if (stopped || controller.signal.aborted) return
 
+          // STORED TEXT ALWAYS WINS. The endpoint returns the saved row on
+          // every response — including when it has ALSO kicked off a background
+          // refresh (`generating`), which for a live conversation is almost
+          // every click: decideRefresh() asks for a regenerate as soon as there
+          // are new messages and the row is >2h old. Checking `generating`
+          // first would hide a perfectly good summary behind a spinner for the
+          // whole poll window, which is exactly the "API is fast but the UI is
+          // slow" symptom. So: render what we were given, immediately.
+          if (res?.summary) {
+            finish({ summary: res.summary, stale: Boolean(res.refresh_failed) })
+            // A background refresh is running, so the text on screen may be
+            // superseded. Quietly poll for the newer wording — the summary
+            // stays visible and readable throughout; nothing regresses to a
+            // loading state.
+            const more = Boolean(res.generating) && attempts < MAX_POLLS
+            setRefreshing(more)
+            if (more) timer = setTimeout(poll, POLL_MS)
+            return
+          }
+
+          // Nothing stored yet — a genuine first generation. This is the only
+          // case where the spinner is the honest thing to show.
           if (res?.generating) {
-            // Show the stale summary while the fresh one generates — but don't
-            // cache it, so the next open still asks for the finished text.
-            if (res.summary) {
-              setSummary(res.summary)
-              setStale(Boolean(res.refresh_failed))
-            }
             setStatus('generating')
             if (attempts < MAX_POLLS) timer = setTimeout(poll, POLL_MS)
             return
           }
 
-          if (res?.summary) {
-            finish({ summary: res.summary, stale: Boolean(res.refresh_failed) })
-          } else {
-            finish({ summary: null })
-          }
+          finish({ summary: null })
         })
         .catch((err) => {
           if (stopped || controller.signal.aborted || err?.name === 'AbortError') return
@@ -154,7 +169,7 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
               </div>
             ) : null}
             <p className="summary-pop-text">{summary.text}</p>
-            {status === 'generating' ? (
+            {refreshing ? (
               <div className="summary-pop-stale">
                 <span className="spinner" />
                 Updating…

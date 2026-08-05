@@ -86,23 +86,62 @@ export async function onRequestGet({ request, env, waitUntil }) {
     if (decision.action === 'empty') return toClient(null, { empty: true })
     if (decision.action === 'cached') return toClient(summaryRow)
 
-    // --- generate: defer the model call past the response -----------------
-    // refreshConversationSummary re-reads and re-decides on its own (and owns
-    // the lease, so concurrent opens still collapse to one generation). We pass
-    // the same db instance in via its 4th arg; it is otherwise untouched.
-    const deferred = refreshConversationSummary(
+    // --- generate ---------------------------------------------------------
+    // Whether we can defer the model call depends entirely on whether we have
+    // something to show in the meantime.
+    const hasText = !!(summaryRow && summaryRow.short_summary && summaryRow.short_summary.trim())
+
+    if (hasText) {
+      // A REFRESH of text we already have. Deferring is free: the client gets
+      // the current wording immediately and simply polls for the newer one. If
+      // the background run dies, the stored row is untouched and still good.
+      const deferred = refreshConversationSummary(
+        env,
+        conversationId,
+        !!access.conversation.is_group,
+        db
+      ).catch(() => {})
+
+      if (typeof waitUntil === 'function') waitUntil(deferred)
+
+      return toClient(summaryRow, { generating: true })
+    }
+
+    // A FIRST generation — there is no stored text to fall back on. This MUST
+    // complete in the request.
+    //
+    // Deferring it here is what produced permanently-"Summarizing…" rows:
+    // refreshConversationSummary first INSERTS a placeholder row (blank
+    // short/big_summary, model null) to claim its lease, then calls the model.
+    // If the isolate is torn down before the model returns — which is exactly
+    // what happens under `wrangler pages dev`, and can happen on a cold/limited
+    // isolate in production — the final update never lands. The blank row then
+    // survives, and because decideRefresh() treats "no big and no short" as a
+    // first generation it IGNORES the 2h gate, so every later open regenerates
+    // and dies the same way. The row can never fill in.
+    //
+    // Waiting costs this one request the model latency, but it is the only
+    // request that pays it: once the row has text, every future open takes the
+    // fast cached/refresh path above.
+    const { action, row } = await refreshConversationSummary(
       env,
       conversationId,
       !!access.conversation.is_group,
       db
-    ).catch(() => {})
+    )
 
-    // waitUntil keeps the isolate alive for the generation after the response
-    // is sent. Where it is unavailable the promise is simply left running — the
-    // response must not wait on it either way.
-    if (typeof waitUntil === 'function') waitUntil(deferred)
-
-    return toClient(summaryRow, { generating: true })
+    switch (action) {
+      case 'empty':
+        return toClient(null, { empty: true })
+      case 'generating':
+        // Another request holds the lease and is generating right now; it will
+        // land shortly, so the client polls rather than starting a second run.
+        return toClient(row, { generating: true })
+      case 'refresh_failed':
+        return toClient(row, { refresh_failed: true })
+      default: // 'generated' | 'cached' | 'no_messages'
+        return toClient(row, action === 'generated' ? { generated: true } : {})
+    }
   } catch (err) {
     return serverError(err?.message || 'Failed to load summary')
   }
