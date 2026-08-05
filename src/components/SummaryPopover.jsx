@@ -171,7 +171,7 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
             {refreshing ? (
               <div className="summary-pop-stale">
                 <span className="spinner" />
-                Updating…
+                {/* Updating… */}
               </div>
             ) : stale ? (
               <div className="summary-pop-stale">Couldn’t refresh — showing the last summary.</div>
