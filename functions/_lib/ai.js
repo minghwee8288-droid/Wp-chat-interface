@@ -105,6 +105,7 @@ const SYSTEM_PROMPT = [
 ].join('\n')
 
 /**
+ * 
  * Build the OpenAI-format messages array.
  *   mode 'first'       — seed the big summary from the supplied recent history.
  *   mode 'incremental' — compact: fold ONLY the supplied new messages into the

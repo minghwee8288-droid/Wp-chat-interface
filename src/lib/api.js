@@ -203,6 +203,14 @@ export const api = {
       signal,
     }),
 
+  /**
+   * Bulk read of stored short summaries, for warming the popover cache.
+   * Read-only: it never generates, so a miss here just means "not summarised
+   * yet" and the per-conversation endpoint remains the way to produce one.
+   */
+  summariesBatch: (conversationIds, signal) =>
+    request(`/summaries/batch?ids=${conversationIds.join(',')}`, { signal }),
+
   send: (conversationId, body, media = null) =>
     request('/send', {
       method: 'POST',

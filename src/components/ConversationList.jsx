@@ -48,14 +48,19 @@ export default function ConversationList({
   loading,
   onNewMessage,
   users = [],
+  summaryCache = null,
 }) {
   const [query, setQuery] = useState('')
   // Filters live here, not in the URL — they reset on reload by design.
   const [filters, setFilters] = useState(EMPTY_FILTERS)
-  // The open short-summary popover ({ conversation, rect }) and a per-session
-  // cache so re-opening a row's summary is instant and taps stay lazy.
+  // The open short-summary popover ({ conversation, rect }).
   const [popover, setPopover] = useState(null)
-  const summaryCache = useRef(new Map())
+
+  // The cache is normally supplied by Inbox, which also background-preloads
+  // into it. The local fallback keeps this component usable on its own — it
+  // simply starts empty, so every popover does its own lazy fetch as before.
+  const ownCache = useRef(new Map())
+  const cache = summaryCache ?? ownCache.current
 
   // Name and number matching stays client-side: every conversation the caller
   // may see is already loaded, so this is instant and needs no round trip.
@@ -290,7 +295,7 @@ export default function ConversationList({
         <SummaryPopover
           conversation={popover.conversation}
           anchorRect={popover.rect}
-          cache={summaryCache.current}
+          cache={cache}
           onClose={() => setPopover(null)}
         />
       ) : null}

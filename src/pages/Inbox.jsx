@@ -24,6 +24,13 @@ const THREAD_POLL_MS = 4000
 /** Query parameter carrying the open conversation, so a refresh restores it. */
 const CHAT_PARAM = 'chat'
 
+/**
+ * How many conversations to warm the summary cache for. Matches the batch
+ * endpoint's own cap; the list is newest-first, so these are the rows a user is
+ * realistically going to tap.
+ */
+const PRELOAD_LIMIT = 30
+
 const EMPTY_THREAD = {
   conversationId: null,
   messages: [],
@@ -75,6 +82,14 @@ export default function Inbox() {
   const [composing, setComposing] = useState(false)
   // The contact/group info panel — opened by tapping the thread-header name.
   const [showInfo, setShowInfo] = useState(false)
+
+  // Short-summary cache shared with ConversationList's popovers. Owned here so
+  // the background preload below can fill it before any row is tapped; the
+  // popover's own lazy fetch stays as the fallback for a miss.
+  //
+  // Keyed by the RAW conversation id (a number), because that is what
+  // SummaryPopover looks up — a string key would never be found.
+  const summaryCache = useRef(new Map())
 
   // --- forwarding ---
   // The open context menu: {x, y, message}, or null.
@@ -191,6 +206,63 @@ export default function Inbox() {
   useEffect(() => {
     registerOpenHandler(open)
   }, [registerOpenHandler, open])
+
+  // Background summary preload.
+  //
+  // Two jobs: fill the popover cache so the first sparkle tap is instant, and
+  // warm the Worker so that tap is not also paying cold-start. Fire-and-forget
+  // — nothing here sets a loading state or blocks a render, and a failure just
+  // leaves the cache empty for the popover's own fetch to handle.
+  //
+  // Invalidation is driven by last_message_at rather than by re-fetching on
+  // every 5s poll: a conversation whose newest message has not changed cannot
+  // have a newer summary, so only genuinely-updated rows are re-requested.
+  const preloadedRef = useRef(new Map())
+  useEffect(() => {
+    if (loading || !conversations.length) return undefined
+
+    // Newest-first order already, so this is the set most likely to be tapped.
+    const candidates = conversations.slice(0, PRELOAD_LIMIT)
+
+    // Ask only for rows we have never fetched, or whose last message moved
+    // since we did. Everything else is already cached and current.
+    const wanted = candidates.filter((c) => {
+      const seenAt = preloadedRef.current.get(c.id)
+      return seenAt === undefined || seenAt !== c.last_message_at
+    })
+
+    if (!wanted.length) return undefined
+
+    const controller = new AbortController()
+
+    api
+      .summariesBatch(
+        wanted.map((c) => c.id),
+        controller.signal
+      )
+      .then((res) => {
+        if (controller.signal.aborted) return
+        const summaries = res?.summaries || {}
+
+        for (const conversation of wanted) {
+          // The response keys are strings (JSON object keys always are); the
+          // cache is keyed by the raw id, which is what the popover reads.
+          const summary = summaries[String(conversation.id)] ?? null
+
+          // A miss means "nothing stored yet", which is exactly the { summary:
+          // null } shape the popover already renders as "No summary yet" — and
+          // it stops that row re-requesting on every poll.
+          summaryCache.current.set(conversation.id, { summary, stale: false })
+          preloadedRef.current.set(conversation.id, conversation.last_message_at)
+        }
+      })
+      .catch(() => {
+        // Silent by design: this is an optimisation, and the popover's own
+        // fetch is the fallback. Nothing is shown to the user.
+      })
+
+    return () => controller.abort()
+  }, [conversations, loading])
 
   // Restore the conversation named in ?chat= on a cold load — a refresh, or a
   // pasted link.
@@ -504,6 +576,7 @@ export default function Inbox() {
           loading={loading}
           onNewMessage={() => setComposing(true)}
           users={users}
+          summaryCache={summaryCache.current}
         />
         {error ? (
           <div style={{ padding: '10px 12px' }}>
