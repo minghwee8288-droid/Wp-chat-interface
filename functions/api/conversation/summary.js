@@ -1,5 +1,7 @@
 import { requireAuth, requireConversationAccess } from '../../_lib/auth.js'
 import { json, badRequest, serverError } from '../../_lib/respond.js'
+import { getDb, unwrap } from '../../_lib/db.js'
+import { decideRefresh } from '../../_lib/ai.js'
 import { refreshConversationSummary } from '../../_lib/summarize.js'
 
 const positiveInt = (v) => {
@@ -31,11 +33,17 @@ function toClient(row, extra = {}) {
 /**
  * GET /api/conversation/summary?conversation_id=N
  *
- * Returns the conversation's summary, generating or refreshing per the rules in
- * _lib/ai.js — now via the shared refreshConversationSummary() (the same code
- * the inbound webhook and the seed script use). Access rules unchanged.
+ * NEVER awaits the model. The request path is two tiny indexed reads plus the
+ * pure decideRefresh() classification; when a refresh is due the model call is
+ * handed to ctx.waitUntil() so it runs AFTER the response is flushed. The client
+ * gets the stored (possibly stale) row immediately with `generating: true` and
+ * polls back for the fresh text.
+ *
+ * This is the whole fix for the ~14s open: the browser used to hold the
+ * connection open for the entire OpenRouter generation, and opening the inbox
+ * fires several of these at once. Access rules are unchanged.
  */
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet({ request, env, waitUntil }) {
   const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
@@ -48,24 +56,53 @@ export async function onRequestGet({ request, env }) {
     const access = await requireConversationAccess(env, auth.user, conversationId)
     if (access.response) return access.response
 
-    const { action, row } = await refreshConversationSummary(
+    // One client, shared with the background refresh below so the deferred work
+    // reuses this isolate's warm connection instead of building a second one.
+    const db = getDb(env)
+
+    // --- the two fast reads (milliseconds, both index-backed) -------------
+    const summaryRow = unwrap(
+      await db.from('wp_chat_summaries').select('*').eq('conversation_id', conversationId).maybeSingle()
+    )
+    const latestRows =
+      unwrap(
+        await db
+          .from('wp_chat_messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .order('id', { ascending: false })
+          .limit(1)
+      ) || []
+    const latestMessageId = latestRows.length ? latestRows[0].id : null
+
+    // --- classify without touching the model ------------------------------
+    const decision = decideRefresh({
+      summaryRow,
+      latestMessageId,
+      hasMessages: latestMessageId != null,
+      now: Date.now(),
+    })
+
+    if (decision.action === 'empty') return toClient(null, { empty: true })
+    if (decision.action === 'cached') return toClient(summaryRow)
+
+    // --- generate: defer the model call past the response -----------------
+    // refreshConversationSummary re-reads and re-decides on its own (and owns
+    // the lease, so concurrent opens still collapse to one generation). We pass
+    // the same db instance in via its 4th arg; it is otherwise untouched.
+    const deferred = refreshConversationSummary(
       env,
       conversationId,
-      !!access.conversation.is_group
-    )
+      !!access.conversation.is_group,
+      db
+    ).catch(() => {})
 
-    switch (action) {
-      case 'empty':
-        return toClient(null, { empty: true })
-      case 'generating':
-        return toClient(row, { generating: true })
-      case 'generated':
-        return toClient(row, { generated: true })
-      case 'refresh_failed':
-        return toClient(row, { refresh_failed: true })
-      default: // 'cached' | 'no_messages'
-        return toClient(row)
-    }
+    // waitUntil keeps the isolate alive for the generation after the response
+    // is sent. Where it is unavailable the promise is simply left running — the
+    // response must not wait on it either way.
+    if (typeof waitUntil === 'function') waitUntil(deferred)
+
+    return toClient(summaryRow, { generating: true })
   } catch (err) {
     return serverError(err?.message || 'Failed to load summary')
   }

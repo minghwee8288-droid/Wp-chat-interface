@@ -4,6 +4,11 @@ import { api } from '../lib/api.js'
 
 const ATTENTION = { management: 'Management', team: 'Team', general: 'General' }
 
+// The endpoint now returns immediately and generates in the background, so we
+// poll for the finished text instead of holding one long request open.
+const POLL_MS = 3000
+const MAX_POLLS = 12 // ~36s, then stop and keep whatever we have
+
 /**
  * Fixed-position anchored to the tapped icon. Fixed (not absolute) so it escapes
  * the conversation list's overflow, and clamped to the viewport so it never
@@ -46,31 +51,61 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
     }
   }, [onClose])
 
-  // Lazy fetch — only when opened, and only if not already cached.
+  // Lazy fetch — only when opened, and only if not already cached. A response
+  // flagged `generating` means the model is running server-side, so we show any
+  // stale text right away and re-poll until the fresh summary lands.
   useEffect(() => {
     if (cache.has(conversation.id)) return
     const controller = new AbortController()
-    api
-      .summary(conversation.id, controller.signal)
-      .then((res) => {
-        if (controller.signal.aborted) return
-        if (res?.summary) {
-          const entry = { summary: res.summary, stale: Boolean(res.refresh_failed) }
-          cache.set(conversation.id, entry)
-          setSummary(entry.summary)
-          setStale(entry.stale)
-          setStatus('ready')
-        } else if (res?.generating) {
-          setStatus('generating') // transient — not cached
-        } else {
-          cache.set(conversation.id, { summary: null })
-          setStatus('empty')
-        }
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted && err?.name !== 'AbortError') setStatus('error')
-      })
-    return () => controller.abort()
+    let timer = null
+    let attempts = 0
+    let stopped = false
+
+    const finish = (entry) => {
+      cache.set(conversation.id, entry)
+      setSummary(entry.summary)
+      setStale(Boolean(entry.stale))
+      setStatus(entry.summary ? 'ready' : 'empty')
+    }
+
+    const poll = () => {
+      attempts += 1
+      api
+        .summary(conversation.id, controller.signal)
+        .then((res) => {
+          if (stopped || controller.signal.aborted) return
+
+          if (res?.generating) {
+            // Show the stale summary while the fresh one generates — but don't
+            // cache it, so the next open still asks for the finished text.
+            if (res.summary) {
+              setSummary(res.summary)
+              setStale(Boolean(res.refresh_failed))
+            }
+            setStatus('generating')
+            if (attempts < MAX_POLLS) timer = setTimeout(poll, POLL_MS)
+            return
+          }
+
+          if (res?.summary) {
+            finish({ summary: res.summary, stale: Boolean(res.refresh_failed) })
+          } else {
+            finish({ summary: null })
+          }
+        })
+        .catch((err) => {
+          if (stopped || controller.signal.aborted || err?.name === 'AbortError') return
+          setStatus('error')
+        })
+    }
+
+    poll()
+
+    return () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+      controller.abort()
+    }
   }, [conversation.id, cache])
 
   const level = summary?.attention_required ? summary.attention_level || 'general' : null
@@ -89,7 +124,7 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
           </button>
         </div>
 
-        {status === 'loading' || status === 'generating' ? (
+        {(status === 'loading' || status === 'generating') && !summary ? (
           <div className="summary-pop-note">
             <span className="spinner" />
             Summarizing…
@@ -110,7 +145,14 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
               </div>
             ) : null}
             <p className="summary-pop-text">{summary.text}</p>
-            {stale ? <div className="summary-pop-stale">Couldn’t refresh — showing the last summary.</div> : null}
+            {status === 'generating' ? (
+              <div className="summary-pop-stale">
+                <span className="spinner" />
+                Updating…
+              </div>
+            ) : stale ? (
+              <div className="summary-pop-stale">Couldn’t refresh — showing the last summary.</div>
+            ) : null}
           </div>
         )}
       </div>
