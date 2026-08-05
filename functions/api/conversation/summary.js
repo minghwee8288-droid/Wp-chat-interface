@@ -87,61 +87,35 @@ export async function onRequestGet({ request, env, waitUntil }) {
     if (decision.action === 'cached') return toClient(summaryRow)
 
     // --- generate ---------------------------------------------------------
-    // Whether we can defer the model call depends entirely on whether we have
-    // something to show in the meantime.
+    // THE REQUEST NEVER WAITS FOR THE MODEL. Not for a refresh, and not for a
+    // first generation either.
+    //
+    // Summaries are produced in the background by the inbound webhook, which
+    // already calls refreshConversationSummary() on every new message. This
+    // endpoint is therefore a READER: it shows what has been produced so far.
+    //
+    // A conversation with no summary yet reports `empty`, and the panel says
+    // "No summary yet" instead of spinning — the next message on that
+    // conversation will generate one via the webhook. Blocking here is what
+    // made a first open cost the full model latency.
     const hasText = !!(summaryRow && summaryRow.short_summary && summaryRow.short_summary.trim())
 
-    if (hasText) {
-      // A REFRESH of text we already have. Deferring is free: the client gets
-      // the current wording immediately and simply polls for the newer one. If
-      // the background run dies, the stored row is untouched and still good.
-      const deferred = refreshConversationSummary(
-        env,
-        conversationId,
-        !!access.conversation.is_group,
-        db
-      ).catch(() => {})
-
-      if (typeof waitUntil === 'function') waitUntil(deferred)
-
-      return toClient(summaryRow, { generating: true })
-    }
-
-    // A FIRST generation — there is no stored text to fall back on. This MUST
-    // complete in the request.
-    //
-    // Deferring it here is what produced permanently-"Summarizing…" rows:
-    // refreshConversationSummary first INSERTS a placeholder row (blank
-    // short/big_summary, model null) to claim its lease, then calls the model.
-    // If the isolate is torn down before the model returns — which is exactly
-    // what happens under `wrangler pages dev`, and can happen on a cold/limited
-    // isolate in production — the final update never lands. The blank row then
-    // survives, and because decideRefresh() treats "no big and no short" as a
-    // first generation it IGNORES the 2h gate, so every later open regenerates
-    // and dies the same way. The row can never fill in.
-    //
-    // Waiting costs this one request the model latency, but it is the only
-    // request that pays it: once the row has text, every future open takes the
-    // fast cached/refresh path above.
-    const { action, row } = await refreshConversationSummary(
+    // Kick the refresh off regardless, so an open still nudges a stale or
+    // never-generated summary along — it just never delays the response.
+    // Wrapped so a failure can never reject into the request.
+    const deferred = refreshConversationSummary(
       env,
       conversationId,
       !!access.conversation.is_group,
       db
-    )
+    ).catch(() => {})
 
-    switch (action) {
-      case 'empty':
-        return toClient(null, { empty: true })
-      case 'generating':
-        // Another request holds the lease and is generating right now; it will
-        // land shortly, so the client polls rather than starting a second run.
-        return toClient(row, { generating: true })
-      case 'refresh_failed':
-        return toClient(row, { refresh_failed: true })
-      default: // 'generated' | 'cached' | 'no_messages'
-        return toClient(row, action === 'generated' ? { generated: true } : {})
-    }
+    if (typeof waitUntil === 'function') waitUntil(deferred)
+
+    // Stored text: show it now, flagged so the client polls for the newer
+    // wording. No text yet: report empty rather than a spinner the user would
+    // sit in front of.
+    return hasText ? toClient(summaryRow, { generating: true }) : toClient(null, { empty: true })
   } catch (err) {
     return serverError(err?.message || 'Failed to load summary')
   }

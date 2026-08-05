@@ -107,14 +107,13 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
             return
           }
 
-          // Nothing stored yet — a genuine first generation. This is the only
-          // case where the spinner is the honest thing to show.
-          if (res?.generating) {
-            setStatus('generating')
-            if (attempts < MAX_POLLS) timer = setTimeout(poll, POLL_MS)
-            return
-          }
-
+          // No stored text. The server does NOT block on the model, so there is
+          // nothing to wait for here: it reports empty and the background
+          // generation (kicked off by the webhook on new messages, and nudged
+          // by this request) will fill it in for a later open.
+          //
+          // Showing "No summary yet" immediately is the whole point of this
+          // path — a spinner would just be a countdown to the same answer.
           finish({ summary: null })
         })
         .catch((err) => {
