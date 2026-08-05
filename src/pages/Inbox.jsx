@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ArrowLeft, MessagesSquare, Plus, Search, Users } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
@@ -20,6 +21,9 @@ import { mergeMessages } from '../lib/thread.js'
 
 const THREAD_POLL_MS = 4000
 
+/** Query parameter carrying the open conversation, so a refresh restores it. */
+const CHAT_PARAM = 'chat'
+
 const EMPTY_THREAD = {
   conversationId: null,
   messages: [],
@@ -29,6 +33,11 @@ const EMPTY_THREAD = {
 
 export default function Inbox() {
   const toast = useToast()
+  // The app runs inside a BrowserRouter, so the URL is written through the
+  // router rather than history.replaceState directly — a raw call would leave
+  // the router's own location state pointing at the previous URL, and the next
+  // navigation would render from that stale value.
+  const [searchParams, setSearchParams] = useSearchParams()
   const {
     conversations,
     loading,
@@ -148,8 +157,11 @@ export default function Inbox() {
       // Optimistic — the GET /messages side effect clears it server-side.
       clearUnread(conversationId)
       setMobileView('thread')
+      // replace, not push: switching conversations must not stack a history
+      // entry per switch, or the back button would walk the whole session.
+      setSearchParams({ [CHAT_PARAM]: String(conversationId) }, { replace: true })
     },
-    [setOpenId, clearUnread]
+    [setOpenId, clearUnread, setMobileView, setSearchParams]
   )
 
   /**
@@ -179,6 +191,39 @@ export default function Inbox() {
   useEffect(() => {
     registerOpenHandler(open)
   }, [registerOpenHandler, open])
+
+  // Restore the conversation named in ?chat= on a cold load — a refresh, or a
+  // pasted link.
+  //
+  // Deliberately NOT gated on the list having loaded: openId is set straight
+  // away so the thread starts fetching in parallel with the conversation list,
+  // rather than a round trip behind it. An id that turns out not to exist is
+  // cleaned up by the access-loss effect once `loading` goes false, which is
+  // the same path that already handles losing access to an open thread.
+  //
+  // Runs once. A later ?chat= change is always something this component just
+  // wrote itself, so re-running would be a no-op at best and could fight a
+  // user's own navigation at worst.
+  const restoredRef = useRef(false)
+  useEffect(() => {
+    if (restoredRef.current) return
+    restoredRef.current = true
+
+    const raw = searchParams.get(CHAT_PARAM)
+    if (!raw) return
+
+    // Only a positive integer is a possible id. Anything else is discarded
+    // silently, per the spec — a junk URL shows the list, never an error.
+    const id = Number(raw)
+    if (!Number.isInteger(id) || id <= 0) {
+      setSearchParams({}, { replace: true })
+      return
+    }
+
+    setOpenId(id)
+    setMobileView('thread')
+    clearUnread(id)
+  }, [searchParams, setSearchParams, setOpenId, setMobileView, clearUnread])
 
   // The assign dropdown needs the roster; agents get it for the read-only label.
   useEffect(() => {
@@ -336,13 +381,20 @@ export default function Inbox() {
 
   const conversation = conversations.find((c) => String(c.id) === String(openId)) || null
 
+  /** Deselect and drop the ?chat= param, so a refresh lands on the list. */
+  const closeConversation = useCallback(() => {
+    setOpenId(null)
+    setMobileView('list')
+    setSearchParams({}, { replace: true })
+  }, [setOpenId, setMobileView, setSearchParams])
+
   // If an agent loses access to the open conversation mid-poll, drop back.
+  // This is also the path that clears a bad ?chat= from the URL: an id that
+  // does not resolve leaves openId set with no conversation, which lands here
+  // once the list has loaded.
   useEffect(() => {
-    if (openId && !loading && !conversation) {
-      setOpenId(null)
-      setMobileView('list')
-    }
-  }, [openId, conversation, loading, setOpenId])
+    if (openId && !loading && !conversation) closeConversation()
+  }, [openId, conversation, loading, closeConversation])
 
   // Edge-swipe right to go back. Only armed on a phone with a thread open —
   // the hook itself no-ops above 720px.
