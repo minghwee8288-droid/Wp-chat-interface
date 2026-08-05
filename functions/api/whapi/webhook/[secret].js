@@ -84,11 +84,38 @@ export async function onRequest(context) {
     }
   }
 
-  // Fire-and-forget: the runtime keeps the isolate alive for these after the
-  // response has already gone back to Whapi.
+  // Flush the deferred work (push fan-out, avatar/group sync, summary refresh).
+  //
+  // waitUntil keeps the isolate alive past the response, which is what lets a
+  // 15-30s summary generation finish after Whapi already has its 200. When it
+  // is NOT available the promises must still be awaited: previously they were
+  // created and abandoned, so the isolate was torn down at `return` and every
+  // slow task died mid-flight — silently, since nothing was ever awaited to
+  // observe the rejection. The summary refresh is the slowest item in `pending`
+  // and so was the one that reliably never completed.
+  //
+  // Awaiting delays the 200 by the length of the flush, which is not free — but
+  // Whapi retries on a missing/failed response, not a slow one, and losing the
+  // work outright is worse than answering late.
   if (pending.length) {
-    const flush = Promise.all(pending).catch(() => {})
+    // allSettled, not all: one rejection must not mask the others, and each
+    // task already logs its own failure. This only reports what got through.
+    const flush = Promise.allSettled(pending).then((results) => {
+      const failed = results.filter((r) => r.status === 'rejected')
+      if (failed.length) {
+        console.error(
+          'whapi webhook: deferred task(s) failed',
+          JSON.stringify({
+            failed: failed.length,
+            total: results.length,
+            reasons: failed.slice(0, 5).map((r) => String(r.reason?.message || r.reason)),
+          })
+        )
+      }
+    })
+
     if (typeof context.waitUntil === 'function') context.waitUntil(flush)
+    else await flush
   }
 
   return accepted({ processed, skipped })
@@ -237,9 +264,20 @@ async function handleMessage(env, msg, pending = []) {
     // message, and our own reply cannot make a thread unread.
     if (stored.added) {
       pending.push(
-        refreshConversationSummary(env, conversation.id, Boolean(groupJid)).catch((err) =>
-          console.error('summary refresh (webhook outbound) failed', conversation.id, err?.message)
-        )
+        refreshConversationSummary(env, conversation.id, Boolean(groupJid))
+          .then((result) => {
+            console.log(
+              'summary refresh (webhook outbound)',
+              JSON.stringify({ conversation_id: conversation.id, action: result?.action ?? null })
+            )
+          })
+          .catch((err) =>
+            console.error(
+              'summary refresh (webhook outbound) failed',
+              conversation.id,
+              err?.message || String(err)
+            )
+          )
       )
     }
 
@@ -353,10 +391,27 @@ async function handleMessage(env, msg, pending = []) {
   // dormant guard + 6-hour gate live inside refreshConversationSummary
   // (decideRefresh), so a busy chat does NOT generate on every message — most
   // calls are a cheap cached no-op. Flushed via waitUntil; never blocks the 200.
+  // Logs the outcome, not just failures: a silent no-op and a refresh that
+  // never ran were previously indistinguishable in the logs, which is what made
+  // the abandoned-promise bug above invisible. `action` names which branch of
+  // decideRefresh was taken ('cached' | 'generated' | 'generating' | …).
   pending.push(
-    refreshConversationSummary(env, conversation.id, Boolean(groupJid)).catch((err) =>
-      console.error('summary refresh (webhook) failed', conversation.id, err?.message)
-    )
+    refreshConversationSummary(env, conversation.id, Boolean(groupJid))
+      .then((result) => {
+        console.log(
+          'summary refresh (webhook)',
+          JSON.stringify({ conversation_id: conversation.id, action: result?.action ?? null })
+        )
+      })
+      .catch((err) =>
+        // err?.message alone is empty for a non-Error rejection, which silently
+        // produced a blank log line.
+        console.error(
+          'summary refresh (webhook) failed',
+          conversation.id,
+          err?.message || String(err)
+        )
+      )
   )
 
   return 'inserted'
