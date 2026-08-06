@@ -53,6 +53,53 @@ export function avatarIndex(identifier) {
   return hash % 8
 }
 
+/**
+ * Who to label a message as, for a quote of it.
+ *
+ * The fallback chain matters because sender_number and sender_name are written
+ * ONLY for group messages — in a 1:1 the conversation already identifies the
+ * other party, so an inbound 1:1 row carries neither and the customer's name
+ * exists only on the conversation. Without that last step every 1:1 quote
+ * reads "Unknown".
+ *
+ * Mirrors quotedSenderName() in functions/_lib/reply.js, which applies the same
+ * rule to quotes coming back from the server.
+ */
+export function senderLabelFor(message, conversation) {
+  if (message?.direction === 'outbound') return message.sent_by || 'You'
+
+  // Group participant: their own name, else their number.
+  if (message?.sender_name) return message.sender_name
+  if (message?.sender_number) return `+${message.sender_number}`
+
+  // 1:1 inbound: the customer, from the conversation.
+  const customerName = conversation?.customer_name?.trim()
+  if (customerName) return customerName
+  return conversation?.customer_number ? `+${conversation.customer_number}` : null
+}
+
+/** Media-type labels used when a quoted message has no text of its own. */
+const MEDIA_LABEL = {
+  image: 'Photo',
+  video: 'Video',
+  audio: 'Audio',
+  document: 'Document',
+}
+
+/**
+ * The one line a quoted-reply block shows.
+ *
+ * Text wins when present (a captioned photo reads better as its caption than as
+ * "Photo"). Media with no caption falls back to its type. A quote whose original
+ * we could not resolve returns null, and the caller renders the grey
+ * "Original message" placeholder instead.
+ */
+export function quoteLabel(quoted) {
+  if (!quoted || quoted.found === false) return null
+  if (quoted.body) return quoted.body
+  return MEDIA_LABEL[quoted.media_type] || (quoted.media_type ? 'Attachment' : null)
+}
+
 /** Compact stamp for the conversation list: time today, weekday this week, else date. */
 export function relativeStamp(value) {
   if (!value) return ''

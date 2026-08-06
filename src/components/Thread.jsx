@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AlertCircle, Clock, Check } from 'lucide-react'
+import { AlertCircle, Clock, Check, Reply } from 'lucide-react'
 import {
   clockTime,
   dayKey,
@@ -10,6 +10,7 @@ import {
 } from '../lib/format.js'
 import MediaAttachment from './MediaAttachment.jsx'
 import Lightbox from './Lightbox.jsx'
+import QuotedMessage from './QuotedMessage.jsx'
 import { splitMatches } from '../lib/thread.js'
 
 /**
@@ -38,6 +39,21 @@ const LONG_PRESS_MS = 450
  */
 const LONG_PRESS_SLOP_PX = 10
 
+/** Rightward travel that commits a swipe-to-reply, in px. */
+const SWIPE_REPLY_PX = 60
+
+/** Furthest the bubble follows the finger, so the row never slides off-screen. */
+const SWIPE_MAX_PX = 80
+
+/**
+ * Horizontal travel needed before a drag is treated as a swipe at all, and the
+ * ratio by which it must beat the vertical travel. Together these keep a
+ * diagonal thumb-scroll from arming the gesture — the thread scrolls vertically,
+ * so scrolling must win every ambiguous case.
+ */
+const SWIPE_ARM_PX = 12
+const SWIPE_AXIS_RATIO = 1.5
+
 export default function Thread({
   messages,
   loading,
@@ -56,6 +72,8 @@ export default function Thread({
   onToggleSelect,
   onRequestMenu,
   onForwardMedia,
+  onReply,
+  onJumpToMessage,
 }) {
   const isGroup = Boolean(conversation?.is_group)
   const [lightbox, setLightbox] = useState(null)
@@ -85,6 +103,12 @@ export default function Thread({
   // it has already fired. Kept in a ref because none of it should re-render.
   const pressRef = useRef(null)
 
+  // Live swipe-to-reply offset, {id, dx}. This one IS state: the bubble has to
+  // follow the finger. The distance touchend tests against the threshold is
+  // read from pressRef, not from here — a state value could still be one render
+  // behind the final touchmove at the moment the finger lifts.
+  const [swipe, setSwipe] = useState(null)
+
   const cancelPress = () => {
     if (pressRef.current?.timer) clearTimeout(pressRef.current.timer)
     pressRef.current = null
@@ -102,7 +126,13 @@ export default function Thread({
     pressRef.current = {
       x: touch.clientX,
       y: touch.clientY,
+      message,
       fired: false,
+      // Set once the drag is unambiguously horizontal; from then on the press
+      // is a swipe and the long-press timer has already been cancelled.
+      swiping: false,
+      // Latest horizontal travel, updated synchronously by movePress.
+      dx: 0,
       timer: setTimeout(() => {
         if (!pressRef.current) return
         pressRef.current.fired = true
@@ -116,20 +146,61 @@ export default function Thread({
     if (!press || press.fired) return
     const touch = event.touches?.[0]
     if (!touch) return
+
+    const dx = touch.clientX - press.x
+    const dy = touch.clientY - press.y
+
+    // Arm the swipe on a clearly-horizontal rightward drag. Leftward is left
+    // alone: it belongs to the edge-swipe-back gesture.
+    if (
+      !press.swiping &&
+      onReply &&
+      dx > SWIPE_ARM_PX &&
+      dx > Math.abs(dy) * SWIPE_AXIS_RATIO
+    ) {
+      press.swiping = true
+      // The hold is now a drag, so the menu must not fire underneath it.
+      if (press.timer) clearTimeout(press.timer)
+      press.timer = null
+    }
+
+    if (press.swiping) {
+      // Resisted past the commit point: the bubble keeps moving, but slowly,
+      // so there is a felt "catch" at the threshold rather than a silent one.
+      const eased =
+        dx <= SWIPE_REPLY_PX ? dx : SWIPE_REPLY_PX + (dx - SWIPE_REPLY_PX) * 0.3
+      // Raw travel, not the eased offset: the threshold is about how far the
+      // finger moved, while the easing is only how far the bubble follows.
+      press.dx = dx
+      setSwipe({ id: press.message.id, dx: Math.min(eased, SWIPE_MAX_PX) })
+      return
+    }
+
     // Drifted far enough to be a scroll — abandon the press so the thread
     // scrolls normally instead of opening a menu under the moving finger.
     if (
-      Math.abs(touch.clientX - press.x) > LONG_PRESS_SLOP_PX ||
-      Math.abs(touch.clientY - press.y) > LONG_PRESS_SLOP_PX
+      Math.abs(dx) > LONG_PRESS_SLOP_PX ||
+      Math.abs(dy) > LONG_PRESS_SLOP_PX
     ) {
       cancelPress()
     }
   }
 
   const endPress = (event) => {
+    const press = pressRef.current
+
+    if (press?.swiping) {
+      // Committed only past the threshold; a short swipe springs back and does
+      // nothing, which is what makes the gesture safe to explore.
+      if ((press.dx ?? 0) >= SWIPE_REPLY_PX) onReply?.(press.message)
+      setSwipe(null)
+      cancelPress()
+      return
+    }
+
     // The menu already opened, so the lifting finger must not also register as
     // a tap on the message underneath.
-    if (pressRef.current?.fired) event.preventDefault()
+    if (press?.fired) event.preventDefault()
     cancelPress()
   }
 
@@ -285,6 +356,7 @@ export default function Thread({
     prependRef.current = null
     savedViewRef.current = null
     pendingJumpRef.current = null
+    setSwipe(null)
   }, [conversation?.id])
 
   // Shown while a thread loads. Because Inbox only hands over messages that
@@ -417,7 +489,12 @@ export default function Thread({
                 onTouchStart={(e) => (selectionMode ? undefined : startPress(e, message))}
                 onTouchMove={movePress}
                 onTouchEnd={endPress}
-                onTouchCancel={cancelPress}
+                // An interrupted touch (a call, the app backgrounding) must
+                // spring the bubble back, not strand it mid-swipe.
+                onTouchCancel={() => {
+                  setSwipe(null)
+                  cancelPress()
+                }}
                 // In selection mode the whole row is the hit target — tapping
                 // anywhere toggles, matching how WhatsApp behaves. The real
                 // checkbox below is the accessible control; this is a
@@ -450,7 +527,22 @@ export default function Thread({
                   }${hasMedia ? ' has-media' : ''}${mediaOnly ? ' is-media-only' : ''}${
                     isRunStart ? ' has-tail' : ''
                   }`}
+                  style={
+                    swipe?.id === message.id
+                      ? { transform: `translateX(${swipe.dx}px)` }
+                      : undefined
+                  }
                 >
+                  {/* Sits inside the bubble so it travels with the swipe and
+                      inherits the bubble's own max-width. */}
+                  {message.quoted ? (
+                    <QuotedMessage
+                      quoted={message.quoted}
+                      conversation={conversation}
+                      onJump={message.quoted.found ? onJumpToMessage : null}
+                    />
+                  ) : null}
+
                   {/* Sender label: groups only, inbound only, and only on the
                       first message of a run — the same rule the avatars use.
                       Inside the bubble so it cannot disturb the row's flex
@@ -505,6 +597,25 @@ export default function Thread({
 
 
                 </div>
+
+                {/* Desktop affordance — revealed on row hover by CSS. The
+                    mobile equivalent is the swipe, and the context menu covers
+                    both. Hidden during selection mode, where the row's click
+                    belongs to the checkbox. */}
+                {onReply && !selectionMode ? (
+                  <button
+                    type="button"
+                    className="msg-reply-btn desktop-only"
+                    aria-label={`Reply to ${who}`}
+                    title="Reply"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onReply(message)
+                    }}
+                  >
+                    <Reply size={15} />
+                  </button>
+                ) : null}
 
                 {isOut ? avatar : null}
               </div>

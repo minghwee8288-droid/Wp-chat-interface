@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Forward, Copy } from 'lucide-react'
+import { Forward, Copy, Reply } from 'lucide-react'
 
 // Distance kept between the menu and the viewport edge when it has to be
 // nudged back inside.
@@ -11,7 +11,7 @@ const EDGE_GAP = 8
  * partially offscreen (which on mobile is the difference between usable and
  * not, since there is no way to scroll a fixed overlay back into view).
  */
-export default function MessageContextMenu({ x, y, message, onForward, onClose }) {
+export default function MessageContextMenu({ x, y, message, onForward, onReply, onClose }) {
   const ref = useRef(null)
   // Start at the raw pointer position and correct after measuring: the menu's
   // size depends on which items render, so it cannot be known before layout.
@@ -85,6 +85,12 @@ export default function MessageContextMenu({ x, y, message, onForward, onClose }
         // buttons would never receive their click.
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {onReply ? (
+          <button type="button" className="ctx-item" role="menuitem" onClick={onReply}>
+            <Reply size={16} aria-hidden="true" />
+            Reply
+          </button>
+        ) : null}
         <button type="button" className="ctx-item" role="menuitem" onClick={onForward}>
           <Forward size={16} aria-hidden="true" />
           Forward

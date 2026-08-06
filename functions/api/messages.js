@@ -3,6 +3,7 @@ import { requireAuth, requireConversationAccess } from '../_lib/auth.js'
 import { MESSAGE_COLUMNS } from '../_lib/storage.js'
 import { json, badRequest, notFound, serverError } from '../_lib/respond.js'
 import { beforeCursor, afterCursor } from '../_lib/search.js'
+import { attachQuoted } from '../_lib/reply.js'
 
 /**
  * Messages per request.
@@ -149,6 +150,10 @@ export async function onRequestGet({ request, env }) {
       hasMoreBefore = tail.more
       hasMoreAfter = false
     }
+
+    // Quoted-reply blocks for whichever slice was fetched. One extra query for
+    // the whole page, and only when the page actually contains a reply.
+    await attachQuoted(db, messages, access.conversation)
 
     // Reading a thread marks it read regardless of which slice was fetched —
     // an agent who opened it via a months-old search hit has still seen it.

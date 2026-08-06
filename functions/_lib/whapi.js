@@ -40,25 +40,32 @@ const MEDIA_ENDPOINT = {
  * Send a text message.
  * Resolves to {ok, messageId, error} — never throws, so a Whapi outage can't
  * take down /api/send after the row has already been persisted.
+ *
+ * `quoted` is Whapi's OWN id for the message being replied to (our row ids mean
+ * nothing to them). Omitted entirely when absent — sending `quoted: null` is
+ * rejected by some Whapi versions as a malformed field, which would turn a
+ * quote we could not resolve into a failed send rather than a plain message.
  */
-export async function sendText(env, to, body) {
+export async function sendText(env, to, body, { quoted = null } = {}) {
   return post(env, 'messages/text', {
     // Bare digits for a 1:1, e.g. "13135555657"; the full JID for a group.
     to: recipientFor(to),
     body,
+    ...(quoted ? { quoted } : {}),
   })
 }
 
 /**
  * Send a media message. `mediaUrl` must be publicly fetchable by Whapi for the
  * life of the request — /api/send passes a 24h Supabase signed URL.
- * Same never-throws contract as sendText.
+ * Same never-throws contract as sendText, and the same `quoted` handling.
  */
-export async function sendMedia(env, to, { mediaUrl, mediaType, caption, filename, mime }) {
+export async function sendMedia(env, to, { mediaUrl, mediaType, caption, filename, mime, quoted }) {
   const endpoint = MEDIA_ENDPOINT[mediaType] || 'document'
 
   const payload = { to: recipientFor(to), media: mediaUrl }
   if (caption) payload.caption = caption
+  if (quoted) payload.quoted = quoted
   // Whapi uses the filename as the document's display name.
   if (endpoint === 'document') {
     if (filename) payload.filename = filename

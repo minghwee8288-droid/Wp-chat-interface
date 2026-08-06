@@ -8,6 +8,7 @@ import {
   previewLine,
 } from '../../../_lib/ingest.js'
 import { persistHistorical } from '../../../_lib/sync.js'
+import { resolveQuotedRef } from '../../../_lib/reply.js'
 import { notifyNewMessage } from '../../../_lib/notify.js'
 import { autoAssign } from '../../../_lib/assign.js'
 import { refreshConversationSummary } from '../../../_lib/summarize.js'
@@ -295,6 +296,10 @@ async function handleMessage(env, msg, pending = []) {
     mediaError = ingested.error
   }
 
+  // Quoted reply, if the payload carries one — shared with the sync backfill so
+  // both paths map Whapi's quoted id onto our row the same way.
+  const quotedRef = await resolveQuotedRef(db, conversation.id, msg)
+
   // Insert the message. whapi_message_id is UNIQUE, which is what makes a Whapi
   // retry idempotent — the duplicate is dropped and the badge is not re-bumped.
   const inserted = await db
@@ -309,6 +314,7 @@ async function handleMessage(env, msg, pending = []) {
       sender_name: groupJid ? sender.name : null,
       body,
       whapi_message_id: whapiMessageId,
+      ...quotedRef,
       status: 'received',
       is_read: false,
       created_at: createdAt,

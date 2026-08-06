@@ -211,10 +211,16 @@ export const api = {
   summariesBatch: (conversationIds, signal) =>
     request(`/summaries/batch?ids=${conversationIds.join(',')}`, { signal }),
 
-  send: (conversationId, body, media = null) =>
+  /** `replyTo` is the id of the message being quoted, or null for a normal send. */
+  send: (conversationId, body, media = null, replyTo = null) =>
     request('/send', {
       method: 'POST',
-      body: { conversation_id: conversationId, body, ...(media || {}) },
+      body: {
+        conversation_id: conversationId,
+        body,
+        ...(media || {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      },
     }),
 
   /**

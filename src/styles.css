@@ -16,8 +16,7 @@
   --brand-contrast: var(--accent-contrast);
 
   /* --- chat thread -------------------------------------------------- */
-  --chat-bg: #f1ede3;
-  --chat-dot: #e1daca;
+  --chat-bg: #f5f5f5;
   --bubble-in: #ffffff;
   --bubble-out: #dcebfb;
   --bubble-text: #111111;
@@ -127,8 +126,7 @@
   --accent-tint: #24384a;
   --accent-contrast: #0b0d12;
 
-  --chat-bg: #14120e;
-  --chat-dot: #1f1c16;
+  --chat-bg: #131313;
   --bubble-in: #22201b;
   --bubble-out: #24384a;
   --bubble-text: #f0ede6;
@@ -862,10 +860,7 @@ button {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  background-color: var(--chat-bg);
-  /* 1px dots on an 18px grid — the only decoration in the thread. */
-  background-image: radial-gradient(var(--chat-dot) 1px, transparent 1px);
-  background-size: 18px 18px;
+  background: var(--chat-bg);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1733,6 +1728,10 @@ button {
   position: relative;
   font-size: 16px;
   line-height: 1.45;
+  /* Swipe-to-reply moves the bubble via an inline transform. No transition
+     applies WHILE dragging (each move sets a new position), so this only
+     animates the spring-back on release. */
+  transition: transform 0.18s ease;
 }
 
 .bubble-in {
@@ -1818,6 +1817,134 @@ button {
 .msg-sender[data-agent='5'] { color: var(--agent-5); }
 .msg-sender[data-agent='6'] { color: var(--agent-6); }
 .msg-sender[data-agent='7'] { color: var(--agent-7); }
+
+/* ------------------------------------------------------------------ *
+ * Quoted replies
+ *
+ * The block above a bubble showing the message being replied to, and the
+ * matching strip above the composer while the reply is being written.
+ * Both use the same left-border + tinted-panel shape, so a quote reads the
+ * same whether it is being composed or read back.
+ * ------------------------------------------------------------------ */
+.quote {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  /* Bubble padding is 6px 12px; pulling out by 6px and re-insetting gives the
+     block a wider measure than the text without breaking the bubble's edge. */
+  margin: 0 -6px 4px;
+  padding: 4px 8px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm);
+  /* Tinted from the bubble's own text colour, so it darkens on the white
+     inbound bubble and the blue outbound one by the same amount. */
+  background: color-mix(in srgb, var(--bubble-text) 6%, transparent);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.quote:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bubble-text) 11%, transparent);
+}
+
+/* Unresolvable original: nothing to jump to, so it must not look clickable. */
+.quote:disabled,
+.quote.is-missing {
+  cursor: default;
+  border-left-color: var(--border-strong);
+}
+
+.quote-sender {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--accent-deep);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two lines, then ellipsis — a quote is a reference, not a re-read.
+   -webkit-box is what gives multi-line clamping; the media icon is aligned by
+   vertical-align on the SVG itself rather than flex, since a flex container
+   cannot also line-clamp. */
+.quote-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 350;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+.quote-body svg {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+
+.quote.is-missing .quote-body {
+  font-style: italic;
+  color: var(--text-3);
+}
+
+/* Group colour coding, matching .msg-sender exactly so one participant is one
+   colour whether you are reading their message or a quote of it. */
+.quote[data-agent='0'] { border-left-color: var(--agent-0); }
+.quote[data-agent='1'] { border-left-color: var(--agent-1); }
+.quote[data-agent='2'] { border-left-color: var(--agent-2); }
+.quote[data-agent='3'] { border-left-color: var(--agent-3); }
+.quote[data-agent='4'] { border-left-color: var(--agent-4); }
+.quote[data-agent='5'] { border-left-color: var(--agent-5); }
+.quote[data-agent='6'] { border-left-color: var(--agent-6); }
+.quote[data-agent='7'] { border-left-color: var(--agent-7); }
+
+.quote[data-agent='0'] .quote-sender { color: var(--agent-0); }
+.quote[data-agent='1'] .quote-sender { color: var(--agent-1); }
+.quote[data-agent='2'] .quote-sender { color: var(--agent-2); }
+.quote[data-agent='3'] .quote-sender { color: var(--agent-3); }
+.quote[data-agent='4'] .quote-sender { color: var(--agent-4); }
+.quote[data-agent='5'] .quote-sender { color: var(--agent-5); }
+.quote[data-agent='6'] .quote-sender { color: var(--agent-6); }
+.quote[data-agent='7'] .quote-sender { color: var(--agent-7); }
+
+/* A media-only bubble has 4px padding, so the quote needs its own inset back. */
+.bubble.is-media-only .quote {
+  margin: 2px 2px 4px;
+  width: auto;
+}
+
+/* Desktop hover affordance. Reserved space would push every row, so it is
+   revealed in place — the row's 8px gap already leaves room beside the bubble. */
+.msg-reply-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.msg-row:hover .msg-reply-btn,
+/* Keyboard users get it on focus — hover alone would make it unreachable. */
+.msg-reply-btn:focus-visible {
+  opacity: 1;
+}
+.msg-reply-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+/* Outbound rows are right-justified, so the button belongs on the far side of
+   the bubble to stay closest to the thread's centre. */
+.msg-row.out .msg-reply-btn {
+  order: -1;
+}
 
 /* A media-only bubble drops to 4px padding; the sender label still needs to
    sit clear of the image. */
@@ -2244,6 +2371,92 @@ button {
 .reply-attach-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Quoted-reply strip above the textarea. Shares .reply-attach's geometry so
+   the two line up exactly when a reply carries an attachment as well. */
+.reply-quote {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 6px clamp(24px, 5%, 80px);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.reply-quote-bar {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0 2px 8px;
+  border-left: 3px solid var(--accent);
+  border-radius: 1px;
+}
+
+.reply-quote-sender {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--accent-deep);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One line, per the design — the composer strip is a confirmation of which
+   message was picked, not a preview of its content. */
+.reply-quote-body {
+  display: block;
+  font-size: 13px;
+  font-weight: 350;
+  line-height: 1.35;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-quote-body svg {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+
+.reply-quote-bar[data-agent='0'] { border-left-color: var(--agent-0); }
+.reply-quote-bar[data-agent='1'] { border-left-color: var(--agent-1); }
+.reply-quote-bar[data-agent='2'] { border-left-color: var(--agent-2); }
+.reply-quote-bar[data-agent='3'] { border-left-color: var(--agent-3); }
+.reply-quote-bar[data-agent='4'] { border-left-color: var(--agent-4); }
+.reply-quote-bar[data-agent='5'] { border-left-color: var(--agent-5); }
+.reply-quote-bar[data-agent='6'] { border-left-color: var(--agent-6); }
+.reply-quote-bar[data-agent='7'] { border-left-color: var(--agent-7); }
+
+.reply-quote-bar[data-agent='0'] .reply-quote-sender { color: var(--agent-0); }
+.reply-quote-bar[data-agent='1'] .reply-quote-sender { color: var(--agent-1); }
+.reply-quote-bar[data-agent='2'] .reply-quote-sender { color: var(--agent-2); }
+.reply-quote-bar[data-agent='3'] .reply-quote-sender { color: var(--agent-3); }
+.reply-quote-bar[data-agent='4'] .reply-quote-sender { color: var(--agent-4); }
+.reply-quote-bar[data-agent='5'] .reply-quote-sender { color: var(--agent-5); }
+.reply-quote-bar[data-agent='6'] .reply-quote-sender { color: var(--agent-6); }
+.reply-quote-bar[data-agent='7'] .reply-quote-sender { color: var(--agent-7); }
+
+.reply-quote-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  align-self: center;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.reply-quote-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
 }
 
 /* Preview strip above the textarea. */

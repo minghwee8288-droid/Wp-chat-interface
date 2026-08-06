@@ -29,6 +29,7 @@
 
 import { unwrap, UNIQUE_VIOLATION } from './db.js'
 import { listMessages, listChats, redactPayload } from './whapi.js'
+import { resolveQuotedRef } from './reply.js'
 import {
   shapeInboundMessage,
   ingestAttachment,
@@ -189,6 +190,12 @@ export async function persistHistorical(env, db, msg, chatName) {
       ...directionRow,
       body,
       whapi_message_id: whapiMessageId,
+      // Quoted reply, resolved against messages already stored. A backfill runs
+      // newest-first through history, so the quoted original is often not landed
+      // yet — reply_to_whapi_id is recorded either way, which is what lets the
+      // thread show the quote block rather than silently dropping the reference.
+      // This path also carries replies an agent sent from the WhatsApp app.
+      ...(await resolveQuotedRef(db, conversation.id, msg)),
       // Historical messages are considered already-read in BOTH directions: a
       // backfill must never inflate unread counts, and our own replies are read
       // by definition (this matches /api/send, which stores is_read: true).

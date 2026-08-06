@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Send, Paperclip, X, FileText, AlertCircle } from 'lucide-react'
 import { api, ApiError } from '../lib/api.js'
 import { formatBytes } from '../lib/format.js'
+import ReplyPreview from './ReplyPreview.jsx'
 
 const MAX_BYTES = 16 * 1024 * 1024
 
@@ -25,7 +26,17 @@ const ACCEPT = [
   'audio/webm',
 ].join(',')
 
-export default function ReplyBox({ conversationId, onSend, disabled, isGroup = false }) {
+export default function ReplyBox({
+  conversationId,
+  onSend,
+  disabled,
+  isGroup = false,
+  replyTo = null,
+  onCancelReply,
+  // Supplies the customer's name for a quote of an inbound 1:1 message, which
+  // carries no sender fields of its own.
+  conversation = null,
+}) {
   const [value, setValue] = useState('')
   const [sending, setSending] = useState(false)
   const [attachment, setAttachment] = useState(null) // {file, previewUrl, isImage}
@@ -65,6 +76,13 @@ export default function ReplyBox({ conversationId, onSend, disabled, isGroup = f
     setError(null)
     setValue('')
   }, [conversationId])
+
+  // Picking a message to reply to puts the cursor in the composer — the user's
+  // next action is always typing, and on mobile this is what raises the
+  // keyboard without a second tap.
+  useEffect(() => {
+    if (replyTo) textareaRef.current?.focus()
+  }, [replyTo?.id])
 
   const attach = (file) => {
     if (!file) return
@@ -115,9 +133,11 @@ export default function ReplyBox({ conversationId, onSend, disabled, isGroup = f
         }
       }
 
-      await onSend(text, media)
+      await onSend(text, media, replyTo?.id ?? null)
       setValue('')
       clearAttachment()
+      // The quote belongs to the message just sent, not to the next one.
+      onCancelReply?.()
     } catch (err) {
       // Inline, never thrown past this boundary.
       setError(err instanceof ApiError ? err.message : 'Could not send. Please try again.')
@@ -146,6 +166,8 @@ export default function ReplyBox({ conversationId, onSend, disabled, isGroup = f
           <span>{error}</span>
         </div>
       ) : null}
+
+      <ReplyPreview target={replyTo} conversation={conversation} onCancel={onCancelReply} />
 
       {attachment ? (
         <div className="reply-attach">
@@ -216,6 +238,12 @@ export default function ReplyBox({ conversationId, onSend, disabled, isGroup = f
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               submit()
+            }
+            // Escape drops the quote before it drops anything else — the
+            // composer keeps whatever has been typed.
+            if (e.key === 'Escape' && replyTo) {
+              e.preventDefault()
+              onCancelReply?.()
             }
           }}
         />

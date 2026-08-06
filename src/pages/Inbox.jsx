@@ -112,6 +112,12 @@ export default function Inbox() {
   // instead of stranding the user in a selection mode they never chose.
   const [quickForward, setQuickForward] = useState(false)
 
+  // --- replying ---
+  // The message being quoted, or null. The whole row is held rather than just
+  // its id so the composer preview renders without a lookup, and so it survives
+  // the loaded window scrolling away from the original.
+  const [replyTo, setReplyTo] = useState(null)
+
   const exitSelection = useCallback(() => {
     setSelection(null)
     setPickerOpen(false)
@@ -177,6 +183,9 @@ export default function Inbox() {
       setSelection(null)
       setPickerOpen(false)
       setMenu(null)
+      // Same reasoning for a pending reply: it quotes a message in the thread
+      // being left, and /api/send would reject it against the new conversation.
+      setReplyTo(null)
       // Optimistic — the GET /messages side effect clears it server-side.
       clearUnread(conversationId)
       setMobileView('thread')
@@ -498,10 +507,10 @@ export default function Inbox() {
     setMobileView('list')
   )
 
-  const send = async (body, media = null) => {
+  const send = async (body, media = null, replyToId = null) => {
     if (!conversation) return
     try {
-      const data = await api.send(conversation.id, body, media)
+      const data = await api.send(conversation.id, body, media, replyToId)
 
       if (threadRef.current.hasMoreAfter) {
         // Sending while reading history would drop the new message below the
@@ -715,6 +724,10 @@ export default function Inbox() {
               selectedIds={selection}
               onToggleSelect={toggleSelected}
               onRequestMenu={setMenu}
+              onReply={setReplyTo}
+              // The quoted block jumps to the message it quotes, loading the
+              // window around it first if it has scrolled out of range.
+              onJumpToMessage={goToMessage}
               // The per-file shortcut: select just this message and jump
               // straight to the picker, skipping selection mode entirely.
               onForwardMedia={(messageId) => {
@@ -740,6 +753,9 @@ export default function Inbox() {
                 conversationId={conversation.id}
                 onSend={send}
                 isGroup={conversation.is_group}
+                replyTo={replyTo}
+                onCancelReply={() => setReplyTo(null)}
+                conversation={conversation}
               />
             )}
           </>
@@ -765,6 +781,10 @@ export default function Inbox() {
           y={menu.y}
           message={menu.message}
           onClose={() => setMenu(null)}
+          onReply={() => {
+            setReplyTo(menu.message)
+            setMenu(null)
+          }}
           onForward={() => {
             // Entering selection mode pre-selects the message that was pressed,
             // so "Forward" on a single message is two taps, not three.

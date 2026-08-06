@@ -3,6 +3,7 @@ import { requireAuth, requireConversationAccess } from '../_lib/auth.js'
 import { sendText, sendMedia, toDigits } from '../_lib/whapi.js'
 import { readMediaFields, signUrl, MESSAGE_COLUMNS } from '../_lib/storage.js'
 import { json, badRequest, serverError, readJson } from '../_lib/respond.js'
+import { attachQuoted } from '../_lib/reply.js'
 
 // Whapi fetches the media itself, so the URL has to outlive the request by a
 // comfortable margin.
@@ -13,11 +14,17 @@ export async function onRequestPost({ request, env }) {
   if (auth.response) return auth.response
 
   const payload = await readJson(request)
-  const { conversation_id, body } = payload
+  const { conversation_id, body, reply_to } = payload
 
   const conversationId = Number(conversation_id)
   if (!Number.isInteger(conversationId) || conversationId <= 0) {
     return badRequest('conversation_id is required')
+  }
+
+  // Optional. Absent and explicitly-null both mean "not a reply".
+  const replyToId = reply_to == null ? null : Number(reply_to)
+  if (replyToId !== null && (!Number.isInteger(replyToId) || replyToId <= 0)) {
+    return badRequest('reply_to must be a message id')
   }
 
   const media = readMediaFields(payload)
@@ -43,6 +50,13 @@ export async function onRequestPost({ request, env }) {
     // pre-normalised and toDigits is bypassed for groups.
     const destination = conversation.is_group ? conversation.group_jid : conversation.customer_number
 
+    // (0) Resolve the quoted message, if this is a reply.
+    const { rowId: quotedRowId, whapiId: quotedWhapiId } = await resolveQuoted(
+      db,
+      conversationId,
+      replyToId
+    )
+
     // (1) Persist first, so a Whapi failure is visible rather than losing the message.
     const message = unwrap(
       await db
@@ -58,6 +72,10 @@ export async function onRequestPost({ request, env }) {
           is_read: true,
           sent_by: auth.user.name,
           created_at: now,
+          // Both recorded: the row id is what the thread renders from, the
+          // whapi id is the durable reference if the quoted row is ever removed.
+          reply_to_message_id: quotedRowId,
+          reply_to_whapi_id: quotedWhapiId,
           // Outbound media is uploaded before this call, so it is never errored.
           ...(media ? { ...media, media_caption: text || null, media_error: false } : {}),
         })
@@ -91,10 +109,11 @@ export async function onRequestPost({ request, env }) {
             caption: text || null,
             filename: media.media_filename,
             mime: media.media_mime,
+            quoted: quotedWhapiId,
           })
         : { ok: false, error: signed.error }
     } else {
-      result = await sendText(env, destination, text)
+      result = await sendText(env, destination, text, { quoted: quotedWhapiId })
     }
 
     if (result.ok) {
@@ -113,9 +132,49 @@ export async function onRequestPost({ request, env }) {
       message.error_code = code
     }
 
+    // The client appends this row straight into the open thread rather than
+    // refetching, so it needs the same `quoted` block the read path attaches —
+    // without it the reply would render unquoted until the next poll.
+    if (quotedRowId) await attachQuoted(db, [message], conversation)
+
     return json({ ok: true, message })
   } catch (err) {
     return serverError(err.message || 'Failed to send message')
+  }
+}
+
+/**
+ * The message a reply quotes: our row id, plus Whapi's id for it.
+ *
+ * Scoped by conversation_id — without it, any message id in the database could
+ * be quoted into any thread the sender has access to, which both leaks that the
+ * id exists and would have Whapi quote a message from a different chat.
+ *
+ * An unresolvable quote returns nulls rather than raising: the message still
+ * sends, just unquoted. Refusing the whole send would lose the text the agent
+ * actually typed over what is ultimately a decoration.
+ */
+async function resolveQuoted(db, conversationId, replyToId) {
+  const none = { rowId: null, whapiId: null }
+  if (replyToId === null) return none
+
+  const quoted = unwrap(
+    await db
+      .from('wp_chat_messages')
+      .select('id, whapi_message_id')
+      .eq('id', replyToId)
+      .eq('conversation_id', conversationId)
+      .maybeSingle()
+  )
+  if (!quoted) return none
+
+  return {
+    rowId: quoted.id,
+    // Whapi can only quote a message IT knows about. A row with no whapi id (a
+    // send that failed, or one still awaiting its echo) is still recorded as the
+    // reply target locally — our thread renders the quote correctly even though
+    // WhatsApp shows the message unquoted.
+    whapiId: quoted.whapi_message_id || null,
   }
 }
 
