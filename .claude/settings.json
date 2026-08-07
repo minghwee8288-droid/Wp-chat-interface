@@ -24,7 +24,8 @@
       "Bash(git check-ignore *)",
       "Bash(node \"C:/Users/DIVYAN~1/AppData/Local/Temp/claude/d--projects-Wp-chat-interface/6cc91223-41bd-40e3-8e78-4401010d6ba8/scratchpad/check-reply.mjs\")",
       "Bash(git diff *)",
-      "Bash(node \"C:/Users/DIVYAN~1/AppData/Local/Temp/claude/d--projects-Wp-chat-interface/6cc91223-41bd-40e3-8e78-4401010d6ba8/scratchpad/check-sender.mjs\")"
+      "Bash(node \"C:/Users/DIVYAN~1/AppData/Local/Temp/claude/d--projects-Wp-chat-interface/6cc91223-41bd-40e3-8e78-4401010d6ba8/scratchpad/check-sender.mjs\")",
+      "Bash(node \"C:/Users/DIVYAN~1/AppData/Local/Temp/claude/d--projects-Wp-chat-interface/6cc91223-41bd-40e3-8e78-4401010d6ba8/scratchpad/check-dnd.mjs\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\Growwstacks\\Desktop\\Thomas_Chat_interface"

@@ -2303,22 +2303,37 @@ button {
   border-radius: var(--r-md);
 }
 
-.lightbox-close {
+/* Download and close, grouped top-right so they can never overlap each other
+   on a narrow viewport. */
+.lightbox-actions {
   position: absolute;
   top: 16px;
   right: 16px;
   display: flex;
   align-items: center;
+  gap: 8px;
+  /* Above the image, which fills the overlay at large sizes. */
+  z-index: 1;
+}
+
+.lightbox-btn {
+  display: flex;
+  align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  /* 44px touch target, per the platform minimum. */
+  width: 44px;
+  height: 44px;
   border-radius: var(--r-full);
   background: rgba(255, 255, 255, 0.14);
   color: var(--badge-text);
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, opacity 0.12s ease;
 }
-.lightbox-close:hover {
+.lightbox-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.26);
+}
+.lightbox-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* ------------------------------------------------------------------ *
@@ -2371,6 +2386,95 @@ button {
 .reply-attach-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * Drag & drop
+ * ------------------------------------------------------------------ */
+
+/* Takes over the thread's flex layout so wrapping the Thread and composer in
+   it changes nothing on screen: same column, same fill, same min-height:0 that
+   lets the scroller shrink. `relative` is what the overlay anchors to. */
+.thread-drop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.dropzone-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  /* Tinted from the accent rather than a flat grey, so it reads as an invited
+     action and not as a disabled state. */
+  background: color-mix(in srgb, var(--accent) 12%, var(--chat-bg));
+  animation: fade 0.12s ease-out;
+  /* The drag events belong to the wrapper; the overlay must never become the
+     dragleave target or the counter would go out of sync. */
+  pointer-events: none;
+}
+
+.dropzone-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent-deep);
+}
+
+.dropzone-text {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Multi-file queue above the composer. */
+.reply-attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  /* The rows carry their own bottom margin; this only caps a long queue so a
+     dropped folder cannot push the textarea off screen. */
+  max-height: 216px;
+  overflow-y: auto;
+}
+
+.reply-attach-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 clamp(24px, 5%, 80px);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.reply-attach-clear {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-deep);
+}
+.reply-attach-clear:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.reply-attach-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inside the list the rows stack, so their individual bottom margin would
+   double the gap the flex `gap` already provides. */
+.reply-attach-list .reply-attach {
+  margin-bottom: 0;
 }
 
 /* Quoted-reply strip above the textarea. Shares .reply-attach's geometry so

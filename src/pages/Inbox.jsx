@@ -8,6 +8,7 @@ import { useToast } from '../context/ToastContext.jsx'
 import ConversationList from '../components/ConversationList.jsx'
 import Thread from '../components/Thread.jsx'
 import ReplyBox from '../components/ReplyBox.jsx'
+import DropZone from '../components/DropZone.jsx'
 import AssignControl from '../components/AssignControl.jsx'
 import NewMessageModal from '../components/NewMessageModal.jsx'
 import ContactAvatar from '../components/ContactAvatar.jsx'
@@ -117,6 +118,11 @@ export default function Inbox() {
   // its id so the composer preview renders without a lookup, and so it survives
   // the loaded window scrolling away from the original.
   const [replyTo, setReplyTo] = useState(null)
+
+  // --- drag & drop ---
+  // ReplyBox publishes its file-queueing function here, so a drop on the thread
+  // runs the same validation and upload path as the paperclip button.
+  const attachFilesRef = useRef(null)
 
   const exitSelection = useCallback(() => {
     setSelection(null)
@@ -704,6 +710,14 @@ export default function Inbox() {
               />
             ) : null}
 
+            {/* Drop zone spans the thread AND the composer, so releasing a
+                file anywhere below the header attaches it. Disabled during
+                selection mode, where the composer is not even mounted. */}
+            <DropZone
+              className="thread-drop"
+              disabled={selection !== null}
+              onFiles={(files) => attachFilesRef.current?.(files)}
+            >
             <Thread
               messages={messages}
               loading={threadLoading}
@@ -756,8 +770,12 @@ export default function Inbox() {
                 replyTo={replyTo}
                 onCancelReply={() => setReplyTo(null)}
                 conversation={conversation}
+                onReady={(attach) => {
+                  attachFilesRef.current = attach
+                }}
               />
             )}
+            </DropZone>
           </>
         )}
       </section>
