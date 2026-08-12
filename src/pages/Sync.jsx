@@ -9,6 +9,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const TERMINAL = new Set(['done', 'failed', 'canceled'])
 
+function isoDay(offsetDays = 0) {
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  date.setDate(date.getDate() + offsetDays)
+  return date.toISOString().slice(0, 10)
+}
+
 /** unix seconds -> a short local date/time. */
 function fmtTs(ts) {
   const d = new Date(Number(ts) * 1000)
@@ -47,6 +54,8 @@ export default function Sync() {
   const [jobs, setJobs] = useState([])
   const [driving, setDriving] = useState(false)
   const [error, setError] = useState(null)
+  const [fromDate, setFromDate] = useState(() => isoDay(-1))
+  const [toDate, setToDate] = useState(() => isoDay(1))
 
   const drivingRef = useRef(false)
 
@@ -108,6 +117,24 @@ export default function Sync() {
     drive(deferred.id)
   }
 
+  const startRangeSync = async (event) => {
+    event.preventDefault()
+    if (driving) return
+    if (!fromDate || !toDate || fromDate > toDate) {
+      setError('Choose a valid date range (the start date must be on or before the end date).')
+      return
+    }
+
+    setError(null)
+    try {
+      const result = await api.syncStart({ type: 'range', from: fromDate, to: toDate })
+      setJob(result.job)
+      drive(result.job.id)
+    } catch (err) {
+      if (err.status !== 401) setError(err.message || 'Could not start sync')
+    }
+  }
+
   const clearHalt = async () => {
     try {
       await api.clearAutoHalt()
@@ -165,6 +192,30 @@ export default function Sync() {
               recent results appear below; an unusually long outage is recorded but not run
               automatically, so use its Run button to recover it deliberately.
             </p>
+            <form className="sync-manual-form" onSubmit={startRangeSync}>
+              <label>
+                From
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  disabled={driving}
+                />
+              </label>
+              <label>
+                To
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(event) => setToDate(event.target.value)}
+                  disabled={driving}
+                />
+              </label>
+              <button type="submit" className="btn btn-primary" disabled={driving}>
+                {driving ? <span className="spinner" /> : <Play size={14} />}
+                {driving ? 'Syncing…' : 'Run manual sync'}
+              </button>
+            </form>
           </div>
         </section>
 

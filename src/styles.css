@@ -4205,6 +4205,33 @@ button {
   line-height: 1.5;
   color: var(--text-2);
 }
+.sync-manual-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.sync-manual-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.sync-manual-form input {
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+@media (max-width: 520px) {
+  .sync-manual-form > * {
+    width: 100%;
+  }
+}
 .sync-mode {
   display: flex;
   flex-wrap: wrap;
