@@ -619,6 +619,15 @@ export default function Thread({
 
                 {isOut ? avatar : null}
               </div>
+
+              {/* Agent attribution under an outbound run — the text counterpart
+                  to the outbound initials avatar, on the SAME run-end rule so it
+                  is not repeated on every consecutive message. Never shown when
+                  sent_by is null (a message sent from the WhatsApp app): the
+                  avatar already renders the generic "You" for that case. */}
+              {isOut && isRunEnd && message.sent_by ? (
+                <div className="msg-out-sender">{message.sent_by}</div>
+              ) : null}
             </div>
           )
         })}

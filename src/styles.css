@@ -1892,6 +1892,22 @@ button {
 .msg-sender[data-agent='6'] { color: var(--agent-6); }
 .msg-sender[data-agent='7'] { color: var(--agent-7); }
 
+/* The outbound counterpart: the sending agent's name under a run of our own
+   messages. Same 12px/500 as the inbound group label, but muted and right-
+   aligned to sit under the bubble's right edge (clearing the 28px avatar + 8px
+   row gap). Only rendered at run-end with a non-null sent_by (see Thread.jsx). */
+.msg-out-sender {
+  padding: 2px 36px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: right;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ------------------------------------------------------------------ *
  * Quoted replies
  *
