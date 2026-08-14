@@ -2,17 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowDown } from 'lucide-react'
 
 // Pull-down-to-refresh for the conversation list, TOUCH ONLY. Desktop keeps the
-// existing 5s poll and never sees this — mouse wheel over-scroll is not a pull.
+// existing poll and never sees this.
 //
-// This component BECOMES the scroll container (it takes the caller's className,
-// e.g. "conv-list", and renders the rows as its children), so it can read
-// scrollTop directly and only arm the gesture when the list is at the very top.
-// The touch handlers are native, non-passive (matching useSwipeBack) so we can
-// preventDefault the rubber-band while we own the drag.
+// Smoothness: the pull distance is driven DIRECTLY on the DOM via refs — never
+// React state — so a drag causes ZERO re-renders. The rows live in a `.ptr-track`
+// wrapper that slides down with a GPU `transform: translateY()` (no width/height
+// change → no layout), coalesced through requestAnimationFrame. The indicator
+// sits behind the track and is revealed in the gap. React state is used only for
+// the coarse phase flips (idle ↔ armed ↔ refreshing), which change at most once
+// per gesture, and a CSS transition animates the release.
 
 const THRESHOLD = 60 // px pulled before a release triggers a refresh
-const MAX_PULL = 90 // clamp so the indicator can't be dragged arbitrarily far
-const RESISTANCE = 0.5 // the indicator moves at half the finger's distance
+const MAX_PULL = 90 // clamp on the drag distance
+const REFRESH_HOLD = 60 // px the track holds open under the spinner while refreshing
+const RESISTANCE = 0.5 // the track moves at half the finger's distance
+const SETTLE = 'transform 0.3s ease'
 
 const isTouch =
   typeof window !== 'undefined' &&
@@ -20,15 +24,19 @@ const isTouch =
 
 export default function PullToRefresh({ onRefresh, className = '', children }) {
   const scrollRef = useRef(null)
-  const [pull, setPull] = useState(0)
-  const [refreshing, setRefreshing] = useState(false)
-  const [dragging, setDragging] = useState(false)
+  const trackRef = useRef(null)
 
-  // Native listeners close over their first render, so mirror the live values
-  // (and the current onRefresh) into refs they can read.
-  const pullRef = useRef(0)
-  const refreshingRef = useRef(false)
+  // Live gesture values — DOM-driven, deliberately NOT state.
   const startY = useRef(null)
+  const pull = useRef(0)
+  const raf = useRef(0)
+  const refreshingRef = useRef(false)
+
+  // Coarse phase, for the indicator text/spinner only (flips ≤ once per gesture).
+  const [refreshing, setRefreshing] = useState(false)
+  const [armed, setArmed] = useState(false)
+
+  // Latest onRefresh without re-binding the native listeners.
   const onRefreshRef = useRef(onRefresh)
   useEffect(() => {
     onRefreshRef.current = onRefresh
@@ -36,49 +44,74 @@ export default function PullToRefresh({ onRefresh, className = '', children }) {
 
   useEffect(() => {
     if (!isTouch) return undefined
-    const el = scrollRef.current
-    if (!el) return undefined
+    const scroller = scrollRef.current
+    const track = trackRef.current
+    if (!scroller || !track) return undefined
 
-    const setDist = (d) => {
-      pullRef.current = d
-      setPull(d)
+    // Push the live pull straight to the compositor — no React render.
+    const paint = () => {
+      raf.current = 0
+      track.style.transform = pull.current ? `translateY(${pull.current}px)` : ''
+    }
+    const schedule = () => {
+      if (!raf.current) raf.current = requestAnimationFrame(paint)
     }
 
     const onStart = (e) => {
       if (refreshingRef.current) return
-      // Only arm when already scrolled to the top; otherwise this is a scroll.
-      startY.current = el.scrollTop <= 0 ? e.touches[0].clientY : null
+      // Arm only when already at the very top; otherwise this is a normal scroll.
+      startY.current = scroller.scrollTop <= 0 ? e.touches[0].clientY : null
+      track.style.transition = 'none' // track the finger 1:1 during the drag
     }
 
     const onMove = (e) => {
       if (startY.current == null || refreshingRef.current) return
-      if (el.scrollTop > 0) {
-        // The user scrolled up into content — abandon the pull.
+      if (scroller.scrollTop > 0) {
+        // Scrolled up into content — abandon the pull.
         startY.current = null
-        if (pullRef.current) setDist(0)
-        setDragging(false)
+        if (pull.current) {
+          pull.current = 0
+          schedule()
+        }
         return
       }
       const dy = e.touches[0].clientY - startY.current
       if (dy <= 0) {
-        if (pullRef.current) setDist(0)
+        if (pull.current) {
+          pull.current = 0
+          schedule()
+        }
         return
       }
-      // We own the gesture now: stop the native overscroll/bounce so the
-      // indicator tracks the finger instead of the page rubber-banding.
+      // We own the gesture: stop the native rubber-band so the track tracks it.
       e.preventDefault()
-      setDragging(true)
-      setDist(Math.min(MAX_PULL, dy * RESISTANCE))
+      pull.current = Math.min(MAX_PULL, dy * RESISTANCE)
+      schedule()
+      const nowArmed = pull.current >= THRESHOLD
+      setArmed((a) => (a === nowArmed ? a : nowArmed))
+    }
+
+    const settle = () => {
+      track.style.transition = SETTLE
+      track.style.transform = ''
+      pull.current = 0
     }
 
     const onEnd = async () => {
       if (startY.current == null) return
       startY.current = null
-      setDragging(false)
-      if (pullRef.current >= THRESHOLD && !refreshingRef.current) {
+      if (raf.current) {
+        cancelAnimationFrame(raf.current)
+        raf.current = 0
+      }
+
+      if (pull.current >= THRESHOLD && !refreshingRef.current) {
         refreshingRef.current = true
         setRefreshing(true)
-        setDist(THRESHOLD) // hold the indicator open under the spinner
+        setArmed(false)
+        // Hold the track open under the spinner, animated.
+        track.style.transition = SETTLE
+        track.style.transform = `translateY(${REFRESH_HOLD}px)`
         try {
           await onRefreshRef.current?.()
         } catch {
@@ -86,47 +119,43 @@ export default function PullToRefresh({ onRefresh, className = '', children }) {
         }
         refreshingRef.current = false
         setRefreshing(false)
-        setDist(0)
+        settle()
       } else {
-        setDist(0)
+        setArmed(false)
+        settle()
       }
     }
 
-    el.addEventListener('touchstart', onStart, { passive: true })
-    el.addEventListener('touchmove', onMove, { passive: false })
-    el.addEventListener('touchend', onEnd)
-    el.addEventListener('touchcancel', onEnd)
+    scroller.addEventListener('touchstart', onStart, { passive: true })
+    scroller.addEventListener('touchmove', onMove, { passive: false })
+    scroller.addEventListener('touchend', onEnd)
+    scroller.addEventListener('touchcancel', onEnd)
     return () => {
-      el.removeEventListener('touchstart', onStart)
-      el.removeEventListener('touchmove', onMove)
-      el.removeEventListener('touchend', onEnd)
-      el.removeEventListener('touchcancel', onEnd)
+      scroller.removeEventListener('touchstart', onStart)
+      scroller.removeEventListener('touchmove', onMove)
+      scroller.removeEventListener('touchend', onEnd)
+      scroller.removeEventListener('touchcancel', onEnd)
+      if (raf.current) cancelAnimationFrame(raf.current)
     }
   }, [])
-
-  const armed = pull >= THRESHOLD
 
   return (
     <div ref={scrollRef} className={className}>
       {isTouch ? (
-        <div
-          className="ptr-indicator"
-          // No transition while dragging (track the finger 1:1); animate the
-          // settle back to 0 on release.
-          style={{ height: `${pull}px`, transitionDuration: dragging ? '0ms' : '200ms' }}
-          aria-hidden={pull === 0 && !refreshing}
-        >
+        <div className="ptr-indicator" aria-hidden={!refreshing && !armed}>
           {refreshing ? (
             <span className="spinner" role="status" aria-label="Refreshing" />
-          ) : pull > 0 ? (
+          ) : (
             <span className={`ptr-hint${armed ? ' is-armed' : ''}`}>
               <ArrowDown size={15} className="ptr-arrow" aria-hidden="true" />
               {armed ? 'Release to refresh' : 'Pull to refresh'}
             </span>
-          ) : null}
+          )}
         </div>
       ) : null}
-      {children}
+      <div ref={trackRef} className="ptr-track">
+        {children}
+      </div>
     </div>
   )
 }

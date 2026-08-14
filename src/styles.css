@@ -935,27 +935,45 @@ button {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--surface);
+  /* Positioning context for the pull-to-refresh indicator, which sits at the
+     visual top of the scroller (behind the sliding row track). */
+  position: relative;
+}
+
+/* Pull-to-refresh row track (touch and desktop). Holds all the rows and slides
+   down under the finger via a GPU transform — no width/height change, so the
+   drag never triggers layout. Opaque so it hides the indicator behind it at
+   rest. PullToRefresh sets the transform + transition inline. */
+.ptr-track {
+  position: relative;
+  min-height: 100%;
+  background: var(--surface);
+  will-change: transform;
 }
 
 /* An empty list has no rows to push against, so centre the message in the
-   whole pane instead of letting it sit under the search field. */
-.conv-list:has(> .empty) {
+   whole pane instead of letting it sit under the search field. The track is
+   the row container now, so the centring lives here. */
+.ptr-track:has(> .empty) {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/* Pull-to-refresh indicator (touch only; the component omits it on desktop).
-   Sits at the top of .conv-list at 0 height until pulled — PullToRefresh sets
-   the height inline as the finger moves and animates it back on release. */
+/* The indicator is revealed in the gap the track opens as it slides down.
+   Touch only — the component omits it on desktop. */
 .ptr-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 90px;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  overflow: hidden;
-  height: 0;
+  padding-bottom: 18px;
   color: var(--text-3);
-  transition: height 200ms ease;
+  pointer-events: none;
 }
 .ptr-hint {
   display: inline-flex;
@@ -1455,8 +1473,8 @@ button {
 /* Colour dots on the Attention picker's dropdown options — same hues as the
    row bars (--attn-team-bar / --attn-management-bar). */
 .filter-dot {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   flex: none;
 }
@@ -1514,14 +1532,24 @@ button {
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 7px 9px;
+  /* Comfortable tap target — the whole row is the hit area, not just the box. */
+  min-height: 48px;
+  padding: 12px 16px;
   border-radius: var(--r-sm);
-  font-size: 13.5px;
+  font-size: 16px;
   text-align: left;
   color: var(--text);
 }
 .filter-menu-item:hover {
   background: var(--surface-2);
+}
+
+/* Bigger still on touch/phone widths. */
+@media (max-width: 768px) {
+  .filter-menu-item {
+    min-height: 52px;
+    font-size: 17px;
+  }
 }
 
 .filter-menu-empty {
