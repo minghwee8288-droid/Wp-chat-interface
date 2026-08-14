@@ -23,7 +23,9 @@ function FilterPicker({ summary, hasSelection, onClear, clearLabel, children }) 
     const chip = chipRef.current
     if (!chip) return
     const rect = chip.getBoundingClientRect()
-    const MENU_W = 190
+    // Kept in sync with .filter-menu's min-width, plus a little slack for the
+    // widest label, so the on-screen left-clamp below keeps the whole menu in view.
+    const MENU_W = 210
     const MENU_MAX_H = 260
     const GAP = 6
 

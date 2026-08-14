@@ -1427,12 +1427,18 @@ button {
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
+  /* Without this a flex item keeps its default min-width:auto and grows to fit
+     all the chips instead of scrolling — the overflow-x below never engages and
+     the last chip (Attention) gets clipped by the pane. */
+  min-width: 0;
   padding: 0 16px 10px;
   background: var(--surface);
-  /* Scrolls sideways rather than wrapping to a second line, which would push
-     the list too far down on a phone. */
+  /* Stay on one line and scroll sideways rather than wrapping to a second line,
+     which would push the list too far down on a phone. */
+  white-space: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
 .filter-row::-webkit-scrollbar {
@@ -1517,7 +1523,9 @@ button {
   position: fixed;
   /* Above the toast stack (200); the lightbox (300) still wins. */
   z-index: 250;
-  min-width: 190px;
+  min-width: 200px;
+  /* Never wider than the viewport (JS also clamps the left edge on to screen). */
+  max-width: calc(100vw - 16px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 5px;
@@ -1576,9 +1584,8 @@ button {
 
 .filter-menu-name {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* No ellipsis/overflow clipping — the label (e.g. "Management (10)") must show
+     in full; the menu grows to fit it, up to the viewport-capped max-width. */
   white-space: nowrap;
 }
 
