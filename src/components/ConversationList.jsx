@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal, Sparkles } from 'lucide-react'
 import SummaryPopover from './SummaryPopover.jsx'
+import PullToRefresh from './PullToRefresh.jsx'
 import {
   displayName,
   relativeStamp,
@@ -47,6 +48,7 @@ export default function ConversationList({
   onOpen,
   loading,
   onNewMessage,
+  onRefresh = () => {},
   users = [],
   summaryCache = null,
 }) {
@@ -127,7 +129,7 @@ export default function ConversationList({
           onOpen={onOpen}
         />
       ) : (
-      <div className="conv-list">
+      <PullToRefresh className="conv-list" onRefresh={onRefresh}>
         {filtered.length === 0 ? (
           <div className="empty">
             {hiddenByFilters ? (
@@ -179,14 +181,21 @@ export default function ConversationList({
               assignee && conversation.assigned_user_id != null
                 ? avatarIndex(conversation.assigned_user_id)
                 : null
-            // undefined omits the attribute entirely, so an unflagged row is
-            // left alone. The open row is NOT excluded: the flag is a bar down
-            // the left edge now, not a background, so it no longer competes
+            // A bar only for a still-active flag: BOTH attention is required
+            // AND the level is team/management ('general'/null never get one).
+            // The list API only sends attention_level for rows where
+            // attention_required is true, so the explicit `!== false` is a guard
+            // against a stale/cached row that kept an old level after attention
+            // cleared. undefined omits the attribute entirely, so an unflagged
+            // row is left alone. The open row is NOT excluded: the flag is a bar
+            // down the left edge now, not a background, so it no longer competes
             // with the selected-row highlight and a flagged conversation stays
             // flagged while you are reading it.
-            const attention = FLAGGED_LEVELS.has(conversation.attention_level)
-              ? conversation.attention_level
-              : undefined
+            const attention =
+              conversation.attention_required !== false &&
+              FLAGGED_LEVELS.has(conversation.attention_level)
+                ? conversation.attention_level
+                : undefined
 
             return (
               <div key={conversation.id} className="conv-row-wrap">
@@ -278,7 +287,7 @@ export default function ConversationList({
             )
           })
         )}
-      </div>
+      </PullToRefresh>
       )}
 
       {/* Mobile-only floating action; desktop uses the "+" in the list header. */}

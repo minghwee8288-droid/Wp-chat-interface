@@ -614,6 +614,7 @@ export default function Inbox() {
           onOpen={open}
           loading={loading}
           onNewMessage={() => setComposing(true)}
+          onRefresh={refresh}
           users={users}
           summaryCache={summaryCache.current}
         />

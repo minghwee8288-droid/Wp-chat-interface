@@ -10,7 +10,7 @@ import { Plus, Check, X } from 'lucide-react'
  * from either direction.
  */
 export default function ConversationFilters({ users, filters, onChange }) {
-  const { assigned, unassigned, agentIds } = filters
+  const { assigned, unassigned, agentIds, attentionTeam, attentionManagement } = filters
   const [pickerOpen, setPickerOpen] = useState(false)
   const [menuPos, setMenuPos] = useState(null)
   const pickerRef = useRef(null)
@@ -184,14 +184,44 @@ export default function ConversationFilters({ users, filters, onChange }) {
             )
           : null}
       </div>
+
+      {/* Attention level. Independent toggles (both on = team OR management),
+          each carrying the same colour dot as its row bar. */}
+      <button
+        type="button"
+        className={`filter-chip${attentionTeam ? ' is-on' : ''}`}
+        aria-pressed={attentionTeam}
+        onClick={() => onChange({ ...filters, attentionTeam: !attentionTeam })}
+      >
+        <span className="filter-dot filter-dot-team" aria-hidden="true" />
+        Team
+      </button>
+
+      <button
+        type="button"
+        className={`filter-chip${attentionManagement ? ' is-on' : ''}`}
+        aria-pressed={attentionManagement}
+        onClick={() => onChange({ ...filters, attentionManagement: !attentionManagement })}
+      >
+        <span className="filter-dot filter-dot-management" aria-hidden="true" />
+        Management
+      </button>
     </div>
   )
 }
 
-export const EMPTY_FILTERS = { assigned: false, unassigned: false, agentIds: [] }
+export const EMPTY_FILTERS = {
+  assigned: false,
+  unassigned: false,
+  agentIds: [],
+  attentionTeam: false,
+  attentionManagement: false,
+}
 
 export const hasActiveFilters = (f) =>
-  Boolean(f.assigned || f.unassigned || f.agentIds.length)
+  Boolean(
+    f.assigned || f.unassigned || f.agentIds.length || f.attentionTeam || f.attentionManagement
+  )
 
 /**
  * Status chips and the agent picker combine with AND.
@@ -214,6 +244,18 @@ export function matchesFilters(conversation, filters) {
   if (filters.agentIds.length) {
     if (!hasAssignee) return false
     if (!filters.agentIds.includes(String(conversation.assigned_user_id))) return false
+  }
+
+  // Attention level. When either chip is on, the row must match an ON level.
+  // Mirrors the row bar's guard (`attention_required !== false`): a level only
+  // counts while attention is still required, so a stale level does not leak in.
+  if (filters.attentionTeam || filters.attentionManagement) {
+    const level =
+      conversation.attention_required !== false ? conversation.attention_level : null
+    const matches =
+      (filters.attentionTeam && level === 'team') ||
+      (filters.attentionManagement && level === 'management')
+    if (!matches) return false
   }
 
   return true
