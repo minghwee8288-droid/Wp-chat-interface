@@ -117,7 +117,12 @@ export default function ConversationList({
           rows they cannot express. Rather than leave a control on screen that
           silently stops applying, it is withdrawn for the duration. */}
       {searching ? null : (
-        <ConversationFilters users={users} filters={filters} onChange={setFilters} />
+        <ConversationFilters
+          users={users}
+          conversations={conversations}
+          filters={filters}
+          onChange={setFilters}
+        />
       )}
 
       {searching ? (

@@ -127,11 +127,16 @@ function FilterPicker({ summary, hasSelection, onClear, clearLabel, children }) 
  * the same thing (show everything), which keeps "clear the filter" reachable
  * from either direction.
  */
-export default function ConversationFilters({ users, filters, onChange }) {
+export default function ConversationFilters({ users, conversations = [], filters, onChange }) {
   const { assigned, unassigned, agentIds, attentionTeam, attentionManagement } = filters
 
   const activeAgents = users.filter((u) => u.is_active)
   const agentCount = agentIds.length
+
+  // Live counts per attention level, recomputed each render (so they track every
+  // poll refresh). Keyed on attention_level only, as specified.
+  const teamCount = conversations.filter((c) => c.attention_level === 'team').length
+  const managementCount = conversations.filter((c) => c.attention_level === 'management').length
 
   const toggleAgent = (id) => {
     const key = String(id)
@@ -236,7 +241,7 @@ export default function ConversationFilters({ users, filters, onChange }) {
             {attentionTeam ? <Check size={11} /> : null}
           </span>
           <span className="filter-dot filter-dot-team" aria-hidden="true" />
-          <span className="filter-menu-name">Team</span>
+          <span className="filter-menu-name">Team ({teamCount})</span>
         </button>
 
         <button
@@ -250,7 +255,7 @@ export default function ConversationFilters({ users, filters, onChange }) {
             {attentionManagement ? <Check size={11} /> : null}
           </span>
           <span className="filter-dot filter-dot-management" aria-hidden="true" />
-          <span className="filter-menu-name">Management</span>
+          <span className="filter-menu-name">Management ({managementCount})</span>
         </button>
       </FilterPicker>
     </div>

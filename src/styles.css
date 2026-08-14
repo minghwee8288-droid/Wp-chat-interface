@@ -1897,7 +1897,9 @@ button {
    aligned to sit under the bubble's right edge (clearing the 28px avatar + 8px
    row gap). Only rendered at run-end with a non-null sent_by (see Thread.jsx). */
 .msg-out-sender {
-  padding: 2px 36px 0 0;
+  /* Flush right — just a small gap from the screen edge, so the name sits under
+     the outbound bubble's right edge rather than indented. */
+  padding: 2px 8px 0 0;
   font-size: 12px;
   font-weight: 500;
   line-height: 1.3;
