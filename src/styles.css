@@ -1452,9 +1452,8 @@ button {
   color: var(--accent-contrast);
 }
 
-/* Colour dots on the attention filter chips — same hues as the row bars
-   (--attn-team-bar / --attn-management-bar). On an active accent-filled chip
-   the dot keeps its hue but gets a thin ring so it stays legible. */
+/* Colour dots on the Attention picker's dropdown options — same hues as the
+   row bars (--attn-team-bar / --attn-management-bar). */
 .filter-dot {
   width: 8px;
   height: 8px;
@@ -1466,9 +1465,6 @@ button {
 }
 .filter-dot-management {
   background: var(--attn-management-bar);
-}
-.filter-chip.is-on .filter-dot {
-  box-shadow: 0 0 0 1.5px var(--accent-contrast);
 }
 
 .filter-picker {

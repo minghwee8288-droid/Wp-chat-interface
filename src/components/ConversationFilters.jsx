@@ -3,30 +3,22 @@ import { createPortal } from 'react-dom'
 import { Plus, Check, X } from 'lucide-react'
 
 /**
- * Filter row: two multi-select status chips plus an agent picker.
+ * A "+ Label" chip that opens a portalled multi-select dropdown — the exact
+ * pattern the Agent picker used, extracted so BOTH the Agent and Attention
+ * pickers share one implementation (and each gets its own open/position state).
  *
- * Status chips are deliberately NOT radio buttons — both off and both on mean
- * the same thing (show everything), which keeps "clear the filter" reachable
- * from either direction.
+ * The menu is portalled to <body> and fixed-positioned: it cannot be an
+ * absolutely-positioned child because .filter-row is the mobile horizontal
+ * scroller (overflow-x: auto / overflow-y: hidden), whose non-visible overflow
+ * clips descendants on BOTH axes.
  */
-export default function ConversationFilters({ users, filters, onChange }) {
-  const { assigned, unassigned, agentIds, attentionTeam, attentionManagement } = filters
-  const [pickerOpen, setPickerOpen] = useState(false)
+function FilterPicker({ summary, hasSelection, onClear, clearLabel, children }) {
+  const [open, setOpen] = useState(false)
   const [menuPos, setMenuPos] = useState(null)
   const pickerRef = useRef(null)
   const chipRef = useRef(null)
   const menuRef = useRef(null)
 
-  /**
-   * The menu is portalled to <body> and positioned with fixed coordinates.
-   *
-   * It cannot be an absolutely-positioned child: .filter-row is the mobile
-   * horizontal scroller (overflow-x: auto / overflow-y: hidden), and a
-   * non-visible overflow on either axis clips descendants on BOTH. Measured:
-   * the row's box ends at y=152 while the menu needed to reach y=262, so it
-   * was clipped away entirely. z-index was never the problem — the menu sat at
-   * 60 with nothing above it.
-   */
   const place = useCallback(() => {
     const chip = chipRef.current
     if (!chip) return
@@ -49,20 +41,20 @@ export default function ConversationFilters({ users, filters, onChange }) {
   }, [])
 
   useLayoutEffect(() => {
-    if (pickerOpen) place()
-  }, [pickerOpen, place])
+    if (open) place()
+  }, [open, place])
 
   useEffect(() => {
-    if (!pickerOpen) return undefined
+    if (!open) return undefined
 
     const onDown = (e) => {
-      // The menu lives outside pickerRef now, so both have to be checked.
+      // The menu lives outside pickerRef (portalled), so both are checked.
       const inPicker = pickerRef.current?.contains(e.target)
       const inMenu = menuRef.current?.contains(e.target)
-      if (!inPicker && !inMenu) setPickerOpen(false)
+      if (!inPicker && !inMenu) setOpen(false)
     }
     const onKey = (e) => {
-      if (e.key === 'Escape') setPickerOpen(false)
+      if (e.key === 'Escape') setOpen(false)
     }
     // Capture, so a scroll inside the list or the filter row also repositions.
     const onScrollOrResize = () => place()
@@ -77,10 +69,69 @@ export default function ConversationFilters({ users, filters, onChange }) {
       window.removeEventListener('scroll', onScrollOrResize, true)
       window.removeEventListener('resize', onScrollOrResize)
     }
-  }, [pickerOpen, place])
+  }, [open, place])
+
+  return (
+    <div className="filter-picker" ref={pickerRef}>
+      <button
+        type="button"
+        ref={chipRef}
+        className={`filter-chip${hasSelection ? ' is-on' : ''}`}
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {summary}
+      </button>
+
+      {/* Reset sits outside the toggle so it never costs a second tap to
+          reach, and never fires when the user meant to reopen the picker. */}
+      {hasSelection && onClear ? (
+        <button
+          type="button"
+          className="filter-clear-agents"
+          aria-label={clearLabel}
+          onClick={onClear}
+        >
+          <X size={12} />
+        </button>
+      ) : null}
+
+      {open && menuPos
+        ? createPortal(
+            <div
+              className="filter-menu"
+              role="menu"
+              ref={menuRef}
+              style={{
+                top: menuPos.top,
+                bottom: menuPos.bottom,
+                left: menuPos.left,
+                maxHeight: menuPos.maxHeight,
+              }}
+            >
+              {children}
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
+  )
+}
+
+/**
+ * Filter row: two multi-select status chips plus an Agent picker and an
+ * Attention picker (both the same "+ Label" dropdown pattern).
+ *
+ * Status chips are deliberately NOT radio buttons — both off and both on mean
+ * the same thing (show everything), which keeps "clear the filter" reachable
+ * from either direction.
+ */
+export default function ConversationFilters({ users, filters, onChange }) {
+  const { assigned, unassigned, agentIds, attentionTeam, attentionManagement } = filters
 
   const activeAgents = users.filter((u) => u.is_active)
-  const count = agentIds.length
+  const agentCount = agentIds.length
 
   const toggleAgent = (id) => {
     const key = String(id)
@@ -91,6 +142,9 @@ export default function ConversationFilters({ users, filters, onChange }) {
         : [...agentIds, key],
     })
   }
+
+  // Attention picker: two independent booleans (both on = team OR management).
+  const attnCount = (attentionTeam ? 1 : 0) + (attentionManagement ? 1 : 0)
 
   return (
     <div className="filter-row" role="group" aria-label="Filter conversations">
@@ -112,100 +166,93 @@ export default function ConversationFilters({ users, filters, onChange }) {
         Unassigned
       </button>
 
-      <div className="filter-picker" ref={pickerRef}>
-        <button
-          type="button"
-          ref={chipRef}
-          className={`filter-chip${count ? ' is-on' : ''}`}
-          aria-haspopup="true"
-          aria-expanded={pickerOpen}
-          onClick={() => setPickerOpen((v) => !v)}
-        >
-          {count ? (
-            `${count} ${count === 1 ? 'agent' : 'agents'}`
+      <FilterPicker
+        hasSelection={agentCount > 0}
+        clearLabel="Clear agent filter"
+        onClear={() => onChange({ ...filters, agentIds: [] })}
+        summary={
+          agentCount ? (
+            `${agentCount} ${agentCount === 1 ? 'agent' : 'agents'}`
           ) : (
             <>
               <Plus size={13} />
               Agent
             </>
-          )}
+          )
+        }
+      >
+        {activeAgents.length === 0 ? (
+          <div className="filter-menu-empty">No active team members</div>
+        ) : (
+          activeAgents.map((user) => {
+            const checked = agentIds.includes(String(user.id))
+            return (
+              <button
+                type="button"
+                key={user.id}
+                className="filter-menu-item"
+                role="menuitemcheckbox"
+                aria-checked={checked}
+                onClick={() => toggleAgent(user.id)}
+              >
+                <span className={`filter-check${checked ? ' is-on' : ''}`}>
+                  {checked ? <Check size={11} /> : null}
+                </span>
+                <span className="filter-menu-name">{user.name}</span>
+              </button>
+            )
+          })
+        )}
+      </FilterPicker>
+
+      {/* Attention level — same picker pattern as Agent, to the right of it. */}
+      <FilterPicker
+        hasSelection={attnCount > 0}
+        clearLabel="Clear attention filter"
+        onClear={() => onChange({ ...filters, attentionTeam: false, attentionManagement: false })}
+        summary={
+          attnCount === 0 ? (
+            <>
+              <Plus size={13} />
+              Attention
+            </>
+          ) : attnCount === 2 ? (
+            '2 levels'
+          ) : attentionTeam ? (
+            'Team'
+          ) : (
+            'Management'
+          )
+        }
+      >
+        <button
+          type="button"
+          className="filter-menu-item"
+          role="menuitemcheckbox"
+          aria-checked={attentionTeam}
+          onClick={() => onChange({ ...filters, attentionTeam: !attentionTeam })}
+        >
+          <span className={`filter-check${attentionTeam ? ' is-on' : ''}`}>
+            {attentionTeam ? <Check size={11} /> : null}
+          </span>
+          <span className="filter-dot filter-dot-team" aria-hidden="true" />
+          <span className="filter-menu-name">Team</span>
         </button>
 
-        {/* Reset sits outside the toggle so it never costs a second tap to
-            reach, and never fires when the user meant to reopen the picker. */}
-        {count ? (
-          <button
-            type="button"
-            className="filter-clear-agents"
-            aria-label="Clear agent filter"
-            onClick={() => onChange({ ...filters, agentIds: [] })}
-          >
-            <X size={12} />
-          </button>
-        ) : null}
-
-        {pickerOpen && menuPos
-          ? createPortal(
-              <div
-                className="filter-menu"
-                role="menu"
-                ref={menuRef}
-                style={{
-                  top: menuPos.top,
-                  bottom: menuPos.bottom,
-                  left: menuPos.left,
-                  maxHeight: menuPos.maxHeight,
-                }}
-              >
-            {activeAgents.length === 0 ? (
-              <div className="filter-menu-empty">No active team members</div>
-            ) : (
-              activeAgents.map((user) => {
-                const checked = agentIds.includes(String(user.id))
-                return (
-                  <button
-                    type="button"
-                    key={user.id}
-                    className="filter-menu-item"
-                    role="menuitemcheckbox"
-                    aria-checked={checked}
-                    onClick={() => toggleAgent(user.id)}
-                  >
-                    <span className={`filter-check${checked ? ' is-on' : ''}`}>
-                      {checked ? <Check size={11} /> : null}
-                    </span>
-                    <span className="filter-menu-name">{user.name}</span>
-                  </button>
-                )
-              })
-            )}
-              </div>,
-              document.body
-            )
-          : null}
-      </div>
-
-      {/* Attention level. Independent toggles (both on = team OR management),
-          each carrying the same colour dot as its row bar. */}
-      <button
-        type="button"
-        className={`filter-chip${attentionTeam ? ' is-on' : ''}`}
-        aria-pressed={attentionTeam}
-        onClick={() => onChange({ ...filters, attentionTeam: !attentionTeam })}
-      >
-        <span className="filter-dot filter-dot-team" aria-hidden="true" />
-        Team
-      </button>
-
-      <button
-        type="button"
-        className={`filter-chip${attentionManagement ? ' is-on' : ''}`}
-        aria-pressed={attentionManagement}
-        onClick={() => onChange({ ...filters, attentionManagement: !attentionManagement })}
-      >
-        <span className="filter-dot filter-dot-management" aria-hidden="true" />
-        Management
-      </button>
+        <button
+          type="button"
+          className="filter-menu-item"
+          role="menuitemcheckbox"
+          aria-checked={attentionManagement}
+          onClick={() => onChange({ ...filters, attentionManagement: !attentionManagement })}
+        >
+          <span className={`filter-check${attentionManagement ? ' is-on' : ''}`}>
+            {attentionManagement ? <Check size={11} /> : null}
+          </span>
+          <span className="filter-dot filter-dot-management" aria-hidden="true" />
+          <span className="filter-menu-name">Management</span>
+        </button>
+      </FilterPicker>
     </div>
   )
 }
