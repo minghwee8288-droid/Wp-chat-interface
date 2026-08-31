@@ -490,6 +490,29 @@ export default function Inbox() {
   const loadOlder = useCallback(() => loadPage('before'), [loadPage])
   const loadNewer = useCallback(() => loadPage('after'), [loadPage])
 
+  /**
+   * Manually clear a conversation's attention flag. Optimistic: the bar and the
+   * filter counts key on `attention_level`, so nulling it drops both at once,
+   * before the round trip. On failure we re-throw (so a caller like the summary
+   * popover can revert its own view) and reconcile the list from the server.
+   */
+  const dismissAttention = useCallback(
+    async (conversationId) => {
+      patchConversation(conversationId, { attention_level: null, attention_required: false })
+      try {
+        await api.dismissAttention(conversationId)
+        // Reconcile to server truth — also snaps back any in-flight 5s poll that
+        // may have re-applied the old flag between the patch and the commit.
+        refresh()
+      } catch (err) {
+        toast.error('Could not dismiss', err.message)
+        refresh()
+        throw err
+      }
+    },
+    [patchConversation, toast, refresh]
+  )
+
   const conversation = conversations.find((c) => String(c.id) === String(openId)) || null
 
   /** Deselect and drop the ?chat= param, so a refresh lands on the list. */
@@ -615,6 +638,7 @@ export default function Inbox() {
           loading={loading}
           onNewMessage={() => setComposing(true)}
           onRefresh={refresh}
+          onDismissAttention={dismissAttention}
           users={users}
           summaryCache={summaryCache.current}
         />

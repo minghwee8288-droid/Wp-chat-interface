@@ -30,7 +30,7 @@ function computePosition(rect) {
  * SAME summary endpoint (api.summary) — no second summary path — and caches the
  * result per conversation so re-opening is instant and taps stay lazy.
  */
-export default function SummaryPopover({ conversation, anchorRect, cache, onClose }) {
+export default function SummaryPopover({ conversation, anchorRect, cache, onDismiss, onClose }) {
   const cached = cache.get(conversation.id)
   const [pos] = useState(() => computePosition(anchorRect))
   // A cached summary paints on the FIRST render — no request, no spinner. Only
@@ -43,6 +43,34 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
   // A background regenerate is running while we already have text on screen.
   // Purely a footnote — it never suppresses the summary.
   const [refreshing, setRefreshing] = useState(false)
+  // Guards a double-tap on the banner's dismiss button.
+  const [dismissing, setDismissing] = useState(false)
+
+  // Manually clear the attention flag. Optimistic: drop the banner right away,
+  // keep the shared popover cache in step so a reopen doesn't resurrect it, and
+  // let the parent own the request + list update. On failure the parent toasts
+  // and we put the banner back.
+  const handleDismiss = async () => {
+    if (dismissing || !summary) return
+    const previous = summary
+    setDismissing(true)
+    const cleared = {
+      ...summary,
+      attention_required: false,
+      attention_level: null,
+      attention_reason: null,
+    }
+    setSummary(cleared)
+    try {
+      await onDismiss?.(conversation.id)
+      const entry = cache.get(conversation.id)
+      if (entry?.summary) cache.set(conversation.id, { ...entry, summary: cleared })
+    } catch {
+      setSummary(previous)
+    } finally {
+      setDismissing(false)
+    }
+  }
 
   // Close on anything that moves the anchor or on Escape.
   useEffect(() => {
@@ -165,6 +193,16 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onClos
                   <strong>{ATTENTION[level]}</strong>
                   {summary.attention_reason ? ` — ${summary.attention_reason}` : ''}
                 </span>
+                <button
+                  type="button"
+                  className="summary-pop-attn-dismiss"
+                  aria-label="Dismiss attention flag"
+                  title="Dismiss — mark as handled"
+                  onClick={handleDismiss}
+                  disabled={dismissing}
+                >
+                  <X size={13} />
+                </button>
               </div>
             ) : null}
             <p className="summary-pop-text">{summary.text}</p>

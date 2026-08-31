@@ -135,6 +135,36 @@ export async function refreshConversationSummary(env, conversationId, isGroup, d
       isGroup,
     })
 
+    // Respect a manual dismissal. If an agent cleared the attention flag and no
+    // message has arrived SINCE, a fresh generation must not re-raise the same
+    // issue that was already handled off-channel. Once a genuinely newer message
+    // lands, the suppression lifts and the dismissal marker is cleared, so a new
+    // issue flags normally. This is the ONLY behavioural change to the summary
+    // flow — the model call, prompt and everything else are untouched.
+    //
+    // `messages` is oldest-first, so its last element is the newest message fed
+    // to the model, which in both modes is the newest message overall (first:
+    // newest N of the seed window; incremental: newest N past the cursor).
+    let attention = {
+      attention_required: result.attention_required,
+      attention_level: result.attention_level,
+      attention_reason: result.attention_reason,
+    }
+    let dismissalPatch = {}
+    if (summaryRow?.dismissed_at) {
+      const dismissedMs = new Date(summaryRow.dismissed_at).getTime()
+      const newest = messages[messages.length - 1]
+      const newestMs = newest?.created_at ? new Date(newest.created_at).getTime() : 0
+      if (newestMs > dismissedMs) {
+        // A message arrived after the dismissal — allow normal flagging and drop
+        // the marker so it no longer suppresses future generations.
+        dismissalPatch = { dismissed_at: null, dismissed_by: null }
+      } else {
+        // Nothing new since the dismissal — keep the flag cleared.
+        attention = { attention_required: false, attention_level: null, attention_reason: null }
+      }
+    }
+
     const saved = unwrap(
       await db
         .from('wp_chat_summaries')
@@ -142,9 +172,8 @@ export async function refreshConversationSummary(env, conversationId, isGroup, d
           big_summary: result.big_summary,
           short_summary: result.short_summary,
           department: result.department,
-          attention_required: result.attention_required,
-          attention_level: result.attention_level,
-          attention_reason: result.attention_reason,
+          ...attention,
+          ...dismissalPatch,
           last_summarized_message_id: result.last_summarized_message_id,
           model: result.model,
           generated_at: new Date().toISOString(),

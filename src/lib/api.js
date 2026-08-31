@@ -254,6 +254,13 @@ export const api = {
       body: { conversation_id: conversationId, assigned_user_id: assignedUserId },
     }),
 
+  /** Manually clear a conversation's attention flag (resolved off-channel). */
+  dismissAttention: (conversationId) =>
+    request('/conversation/dismiss-attention', {
+      method: 'POST',
+      body: { conversation_id: conversationId },
+    }),
+
   pushKey: () => request('/push/key'),
 
   pushSubscribe: (subscription) =>
