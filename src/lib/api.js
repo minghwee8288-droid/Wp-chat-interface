@@ -261,6 +261,13 @@ export const api = {
       body: { conversation_id: conversationId },
     }),
 
+  /** Undo a dismissal — flip the retained attention flag back on. */
+  restoreAttention: (conversationId) =>
+    request('/conversation/restore-attention', {
+      method: 'POST',
+      body: { conversation_id: conversationId },
+    }),
+
   pushKey: () => request('/push/key'),
 
   pushSubscribe: (subscription) =>

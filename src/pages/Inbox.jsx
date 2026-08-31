@@ -490,24 +490,60 @@ export default function Inbox() {
   const loadOlder = useCallback(() => loadPage('before'), [loadPage])
   const loadNewer = useCallback(() => loadPage('after'), [loadPage])
 
+  // The single Undo toast shown after a manual attention dismissal. Only one at
+  // a time (a new dismissal replaces it) and it auto-hides after 10s.
+  const [undo, setUndo] = useState(null) // { conversationId, level } | null
+  const undoTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(undoTimerRef.current), [])
+
+  const showUndo = useCallback((conversationId, level) => {
+    clearTimeout(undoTimerRef.current)
+    setUndo({ conversationId, level })
+    undoTimerRef.current = setTimeout(() => setUndo(null), 10000)
+  }, [])
+
   /**
    * Manually clear a conversation's attention flag. Optimistic: the bar and the
    * filter counts key on `attention_level`, so nulling it drops both at once,
-   * before the round trip. On failure we re-throw (so a caller like the summary
-   * popover can revert its own view) and reconcile the list from the server.
+   * before the round trip. On success we raise the Undo toast (which needs the
+   * original level to restore). On failure we re-throw (so a caller like the
+   * summary popover can revert its own view) and reconcile from the server.
    */
   const dismissAttention = useCallback(
-    async (conversationId) => {
+    async (conversationId, level = null) => {
       patchConversation(conversationId, { attention_level: null, attention_required: false })
       try {
         await api.dismissAttention(conversationId)
         // Reconcile to server truth — also snaps back any in-flight 5s poll that
         // may have re-applied the old flag between the patch and the commit.
         refresh()
+        showUndo(conversationId, level)
       } catch (err) {
         toast.error('Could not dismiss', err.message)
         refresh()
         throw err
+      }
+    },
+    [patchConversation, toast, refresh, showUndo]
+  )
+
+  /** Undo a dismissal — restore the retained attention flag on the server. */
+  const restoreAttention = useCallback(
+    async (item) => {
+      if (!item) return
+      clearTimeout(undoTimerRef.current)
+      setUndo(null)
+      // Optimistic: the bar returns at once with its original level.
+      patchConversation(item.conversationId, {
+        attention_level: item.level ?? null,
+        attention_required: true,
+      })
+      try {
+        await api.restoreAttention(item.conversationId)
+        refresh()
+      } catch (err) {
+        toast.error('Could not undo', err.message)
+        refresh()
       }
     },
     [patchConversation, toast, refresh]
@@ -862,6 +898,21 @@ export default function Inbox() {
             open(conversationId)
           }}
         />
+      ) : null}
+
+      {/* Undo toast for a just-dismissed attention flag. Bottom-centre, one at a
+          time, auto-hides after 10s; "Undo" restores the flag. */}
+      {undo ? (
+        <div className="undo-toast" role="status" aria-live="polite">
+          <span className="undo-toast-text">Attention dismissed</span>
+          <button
+            type="button"
+            className="undo-toast-btn"
+            onClick={() => restoreAttention(undo)}
+          >
+            Undo
+          </button>
+        </div>
       ) : null}
     </div>
   )

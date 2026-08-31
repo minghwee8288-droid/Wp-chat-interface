@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal, Sparkles } from 'lucide-react'
 import SummaryPopover from './SummaryPopover.jsx'
 import PullToRefresh from './PullToRefresh.jsx'
+import SwipeToDismiss from './SwipeToDismiss.jsx'
 import {
   displayName,
   relativeStamp,
@@ -58,24 +59,6 @@ export default function ConversationList({
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   // The open short-summary popover ({ conversation, rect }).
   const [popover, setPopover] = useState(null)
-  // Which flagged row is currently showing its dismiss "✕" from a long-press.
-  // Desktop reveals it on hover via CSS and never needs this; touch has no
-  // hover, so a ~500ms press arms it here instead.
-  const [revealId, setRevealId] = useState(null)
-  const longPressTimer = useRef(null)
-  // Set true once a long-press fires, so the tap that ends the same press does
-  // not also open the conversation.
-  const longPressFired = useRef(false)
-
-  const startLongPress = (id) => {
-    longPressFired.current = false
-    clearTimeout(longPressTimer.current)
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true
-      setRevealId(id)
-    }, 500)
-  }
-  const cancelLongPress = () => clearTimeout(longPressTimer.current)
 
   // The cache is normally supplied by Inbox, which also background-preloads
   // into it. The local fallback keeps this component usable on its own — it
@@ -221,43 +204,24 @@ export default function ConversationList({
                 ? conversation.attention_level
                 : undefined
 
-            return (
-              <div
-                key={conversation.id}
-                className={`conv-row-wrap${
-                  attention && revealId === conversation.id ? ' reveal-dismiss' : ''
-                }`}
-              >
-              {/* A role=button div (not a <button>) so the ✦ Summary control can
-                  nest inside on line 3. Keyboard behaviour is added back below. */}
+            // The row proper. A role=button div (not a <button>) so the ✦
+            // Summary control can nest inside on line 3. Defined once here, then
+            // either wrapped in the swipe-to-dismiss shell (flagged rows) or
+            // rendered bare (everything else).
+            const rowInner = (
               <div
                 className={`conv-row${isActive ? ' is-active' : ''}${unread > 0 ? ' is-unread' : ''}`}
                 role="button"
                 tabIndex={0}
                 aria-current={isActive ? 'true' : undefined}
                 data-attention={attention}
-                onClick={() => {
-                  // Swallow the click that ends a long-press so it does not also
-                  // open the conversation; otherwise close any revealed dismiss.
-                  if (longPressFired.current) {
-                    longPressFired.current = false
-                    return
-                  }
-                  setRevealId(null)
-                  onOpen(conversation.id)
-                }}
+                onClick={() => onOpen(conversation.id)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
                     onOpen(conversation.id)
                   }
                 }}
-                // Touch-only long-press reveals the bar's dismiss ✕. Armed only
-                // on a flagged row; a scroll (touchmove) or lift cancels it.
-                onTouchStart={attention ? () => startLongPress(conversation.id) : undefined}
-                onTouchMove={attention ? cancelLongPress : undefined}
-                onTouchEnd={attention ? cancelLongPress : undefined}
-                onTouchCancel={attention ? cancelLongPress : undefined}
               >
                 <ContactAvatar conversation={conversation} />
 
@@ -327,24 +291,39 @@ export default function ConversationList({
                   </div>
                 </div>
               </div>
-              {/* Dismiss the attention flag straight from the row — over the
-                  coloured bar. Revealed on hover (desktop) or long-press
-                  (touch); a click clears the flag without opening the chat. */}
-              {attention ? (
-                <button
-                  type="button"
-                  className={`conv-attn-dismiss conv-attn-dismiss--${attention}`}
-                  aria-label="Dismiss attention flag"
-                  title="Dismiss attention flag"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setRevealId(null)
-                    onDismissAttention(conversation.id)
-                  }}
-                >
-                  <X size={13} />
-                </button>
-              ) : null}
+            )
+
+            return (
+              <div key={conversation.id} className="conv-row-wrap">
+                {/* Flagged rows swipe right (touch) to reveal a dismiss ✕, and
+                    show that same ✕ on hover (desktop). Unflagged rows render
+                    plain — no swipe shell, no button. */}
+                {attention ? (
+                  <SwipeToDismiss
+                    level={attention}
+                    onDismiss={() => onDismissAttention(conversation.id, attention)}
+                  >
+                    {rowInner}
+                  </SwipeToDismiss>
+                ) : (
+                  rowInner
+                )}
+                {/* Desktop keeps a hover-revealed ✕ over the bar — touch uses the
+                    swipe above. Same handler, so both raise the Undo toast. */}
+                {attention ? (
+                  <button
+                    type="button"
+                    className={`conv-attn-dismiss conv-attn-dismiss--${attention}`}
+                    aria-label="Dismiss attention flag"
+                    title="Dismiss attention flag"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDismissAttention(conversation.id, attention)
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                ) : null}
               </div>
             )
           })

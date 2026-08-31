@@ -15,10 +15,16 @@ const positiveInt = (v) => {
  * keeps the row flagged. Any signed-in user may dismiss; the action is scoped
  * to the one conversation.
  *
- * It only writes wp_chat_summaries: attention is cleared and the dismissal is
- * stamped (dismissed_at / dismissed_by). The stamp is what lets a later
- * regenerate distinguish "already handled" from "a new issue arrived" —
+ * It only writes wp_chat_summaries: attention_required is flipped to false and
+ * the dismissal is stamped (dismissed_at / dismissed_by). The stamp is what lets
+ * a later regenerate distinguish "already handled" from "a new issue arrived" —
  * summarize.js suppresses re-flagging until a message lands AFTER dismissed_at.
+ *
+ * NOTE: attention_level and attention_reason are DELIBERATELY LEFT IN PLACE.
+ * The row drops out of every flagged query on attention_required alone (the
+ * list join and the EOD both filter attention_required=eq.true), so the bar
+ * still clears — but keeping the level/reason lets restore-attention flip the
+ * flag straight back for the Undo action without having to reconstruct them.
  *
  * A conversation with no summary row yet has nothing flagged, so the UPDATE
  * simply matches nothing and we still report ok — dismissing an unflagged
@@ -51,8 +57,8 @@ export async function onRequestPost({ request, env }) {
         .from('wp_chat_summaries')
         .update({
           attention_required: false,
-          attention_level: null,
-          attention_reason: null,
+          // attention_level / attention_reason intentionally retained — see the
+          // header note; restore-attention needs them for Undo.
           dismissed_at: new Date().toISOString(),
           dismissed_by: auth.user.id,
           updated_at: new Date().toISOString(),
