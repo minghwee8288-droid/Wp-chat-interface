@@ -62,7 +62,7 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
     }
     setSummary(cleared)
     try {
-      await onDismiss?.(conversation.id, previous.attention_level)
+      await onDismiss?.(conversation.id)
       const entry = cache.get(conversation.id)
       if (entry?.summary) cache.set(conversation.id, { ...entry, summary: cleared })
     } catch {

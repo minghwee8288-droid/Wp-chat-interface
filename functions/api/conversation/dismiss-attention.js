@@ -20,14 +20,14 @@ const positiveInt = (v) => {
  * a later regenerate distinguish "already handled" from "a new issue arrived" —
  * summarize.js suppresses re-flagging until a message lands AFTER dismissed_at.
  *
- * NOTE: attention_level and attention_reason are DELIBERATELY LEFT IN PLACE.
- * The row drops out of every flagged query on attention_required alone (the
- * list join and the EOD both filter attention_required=eq.true), so the bar
- * still clears — but keeping the level/reason lets restore-attention flip the
- * flag straight back for the Undo action without having to reconstruct them.
+ * The live attention_level / attention_reason MUST be nulled here: a CHECK
+ * constraint (attention_shape_chk) forbids a non-null level while
+ * attention_required is false. So the originals are read first and parked in
+ * dismissed_level / dismissed_reason, which restore-attention moves back for the
+ * Undo action.
  *
- * A conversation with no summary row yet has nothing flagged, so the UPDATE
- * simply matches nothing and we still report ok — dismissing an unflagged
+ * A conversation with no summary row yet has nothing flagged, so the read/UPDATE
+ * simply match nothing and we still report ok — dismissing an unflagged
  * conversation is a harmless no-op, not an error.
  */
 export async function onRequestPost({ request, env }) {
@@ -52,15 +52,27 @@ export async function onRequestPost({ request, env }) {
 
     const db = getDb(env)
 
+    // Read the live values first so they can be parked for Undo — the update
+    // below must null them to satisfy attention_shape_chk.
+    const current = unwrap(
+      await db
+        .from('wp_chat_summaries')
+        .select('attention_level, attention_reason')
+        .eq('conversation_id', conversationId)
+        .maybeSingle()
+    )
+
     unwrap(
       await db
         .from('wp_chat_summaries')
         .update({
           attention_required: false,
-          // attention_level / attention_reason intentionally retained — see the
-          // header note; restore-attention needs them for Undo.
+          attention_level: null,
+          attention_reason: null,
           dismissed_at: new Date().toISOString(),
           dismissed_by: auth.user.id,
+          dismissed_level: current?.attention_level ?? null,
+          dismissed_reason: current?.attention_reason ?? null,
           updated_at: new Date().toISOString(),
         })
         .eq('conversation_id', conversationId)

@@ -301,7 +301,7 @@ export default function ConversationList({
                 {attention ? (
                   <SwipeToDismiss
                     level={attention}
-                    onDismiss={() => onDismissAttention(conversation.id, attention)}
+                    onDismiss={() => onDismissAttention(conversation.id)}
                   >
                     {rowInner}
                   </SwipeToDismiss>
@@ -318,7 +318,7 @@ export default function ConversationList({
                     title="Dismiss attention flag"
                     onClick={(e) => {
                       e.stopPropagation()
-                      onDismissAttention(conversation.id, attention)
+                      onDismissAttention(conversation.id)
                     }}
                   >
                     <X size={13} />

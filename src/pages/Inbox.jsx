@@ -491,33 +491,34 @@ export default function Inbox() {
   const loadNewer = useCallback(() => loadPage('after'), [loadPage])
 
   // The single Undo toast shown after a manual attention dismissal. Only one at
-  // a time (a new dismissal replaces it) and it auto-hides after 10s.
-  const [undo, setUndo] = useState(null) // { conversationId, level } | null
+  // a time (a new dismissal replaces it) and it auto-hides after 10s. It holds
+  // just the conversation id — the restore endpoint owns the level/reason.
+  const [undoId, setUndoId] = useState(null)
   const undoTimerRef = useRef(null)
   useEffect(() => () => clearTimeout(undoTimerRef.current), [])
 
-  const showUndo = useCallback((conversationId, level) => {
+  const showUndo = useCallback((conversationId) => {
     clearTimeout(undoTimerRef.current)
-    setUndo({ conversationId, level })
-    undoTimerRef.current = setTimeout(() => setUndo(null), 10000)
+    setUndoId(conversationId)
+    undoTimerRef.current = setTimeout(() => setUndoId(null), 10000)
   }, [])
 
   /**
    * Manually clear a conversation's attention flag. Optimistic: the bar and the
    * filter counts key on `attention_level`, so nulling it drops both at once,
-   * before the round trip. On success we raise the Undo toast (which needs the
-   * original level to restore). On failure we re-throw (so a caller like the
-   * summary popover can revert its own view) and reconcile from the server.
+   * before the round trip. On success we raise the Undo toast. On failure we
+   * re-throw (so a caller like the summary popover can revert its own view) and
+   * reconcile from the server.
    */
   const dismissAttention = useCallback(
-    async (conversationId, level = null) => {
+    async (conversationId) => {
       patchConversation(conversationId, { attention_level: null, attention_required: false })
       try {
         await api.dismissAttention(conversationId)
         // Reconcile to server truth — also snaps back any in-flight 5s poll that
         // may have re-applied the old flag between the patch and the commit.
         refresh()
-        showUndo(conversationId, level)
+        showUndo(conversationId)
       } catch (err) {
         toast.error('Could not dismiss', err.message)
         refresh()
@@ -527,26 +528,25 @@ export default function Inbox() {
     [patchConversation, toast, refresh, showUndo]
   )
 
-  /** Undo a dismissal — restore the retained attention flag on the server. */
+  /**
+   * Undo a dismissal. The restore endpoint moves the parked level/reason back
+   * server-side, so the client only names the conversation and reconciles — the
+   * bar returns with the next (immediate) refresh.
+   */
   const restoreAttention = useCallback(
-    async (item) => {
-      if (!item) return
+    async (conversationId) => {
+      if (conversationId == null) return
       clearTimeout(undoTimerRef.current)
-      setUndo(null)
-      // Optimistic: the bar returns at once with its original level.
-      patchConversation(item.conversationId, {
-        attention_level: item.level ?? null,
-        attention_required: true,
-      })
+      setUndoId(null)
       try {
-        await api.restoreAttention(item.conversationId)
-        refresh()
+        await api.restoreAttention(conversationId)
       } catch (err) {
         toast.error('Could not undo', err.message)
+      } finally {
         refresh()
       }
     },
-    [patchConversation, toast, refresh]
+    [toast, refresh]
   )
 
   const conversation = conversations.find((c) => String(c.id) === String(openId)) || null
@@ -902,13 +902,13 @@ export default function Inbox() {
 
       {/* Undo toast for a just-dismissed attention flag. Bottom-centre, one at a
           time, auto-hides after 10s; "Undo" restores the flag. */}
-      {undo ? (
+      {undoId != null ? (
         <div className="undo-toast" role="status" aria-live="polite">
           <span className="undo-toast-text">Attention dismissed</span>
           <button
             type="button"
             className="undo-toast-btn"
-            onClick={() => restoreAttention(undo)}
+            onClick={() => restoreAttention(undoId)}
           >
             Undo
           </button>
