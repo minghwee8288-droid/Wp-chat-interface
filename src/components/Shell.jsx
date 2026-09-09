@@ -116,17 +116,15 @@ export default function Shell() {
             <span>
               WhatsApp is disconnected — messages are not being sent or received.
             </span>
-            {/* Admin only: reconnecting exposes the QR, which grants account
-                access. Agents see the banner but not this control. */}
-            {isAdmin ? (
-              <button
-                type="button"
-                className="channel-banner-fix"
-                onClick={() => setReconnecting(true)}
-              >
-                Reconnect
-              </button>
-            ) : null}
+            {/* Open to every signed-in user now — whoever is on shift can scan
+                the QR and reconnect, not just an admin. */}
+            <button
+              type="button"
+              className="channel-banner-fix"
+              onClick={() => setReconnecting(true)}
+            >
+              Reconnect
+            </button>
           </div>
         ) : null}
 
@@ -154,29 +152,29 @@ export default function Shell() {
                   <div className="menu-head-email">{user?.email}</div>
                 </div>
 
-                {isAdmin ? (
-                  <div className={`menu-channel${channel.disconnected ? ' is-down' : ''}`}>
-                    {channel.disconnected ? <WifiOff size={14} /> : <Wifi size={14} />}
-                    <span style={{ flex: 1 }}>
-                      {channel.disconnected ? 'Disconnected' : 'Connected'}
-                      {channel.status ? ` · ${channel.status}` : ''}
-                    </span>
-                    {channel.disconnected ? (
-                      <button
-                        type="button"
-                        className="menu-channel-fix"
-                        onClick={() => {
-                          setMenuOpen(false)
-                          setReconnecting(true)
-                        }}
-                      >
-                        Reconnect
-                      </button>
-                    ) : formatUptime(channel.uptime) ? (
-                      <span className="menu-item-state">{formatUptime(channel.uptime)}</span>
-                    ) : null}
-                  </div>
-                ) : null}
+                {/* Channel status + reconnect for every signed-in user, so any
+                    agent can see the state and reconnect from the menu too. */}
+                <div className={`menu-channel${channel.disconnected ? ' is-down' : ''}`}>
+                  {channel.disconnected ? <WifiOff size={14} /> : <Wifi size={14} />}
+                  <span style={{ flex: 1 }}>
+                    {channel.disconnected ? 'Disconnected' : 'Connected'}
+                    {channel.status ? ` · ${channel.status}` : ''}
+                  </span>
+                  {channel.disconnected ? (
+                    <button
+                      type="button"
+                      className="menu-channel-fix"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        setReconnecting(true)
+                      }}
+                    >
+                      Reconnect
+                    </button>
+                  ) : formatUptime(channel.uptime) ? (
+                    <span className="menu-item-state">{formatUptime(channel.uptime)}</span>
+                  ) : null}
+                </div>
 
                 {/* Admin-only, and the only route to team management now that
                     the mobile bottom nav is gone. */}

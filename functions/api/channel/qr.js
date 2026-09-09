@@ -1,4 +1,4 @@
-import { requireAdmin } from '../../_lib/auth.js'
+import { requireAuth } from '../../_lib/auth.js'
 import { checkHealth, launchChannel, fetchLoginQr } from '../../_lib/whapi.js'
 import { json } from '../../_lib/respond.js'
 
@@ -33,7 +33,7 @@ const starting = (status) =>
   json({ ok: false, connected: false, status: 'starting', channel_status: status ?? null, retry_in: STARTING_RETRY_SECONDS }, 200)
 
 /**
- * GET /api/channel/qr  (admin only)
+ * GET /api/channel/qr  (any authenticated user)
  *
  * Returns a fresh login QR as a data URL, OR reports that the channel is
  * already connected, OR a soft "starting" the client should retry.
@@ -45,11 +45,12 @@ const starting = (status) =>
  *   3. Fetch /users/login/image WITHOUT wakeup — a pure read of a QR that now
  *      exists. Whapi's transitional 500 is mapped to a soft "starting".
  *
- * Admin-gated: the QR grants access to the linked WhatsApp account, so an agent
- * must never be able to fetch it.
+ * Open to any signed-in user: when WhatsApp drops, whoever is on shift needs to
+ * be able to scan the QR and reconnect — not just an admin. requireAuth still
+ * keeps it behind a valid session.
  */
 export async function onRequestGet({ request, env }) {
-  const auth = await requireAdmin(request, env)
+  const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
   // Cheap guard first: if we are already AUTH, do not even mint a QR.
