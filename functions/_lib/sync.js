@@ -32,6 +32,7 @@ import { listMessages, listChats, getMessage, redactPayload } from './whapi.js'
 import { resolveQuotedRef } from './reply.js'
 import {
   shapeInboundMessage,
+  resolveMessageContact,
   ingestAttachment,
   findOrCreateGroup,
   findOrCreateConversation,
@@ -263,6 +264,21 @@ export async function persistHistorical(env, db, msg, chatName) {
 }
 
 /**
+ * persistHistorical + Facebook LID resolution (Layers 2 & 3) for the sync paths.
+ * An outbound message to an unresolvable LID is skipped here (GHL broadcast
+ * junk); everything else is persisted, with the real number substituted when one
+ * could be recovered. persistHistorical itself is unchanged.
+ */
+async function persistWithLidResolution(env, db, msg, chatName) {
+  const resolution = await resolveMessageContact(env, msg)
+  if (resolution.skip) {
+    console.log('sync: skipped outbound template to unresolvable LID ' + JSON.stringify({ id: msg?.id ?? null }))
+    return { added: false, skipped: true, reason: resolution.reason }
+  }
+  return persistHistorical(env, db, resolution.msg, chatName)
+}
+
+/**
  * Process a batch of raw messages, honouring an optional time window.
  *
  * DIAGNOSTIC: logs one `sync.diag.classify` line per page — returned vs how
@@ -285,7 +301,7 @@ async function ingestBatch(env, db, messages, chatName, windowSec, chatId = '') 
         if (windowSec.to && ts > windowSec.to) { stats.windowSkipped++; continue }
       }
     }
-    const r = await persistHistorical(env, db, msg, chatName)
+    const r = await persistWithLidResolution(env, db, msg, chatName)
     if (r.direction === 'inbound') stats.inbound++
     else if (r.direction === 'outbound') stats.outbound++
     if (r.added) { added++; stats.added++ }
@@ -490,7 +506,7 @@ async function fetchMissingConversation(env, db, scope, cursor) {
       console.log('sync.diag.fetch-missing skip ' + JSON.stringify({ id, error: got.error }))
       continue
     }
-    const r = await persistHistorical(env, db, got.message, scope.name)
+    const r = await persistWithLidResolution(env, db, got.message, scope.name)
     if (r.added) added++
     if (r.mediaFailed) mediaFailed++
   }

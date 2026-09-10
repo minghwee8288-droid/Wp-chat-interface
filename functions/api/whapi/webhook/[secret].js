@@ -2,6 +2,7 @@ import { getDb, unwrap, UNIQUE_VIOLATION } from '../../../_lib/db.js'
 import { redactPayload } from '../../../_lib/whapi.js'
 import {
   shapeInboundMessage,
+  resolveMessageContact,
   ingestAttachment,
   findOrCreateGroup,
   findOrCreateConversation,
@@ -231,7 +232,24 @@ async function handleMessage(env, msg, pending = []) {
   // message we would otherwise never capture. Echoes of our OWN inbox replies
   // are separated out below by reconcileOutboundEcho, not by discarding the
   // whole class.
-  const shaped = shapeInboundMessage(msg, env, { allowOutbound: true })
+  // Resolve a Facebook LID first (Layers 2 & 3, shared with the sync). An
+  // unresolvable OUTBOUND LID is dropped here (GHL broadcast junk); an inbound
+  // LID passes through with the LID kept as a fallback. On resolution the message
+  // is returned with its chat_id rewritten to the real number.
+  const resolution = await resolveMessageContact(env, msg)
+  if (resolution.skip) {
+    console.log(
+      'whapi webhook: could not resolve LID, skipping outbound to unknown contact',
+      JSON.stringify({ message_id: msg?.id ?? null })
+    )
+    return 'skipped'
+  }
+  const effectiveMsg = resolution.msg
+  if (resolution.resolvedPhone) {
+    console.log('whapi webhook: resolved LID to phone: ' + resolution.resolvedPhone)
+  }
+
+  const shaped = resolution.shaped || shapeInboundMessage(effectiveMsg, env, { allowOutbound: true })
   if (shaped.skip) {
     if (shaped.skip === 'broadcast' || shaped.skip === 'invalid_number') {
       console.log(
@@ -250,7 +268,7 @@ async function handleMessage(env, msg, pending = []) {
   const db = getDb(env)
 
   const conversation = groupJid
-    ? await findOrCreateGroup(db, groupJid, businessNumber, msg?.chat_name, 'webhook')
+    ? await findOrCreateGroup(db, groupJid, businessNumber, effectiveMsg?.chat_name, 'webhook')
     : await findOrCreateConversation(db, customerNumber, businessNumber, customerName, 'webhook')
 
   // On creation only — no refresh, no backfill. Fire-and-forget via the same
@@ -294,7 +312,7 @@ async function handleMessage(env, msg, pending = []) {
     //     outbound row we want (direction, status, sent_by, forward-only
     //     preview) and already treats a UNIQUE violation as a no-op duplicate,
     //     which covers a Whapi retry of this same echo.
-    const stored = await persistHistorical(env, db, msg, msg?.chat_name)
+    const stored = await persistHistorical(env, db, effectiveMsg, effectiveMsg?.chat_name)
 
     // Summary refresh fires for outbound too — an agent replying from their
     // phone is exactly the activity the digest must not miss. Push and unread

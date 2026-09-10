@@ -28,6 +28,94 @@ export function recipientFor(value) {
   return toDigits(raw)
 }
 
+// ---------------------------------------------------------------------------
+// Facebook LID (Linked ID) resolution.
+//
+// GHL/Meta-delivered 1:1 messages can arrive with a Facebook Linked ID — a
+// 13–15 digit value that looks like a phone number but is not — as the chat_id.
+// Left alone it creates junk conversations (e.g. +5489035358352). Recovery is in
+// three layers: Layer 1 (a real phone in the extended payload) lives in
+// shapeInboundMessage; Layer 2 (contact lookup) is resolveLidNumber below; Layer
+// 3 (skip an unresolvable outbound, allow an inbound with the LID as a fallback)
+// lives in the callers.
+// ---------------------------------------------------------------------------
+
+// ITU E.164 geographic country calling codes. Used ONLY to tell a plausible real
+// number from a LID: a value that starts with one of these is treated as a real
+// number, never a LID. Deliberately broad, so a real number with an uncommon
+// country code is not mistaken for a LID and dropped.
+const COUNTRY_CODES = new Set(
+  (
+    '1 7 20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58 60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98 ' +
+    '211 212 213 216 218 220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 248 249 ' +
+    '250 251 252 253 254 255 256 257 258 260 261 262 263 264 265 266 267 268 269 290 291 297 298 299 ' +
+    '350 351 352 353 354 355 356 357 358 359 370 371 372 373 374 375 376 377 378 380 381 382 383 385 386 387 389 ' +
+    '420 421 423 500 501 502 503 504 505 506 507 508 509 590 591 592 593 594 595 596 597 598 599 ' +
+    '670 672 673 674 675 676 677 678 679 680 681 682 683 685 686 687 688 689 690 691 692 ' +
+    '850 852 853 855 856 880 886 960 961 962 963 964 965 966 967 968 970 971 972 973 974 975 976 977 992 993 994 995 996 998'
+  ).split(/\s+/)
+)
+
+/** True when the digit string begins with a known geographic country code. */
+export function hasKnownCountryCode(digits) {
+  const d = String(digits || '')
+  return COUNTRY_CODES.has(d.slice(0, 1)) || COUNTRY_CODES.has(d.slice(0, 2)) || COUNTRY_CODES.has(d.slice(0, 3))
+}
+
+/**
+ * Conservative LID test: a 15+ digit value with NO recognisable country code.
+ * Real E.164 numbers are ≤15 and (almost) always start with a known code, so
+ * this fires only on values that cannot be a normal number — which keeps a real
+ * outbound message from being mistaken for a LID and skipped.
+ */
+export function looksLikeLid(digits) {
+  const d = String(digits || '')
+  return d.length >= 15 && !hasKnownCountryCode(d)
+}
+
+// LID -> real phone (or null when unresolvable), cached per isolate so the same
+// LID is looked up at most once. null is cached too, to avoid re-hitting Whapi.
+const lidPhoneCache = new Map()
+
+/** Layer 2: resolve a LID to a real phone via Whapi's contact record. Cached. */
+export async function resolveLidNumber(env, lid) {
+  const key = String(lid || '')
+  if (!key) return null
+  if (lidPhoneCache.has(key)) return lidPhoneCache.get(key)
+  const phone = await fetchContactPhone(env, key)
+  lidPhoneCache.set(key, phone)
+  return phone
+}
+
+async function fetchContactPhone(env, lid) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const res = await fetch(`${apiUrl}/contacts/${encodeURIComponent(lid)}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null)
+    if (!data || typeof data !== 'object') return null
+    // The field carrying the real number is not documented for this plan, so
+    // check the plausible ones defensively and accept only a value that reads as
+    // a genuine phone number.
+    const candidates = [
+      data.phone, data.pn, data.number, data.wa_id,
+      data.contact?.phone, data.contact?.pn, data.contact?.number,
+      data.id, data.chat_id,
+    ]
+    for (const c of candidates) {
+      const digits = toDigits(c)
+      if (digits && digits.length >= 8 && digits.length <= 15 && hasKnownCountryCode(digits) && !looksLikeLid(digits)) {
+        return digits
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 /** Whapi has a distinct endpoint per media kind. */
 const MEDIA_ENDPOINT = {
   image: 'image',
