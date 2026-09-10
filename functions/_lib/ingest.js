@@ -14,9 +14,7 @@ import {
   fetchMediaUrl,
   groupJidOf,
   senderOf,
-  looksLikeLid,
-  hasKnownCountryCode,
-  resolveLidNumber,
+  resolveLid,
 } from './whapi.js'
 import {
   readMediaFields,
@@ -177,41 +175,6 @@ function hsmBody(msg) {
 }
 
 /**
- * Layer 1 of LID resolution (pure): find a REAL phone number the extended Whapi
- * payload (data_mode:extend) may carry alongside a Facebook LID chat_id. Checks
- * the plausible fields and any *@s.whatsapp.net value that differs from the LID,
- * and accepts only a value that reads as a genuine phone number. Returns the
- * digits, or null when nothing usable is present.
- */
-function extractExtendedPhone(msg, lidDigits) {
-  if (!msg || typeof msg !== 'object') return null
-  const candidates = [
-    msg.pn, msg.phone, msg.phone_number,
-    msg.chat?.pn, msg.chat?.phone, msg.chat?.phone_number,
-    msg.contact?.phone, msg.contact?.pn, msg.contact?.number,
-    msg.sender_pn, msg.from_pn,
-  ]
-  // Any @s.whatsapp.net value on the message that is not the LID itself.
-  for (const v of Object.values(msg)) {
-    if (typeof v === 'string' && /@s\.whatsapp\.net$/i.test(v)) candidates.push(v)
-  }
-  for (const c of candidates) {
-    const digits = toDigits(c)
-    if (
-      digits &&
-      digits !== lidDigits &&
-      digits.length >= 8 &&
-      digits.length <= 15 &&
-      hasKnownCountryCode(digits) &&
-      !looksLikeLid(digits)
-    ) {
-      return digits
-    }
-  }
-  return null
-}
-
-/**
  * Normalise a raw Whapi message (webhook OR /messages/list — same shape) into
  * the fields every downstream write needs, or {skip: reason} for anything that
  * is not a storable conversation message.
@@ -258,7 +221,10 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
   // Text-bearing messages must be type 'text' (or an hsm template we could read).
   if (!explicitMedia && !attachment && msg?.type !== 'text' && !hsmText) return { skip: 'non_text' }
 
-  let customerNumber = groupJid ? null : toDigits(msg?.chat_id ?? msg?.from)
+  // A Facebook LID chat_id ("…@lid") is resolved to the real @s.whatsapp.net JID
+  // by the caller (resolveLidChatId) BEFORE this runs, so by here chat_id is
+  // always a real number — no LID heuristics needed.
+  const customerNumber = groupJid ? null : toDigits(msg?.chat_id ?? msg?.from)
   const whapiMessageId = msg?.id ? String(msg.id) : null
 
   const rawBody =
@@ -269,20 +235,6 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
   // A leading 0 is never a valid E.164 country code (it is a national trunk
   // prefix), so this is not a real international number — always junk.
   if (customerNumber && customerNumber.startsWith('0')) return { skip: 'invalid_number' }
-
-  // Facebook LID handling (1:1 only). A LID is a 13–15 digit value that looks
-  // like a number but is not; left alone it creates a junk conversation. Layer 1:
-  // prefer a REAL phone the extended payload carries. Otherwise surface the LID
-  // (`lid`) so the async caller (resolveMessageContact) can try Layer 2 (contact
-  // lookup) and Layer 3 (skip an unresolvable OUTBOUND, allow an inbound). Either
-  // way customerNumber stays as the LID, so an inbound LID we cannot resolve
-  // still creates a row rather than dropping a real customer.
-  let lid = null
-  if (customerNumber && !groupJid && looksLikeLid(customerNumber)) {
-    const realPhone = extractExtendedPhone(msg, customerNumber)
-    if (realPhone) customerNumber = realPhone
-    else lid = customerNumber
-  }
 
   // Without media, a body is mandatory — otherwise there is nothing to show.
   if (!explicitMedia && !attachment && !body) return { skip: 'empty' }
@@ -301,9 +253,6 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
     sender,
     customerNumber,
     customerName: fromName || null,
-    // Non-null only for an unresolved 1:1 Facebook LID — the async caller uses it
-    // for Layer 2/3. customerNumber already holds it as the fallback.
-    lid,
     whapiMessageId,
     body,
     createdAt,
@@ -314,28 +263,34 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
 }
 
 /**
- * LID Layers 2 & 3, shared by the webhook and the sync. Shapes the message to see
- * whether the chat_id surfaced as a Facebook LID; if so, tries Layer 2 (Whapi
- * contact lookup, cached) and applies Layer 3:
- *   - resolved            → returns the message with chat_id rewritten to the real
- *                           phone, so downstream find-or-create + persist use it.
- *   - unresolved, from_me → { skip:true } (outbound template to an unknown
- *                           contact — GHL broadcast junk).
- *   - unresolved, inbound → passes through unchanged; the LID stays as a fallback
- *                           so a real customer reaching out is still created.
- * Returns { msg, shaped? , resolvedPhone? } or { skip:true, reason }. `shaped` is
- * handed back when it is still valid for `msg`, so the caller can skip re-shaping.
+ * Facebook LID resolution, shared by the webhook and the sync. When a message's
+ * chat_id is a LID ("…@lid"), resolve it to the real @s.whatsapp.net JID via
+ * Whapi and return the message with chat_id rewritten; otherwise return the
+ * message unchanged.
+ *
+ * Returns { skip:true } when an @lid cannot be resolved. In that case we cannot
+ * identify the contact, so we drop this copy for BOTH directions: an outbound to
+ * an unknown recipient is unusable, and an inbound reply also arrives under the
+ * real @s.whatsapp.net id, so nothing is lost.
+ *
+ * `cache` (a Map) memoises lookups so the same LID is fetched at most once per
+ * request (webhook) or per run/isolate (sync). It stores nulls too, so an
+ * unresolvable LID is not re-queried.
  */
-export async function resolveMessageContact(env, msg) {
-  const shaped = shapeInboundMessage(msg, env, { allowOutbound: true })
-  if (shaped.skip || !shaped.lid) return { msg, shaped }
+export async function resolveLidChatId(env, msg, cache = null) {
+  const chatId = String(msg?.chat_id ?? '')
+  if (!/@lid$/i.test(chatId)) return { msg }
 
-  const resolved = await resolveLidNumber(env, shaped.lid)
-  if (resolved) {
-    return { msg: { ...msg, chat_id: `${resolved}@s.whatsapp.net` }, resolvedPhone: resolved }
+  let resolved
+  if (cache && cache.has(chatId)) {
+    resolved = cache.get(chatId)
+  } else {
+    resolved = await resolveLid(env, chatId)
+    if (cache) cache.set(chatId, resolved)
   }
-  if (shaped.fromMe) return { skip: true, reason: 'unresolved_lid' }
-  return { msg, shaped }
+
+  if (!resolved) return { skip: true }
+  return { msg: { ...msg, chat_id: resolved } }
 }
 
 /**

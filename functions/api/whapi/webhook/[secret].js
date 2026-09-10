@@ -2,7 +2,7 @@ import { getDb, unwrap, UNIQUE_VIOLATION } from '../../../_lib/db.js'
 import { redactPayload } from '../../../_lib/whapi.js'
 import {
   shapeInboundMessage,
-  resolveMessageContact,
+  resolveLidChatId,
   ingestAttachment,
   findOrCreateGroup,
   findOrCreateConversation,
@@ -79,10 +79,14 @@ export async function onRequest(context) {
   // unique whapi_message_id index remains the cross-request backstop.
   const seen = new Set()
 
+  // Memoises @lid → real-JID lookups for the life of this request, so the same
+  // LID appearing in several messages/updates costs a single Whapi call.
+  const lidCache = new Map()
+
   for (const msg of messages) {
     if (msg?.id) seen.add(String(msg.id))
     try {
-      const result = await handleMessage(env, msg, pending)
+      const result = await handleMessage(env, msg, pending, lidCache)
       if (result === 'inserted') processed++
       else skipped++
     } catch (err) {
@@ -114,7 +118,7 @@ export async function onRequest(context) {
     if (id) seen.add(id)
 
     try {
-      const result = await handleMessage(env, lm, pending)
+      const result = await handleMessage(env, lm, pending, lidCache)
       if (result === 'inserted') processed++
       else skipped++
     } catch (err) {
@@ -223,7 +227,7 @@ async function reconcileOutboundEcho(db, conversationId, whapiMessageId) {
   return Boolean(claimed?.length)
 }
 
-async function handleMessage(env, msg, pending = []) {
+async function handleMessage(env, msg, pending = [], lidCache = null) {
   // Shared with the sync backfill — see functions/_lib/ingest.js. Everything
   // from here down is the LIVE-only behaviour: unread bump and push fan-out.
   //
@@ -232,24 +236,19 @@ async function handleMessage(env, msg, pending = []) {
   // message we would otherwise never capture. Echoes of our OWN inbox replies
   // are separated out below by reconcileOutboundEcho, not by discarding the
   // whole class.
-  // Resolve a Facebook LID first (Layers 2 & 3, shared with the sync). An
-  // unresolvable OUTBOUND LID is dropped here (GHL broadcast junk); an inbound
-  // LID passes through with the LID kept as a fallback. On resolution the message
-  // is returned with its chat_id rewritten to the real number.
-  const resolution = await resolveMessageContact(env, msg)
+  // Resolve a Facebook LID chat_id ("…@lid") to the real @s.whatsapp.net JID
+  // before anything else, so the rest of the pipeline sees a normal number. An
+  // unresolvable @lid is dropped: we cannot identify the contact, and an inbound
+  // reply also arrives under the real JID, so nothing is lost.
+  const resolution = await resolveLidChatId(env, msg, lidCache)
   if (resolution.skip) {
-    console.log(
-      'whapi webhook: could not resolve LID, skipping outbound to unknown contact',
-      JSON.stringify({ message_id: msg?.id ?? null })
-    )
+    console.log('whapi webhook: skipped unresolvable @lid', JSON.stringify({ chat_id: msg?.chat_id ?? null, message_id: msg?.id ?? null }))
     return 'skipped'
   }
   const effectiveMsg = resolution.msg
-  if (resolution.resolvedPhone) {
-    console.log('whapi webhook: resolved LID to phone: ' + resolution.resolvedPhone)
-  }
+  if (effectiveMsg !== msg) console.log('whapi webhook: resolved LID → ' + effectiveMsg.chat_id)
 
-  const shaped = resolution.shaped || shapeInboundMessage(effectiveMsg, env, { allowOutbound: true })
+  const shaped = shapeInboundMessage(effectiveMsg, env, { allowOutbound: true })
   if (shaped.skip) {
     if (shaped.skip === 'broadcast' || shaped.skip === 'invalid_number') {
       console.log(

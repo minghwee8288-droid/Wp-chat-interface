@@ -32,7 +32,7 @@ import { listMessages, listChats, getMessage, redactPayload } from './whapi.js'
 import { resolveQuotedRef } from './reply.js'
 import {
   shapeInboundMessage,
-  resolveMessageContact,
+  resolveLidChatId,
   ingestAttachment,
   findOrCreateGroup,
   findOrCreateConversation,
@@ -263,17 +263,22 @@ export async function persistHistorical(env, db, msg, chatName) {
   return { added: true, direction: fromMe ? 'outbound' : 'inbound', mediaFailed: Boolean(mediaError) }
 }
 
+// Memoises @lid → real-JID lookups across the sync run (per isolate), so a chat
+// synced over many steps resolves each LID once. A LID→real mapping is stable,
+// so a longer-lived cache is safe.
+const syncLidCache = new Map()
+
 /**
- * persistHistorical + Facebook LID resolution (Layers 2 & 3) for the sync paths.
- * An outbound message to an unresolvable LID is skipped here (GHL broadcast
- * junk); everything else is persisted, with the real number substituted when one
- * could be recovered. persistHistorical itself is unchanged.
+ * persistHistorical + Facebook LID resolution for the sync paths. A message whose
+ * chat_id is an unresolvable "@lid" is skipped here; otherwise chat_id is
+ * rewritten to the real @s.whatsapp.net JID and the message is persisted.
+ * persistHistorical itself is unchanged.
  */
 async function persistWithLidResolution(env, db, msg, chatName) {
-  const resolution = await resolveMessageContact(env, msg)
+  const resolution = await resolveLidChatId(env, msg, syncLidCache)
   if (resolution.skip) {
-    console.log('sync: skipped outbound template to unresolvable LID ' + JSON.stringify({ id: msg?.id ?? null }))
-    return { added: false, skipped: true, reason: resolution.reason }
+    console.log('sync: skipped unresolvable @lid ' + JSON.stringify({ chat_id: msg?.chat_id ?? null, id: msg?.id ?? null }))
+    return { added: false, skipped: true, reason: 'unresolvable_lid' }
   }
   return persistHistorical(env, db, resolution.msg, chatName)
 }
