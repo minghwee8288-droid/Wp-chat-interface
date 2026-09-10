@@ -612,6 +612,55 @@ export async function listMessages(env, chatId, { offset = 0, count = 100, timeF
 }
 
 /**
+ * GET /messages/{MessageID} — fetch a single message by its Whapi id.
+ *
+ * Used by the diff-based conversation sync (Phase 2): reconciliation collects
+ * only the ids, then this pulls the full body/media for the few that are
+ * missing. The response is the same message shape as /messages/list entries, so
+ * it feeds straight into shapeInboundMessage()/persistHistorical(). Whapi may
+ * return the object bare or wrapped under `message`; both are handled.
+ *
+ * Resolves to { ok, message, total?, accountError, status, error } — never
+ * throws. A 404 (message deleted/expired on Whapi's side) comes back ok:false
+ * with status 404, which the caller treats as a skip, not a halt.
+ */
+export async function getMessage(env, messageId) {
+  try {
+    const { token, apiUrl } = whapiConfig(env)
+    const id = String(messageId || '').trim()
+    if (!id) return { ok: false, error: 'get_no_id', message: null }
+
+    const res = await fetch(`${apiUrl}/messages/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 160)
+      return {
+        ok: false,
+        error: `get_${res.status}${detail ? `: ${detail}` : ''}`,
+        accountError: isAccountError(res.status),
+        status: res.status,
+        message: null,
+      }
+    }
+
+    const data = await res.json().catch(() => null)
+    const message =
+      data && typeof data === 'object'
+        ? data.message && typeof data.message === 'object'
+          ? data.message
+          : data
+        : null
+    // A body with no id is not a usable message — treat as absent.
+    if (!message || !message.id) return { ok: false, error: 'get_empty', status: res.status, message: null }
+    return { ok: true, message }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || 'get_failed'), message: null }
+  }
+}
+
+/**
  * GET /chats — one page of the account's chats.
  * @param opts { offset, count }
  * Resolves to { ok, chats, total, error }. Each chat is normalised to

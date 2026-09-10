@@ -28,7 +28,7 @@
 //     hits the constraint and is skipped, never written twice.
 
 import { unwrap, UNIQUE_VIOLATION } from './db.js'
-import { listMessages, listChats, redactPayload } from './whapi.js'
+import { listMessages, listChats, getMessage, redactPayload } from './whapi.js'
 import { resolveQuotedRef } from './reply.js'
 import {
   shapeInboundMessage,
@@ -49,6 +49,20 @@ const STEP_MESSAGES = 15
 // Chats pulled per /chats page during a range sync. Cached in the cursor and
 // drained one chat at a time, so /chats is hit once per this many chats.
 const CHATS_PAGE = 50
+
+// Diff-based conversation sync tuning.
+//   RECONCILE_PAGE          — ids per Whapi page in Phase 1. Large is fine: the
+//                             reconcile only reads ids, never downloads media.
+//   RECONCILE_PAGES_PER_STEP— cap on Whapi calls per reconcile step, so a huge
+//                             chat's id-collection stays inside a Worker's limits
+//                             and resumes on the next step.
+//   DB_ID_PAGE              — page size when reading a conversation's existing
+//                             whapi ids. MUST page: PostgREST caps a plain select
+//                             at 1000 rows, so a big chat would otherwise report
+//                             thousands of false "missing" ids.
+const RECONCILE_PAGE = 200
+const RECONCILE_PAGES_PER_STEP = 10
+const DB_ID_PAGE = 1000
 
 /** YYYY-MM-DD -> unix seconds at the START of that day (UTC). */
 function dayStartUnix(date) {
@@ -327,32 +341,166 @@ export async function runSyncStep(env, db, job) {
   return { done: true, cursor, error: `unknown scope type: ${scope.type}` }
 }
 
+// Diff-based conversation sync (replaces the old fetch-all-then-dedup walk).
+//
+// Phase 1 'reconcile': page the conversation's Whapi message ids ONLY — no media
+// download, no persist — with timestamp pagination (offset 0, time_to narrowed
+// each page) so it never hits Whapi's deep-offset slowdown. Ids accumulate in the
+// cursor across steps, each step bounded to RECONCILE_PAGES_PER_STEP calls. When
+// history is exhausted, the collected ids are diffed against the ids already
+// stored for this conversation and only the MISSING ones are staged.
+//
+// Phase 2 'fetch-missing': pull the full message for each missing id
+// (STEP_MESSAGES per step) and hand it to persistHistorical — which still owns
+// media, dedup, preview and direction exactly as before. Its UNIQUE dedup stays
+// the backstop for anything that lands between the two phases.
+//
+// Net effect: re-syncing a 5000-message chat where 4990 exist fetches and
+// re-hosts ~10 messages, not 5000.
 async function stepConversation(env, db, scope, cursor) {
-  const offset = Number(cursor.offset) || 0
-  const list = await listMessages(env, scope.chat_id, { offset, count: STEP_MESSAGES })
+  const phase = cursor.phase || 'reconcile'
+  if (phase === 'fetch-missing') return fetchMissingConversation(env, db, scope, cursor)
+  return reconcileConversation(env, db, scope, cursor)
+}
 
-  if (!list.ok) {
-    // An account-level error halts the whole job — never a per-chat skip.
-    if (list.accountError) {
-      return { done: true, cursor: { ...cursor, offset }, error: list.error, accountError: true }
+/** Smallest UNIX-second timestamp in a raw Whapi page — the time_to watermark. */
+function pageMinTimestamp(messages) {
+  let min = Infinity
+  for (const m of messages) {
+    const ts = Number(m?.timestamp)
+    if (Number.isFinite(ts) && ts < min) min = ts
+  }
+  return Number.isFinite(min) ? min : null
+}
+
+/**
+ * Phase 1 — collect the conversation's Whapi message ids (bounded per step),
+ * then on exhaustion diff against the DB and hand off to the fetch-missing phase.
+ */
+async function reconcileConversation(env, db, scope, cursor) {
+  const ids = Array.isArray(cursor.whapi_ids) ? cursor.whapi_ids.slice() : []
+  // undefined on the first page (newest first), then narrowed backwards in time.
+  let timeTo = Number.isFinite(Number(cursor.reconcile_time_to)) ? Number(cursor.reconcile_time_to) : undefined
+
+  for (let i = 0; i < RECONCILE_PAGES_PER_STEP; i++) {
+    const list = await listMessages(env, scope.chat_id, { offset: 0, count: RECONCILE_PAGE, timeTo })
+
+    if (!list.ok) {
+      // Account-level failure halts the whole job; a dead chat ends this one.
+      if (list.accountError) {
+        return {
+          done: true,
+          cursor: { ...cursor, phase: 'reconcile', whapi_ids: ids, reconcile_time_to: timeTo ?? null },
+          error: list.error,
+          accountError: true,
+        }
+      }
+      return { done: true, cursor: { ...cursor, phase: 'reconcile' }, error: list.error, addConversationsDone: 0 }
     }
-    // A dead chat ends this (single-conversation) job with the error recorded.
-    return {
-      done: true,
-      cursor: { ...cursor, offset },
-      error: list.error,
-      addConversationsDone: 0,
-    }
+
+    const page = list.messages
+    for (const m of page) if (m?.id) ids.push(String(m.id))
+
+    // A short page means no older messages remain — history is exhausted.
+    if (page.length < RECONCILE_PAGE) return finishReconcile(db, scope, ids)
+
+    // Walk further back, excluding the boundary second (matches the backfill).
+    const min = pageMinTimestamp(page)
+    if (min == null) return finishReconcile(db, scope, ids)
+    timeTo = min - 1
   }
 
-  logRawPage(scope.chat_id, offset, list.messages)
-  const { added, mediaFailed } = await ingestBatch(env, db, list.messages, scope.name, null, scope.chat_id)
-  const nextOffset = offset + list.messages.length
-  const done = list.messages.length < STEP_MESSAGES
+  // Not exhausted — persist progress and let the client run another step.
+  return {
+    done: false,
+    cursor: { ...cursor, phase: 'reconcile', whapi_ids: ids, reconcile_time_to: timeTo ?? null },
+    addConversationsDone: 0,
+  }
+}
+
+/** Diff the collected Whapi ids against the DB and stage the missing ones. */
+async function finishReconcile(db, scope, collectedIds) {
+  const whapiIds = [...new Set(collectedIds)]
+  const existing = await fetchExistingWhapiIds(db, scope.conversation_id)
+  const missing = whapiIds.filter((id) => !existing.has(id))
+
+  console.log(
+    'sync.diag.reconcile ' +
+      JSON.stringify({ chat: scope.chat_id, whapi: whapiIds.length, existing: existing.size, missing: missing.length })
+  )
+
+  const cursor = { phase: 'fetch-missing', missing_ids: missing, missing_offset: 0 }
+  // Nothing missing — the conversation is already fully synced.
+  if (missing.length === 0) {
+    return { done: true, cursor, addAdded: 0, addMediaFailed: 0, addConversationsDone: 1 }
+  }
+  return { done: false, cursor, addConversationsDone: 0 }
+}
+
+/**
+ * Every non-null whapi_message_id already stored for a conversation, as a Set.
+ * Paged past PostgREST's default 1000-row cap: without paging, a chat with more
+ * than 1000 stored messages would report the unseen ones as "missing" and
+ * re-fetch them, defeating the whole diff.
+ */
+async function fetchExistingWhapiIds(db, conversationId) {
+  const out = new Set()
+  if (conversationId == null) return out
+  let from = 0
+  for (;;) {
+    const rows =
+      unwrap(
+        await db
+          .from('wp_chat_messages')
+          .select('whapi_message_id')
+          .eq('conversation_id', conversationId)
+          .not('whapi_message_id', 'is', null)
+          .order('id', { ascending: true })
+          .range(from, from + DB_ID_PAGE - 1)
+      ) || []
+    for (const r of rows) if (r.whapi_message_id != null) out.add(String(r.whapi_message_id))
+    if (rows.length < DB_ID_PAGE) break
+    from += DB_ID_PAGE
+  }
+  return out
+}
+
+/**
+ * Phase 2 — fetch and persist one chunk of missing messages. persistHistorical
+ * handles media, dedup, preview and direction exactly as the old walk did.
+ */
+async function fetchMissingConversation(env, db, scope, cursor) {
+  const missing = Array.isArray(cursor.missing_ids) ? cursor.missing_ids : []
+  const start = Number(cursor.missing_offset) || 0
+  const chunk = missing.slice(start, start + STEP_MESSAGES)
+
+  let added = 0
+  let mediaFailed = 0
+
+  for (const id of chunk) {
+    const got = await getMessage(env, id)
+    if (!got.ok) {
+      // Account-level failure halts the whole job. Anything else (a 404 for a
+      // message deleted on Whapi, or a transient blip) is a per-message skip —
+      // the offset still advances so a step always makes progress and can never
+      // loop forever on one bad id. A later full reconcile re-detects it.
+      if (got.accountError) {
+        return { done: true, cursor: { ...cursor, missing_offset: start }, error: got.error, accountError: true }
+      }
+      console.log('sync.diag.fetch-missing skip ' + JSON.stringify({ id, error: got.error }))
+      continue
+    }
+    const r = await persistHistorical(env, db, got.message, scope.name)
+    if (r.added) added++
+    if (r.mediaFailed) mediaFailed++
+  }
+
+  const nextOffset = start + chunk.length
+  const done = nextOffset >= missing.length
 
   return {
     done,
-    cursor: { offset: nextOffset },
+    cursor: { ...cursor, missing_offset: nextOffset },
     addAdded: added,
     addMediaFailed: mediaFailed,
     addConversationsDone: done ? 1 : 0,

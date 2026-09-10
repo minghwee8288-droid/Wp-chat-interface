@@ -154,6 +154,23 @@ export function previewLine(groupJid, sender, body, media) {
 }
 
 /**
+ * Extract readable text from a WhatsApp template ("hsm") message — the shape a
+ * template sent from the WhatsApp Business app arrives as. The rendered template
+ * carries its text in hsm.body, sometimes with a text header in
+ * hsm.header.text.body. Returns the joined text, or null when there is nothing
+ * textual to show (e.g. a media-header template we cannot render here).
+ */
+function hsmBody(msg) {
+  const h = msg?.hsm
+  if (!h || typeof h !== 'object') return null
+  const parts = []
+  const header = h.header?.text?.body
+  if (typeof header === 'string' && header.trim()) parts.push(header.trim())
+  if (typeof h.body === 'string' && h.body.trim()) parts.push(h.body.trim())
+  return parts.length ? parts.join('\n') : null
+}
+
+/**
  * Normalise a raw Whapi message (webhook OR /messages/list — same shape) into
  * the fields every downstream write needs, or {skip: reason} for anything that
  * is not a storable conversation message.
@@ -192,14 +209,19 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
   const explicitMedia = readMediaFields(msg)
   const attachment = explicitMedia ? null : describeAttachment(msg)
 
-  // Text-only messages must be type 'text'.
-  if (!explicitMedia && !attachment && msg?.type !== 'text') return { skip: 'non_text' }
+  // Template ("hsm") messages — sent from the WhatsApp Business app — carry their
+  // text under hsm.body (+ optional hsm.header.text.body), not text.body. Pull it
+  // out so the guard below treats a template with text like any text message.
+  const hsmText = msg?.type === 'hsm' ? hsmBody(msg) : null
+
+  // Text-bearing messages must be type 'text' (or an hsm template we could read).
+  if (!explicitMedia && !attachment && msg?.type !== 'text' && !hsmText) return { skip: 'non_text' }
 
   const customerNumber = groupJid ? null : toDigits(msg?.chat_id ?? msg?.from)
   const whapiMessageId = msg?.id ? String(msg.id) : null
 
   const rawBody =
-    msg?.text?.body ?? msg?.caption ?? attachment?.caption ?? explicitMedia?.media_caption ?? null
+    msg?.text?.body ?? msg?.caption ?? hsmText ?? attachment?.caption ?? explicitMedia?.media_caption ?? null
   const body = typeof rawBody === 'string' && rawBody ? rawBody : null
 
   if (!groupJid && !customerNumber) return { skip: 'no_identifier' }

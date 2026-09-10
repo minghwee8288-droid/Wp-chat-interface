@@ -72,7 +72,14 @@ export async function onRequest(context) {
   let processed = 0
   let skipped = 0
 
+  // Ids handled in THIS request. Whapi can deliver the same outbound message both
+  // as messages.post AND inside chats_updates (in one payload or two) — this Set
+  // makes the second sighting a no-op within the request, before any DB work. The
+  // unique whapi_message_id index remains the cross-request backstop.
+  const seen = new Set()
+
   for (const msg of messages) {
+    if (msg?.id) seen.add(String(msg.id))
     try {
       const result = await handleMessage(env, msg, pending)
       if (result === 'inserted') processed++
@@ -82,6 +89,36 @@ export async function onRequest(context) {
       // of the messages that already landed.
       skipped++
       console.error('whapi webhook: failed to process message', msg?.id, err?.message)
+    }
+  }
+
+  // chats_updates: a message sent from the WhatsApp Business app arrives as a chat
+  // PATCH carrying the chat's `last_message`, NOT under `messages`. Take ONLY the
+  // outbound (from_me) ones — an inbound chat update is already covered by
+  // messages.post and must not re-run push/unread from here. Each goes through the
+  // SAME handleMessage flow (reconcile echo → else persist), so echo
+  // reconciliation and dedup are identical to the messages path.
+  const chatsUpdates = Array.isArray(payload?.chats_updates) ? payload.chats_updates : []
+  for (const update of chatsUpdates) {
+    const lm = update?.last_message
+    // Skip a chat update with no message, or an inbound one (handled elsewhere).
+    if (!lm || lm.from_me !== true) continue
+
+    const id = lm.id ? String(lm.id) : null
+    // Already handled this request (Scenario C) — count as skipped, never insert.
+    if (id && seen.has(id)) {
+      skipped++
+      continue
+    }
+    if (id) seen.add(id)
+
+    try {
+      const result = await handleMessage(env, lm, pending)
+      if (result === 'inserted') processed++
+      else skipped++
+    } catch (err) {
+      skipped++
+      console.error('whapi webhook: failed to process chats_updates message', id, err?.message)
     }
   }
 
