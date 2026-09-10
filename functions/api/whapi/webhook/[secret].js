@@ -233,7 +233,7 @@ async function handleMessage(env, msg, pending = []) {
   // whole class.
   const shaped = shapeInboundMessage(msg, env, { allowOutbound: true })
   if (shaped.skip) {
-    if (shaped.skip === 'broadcast' || shaped.skip === 'over_long_id') {
+    if (shaped.skip === 'broadcast' || shaped.skip === 'invalid_number') {
       console.log(
         'whapi webhook: skipping message',
         JSON.stringify({ skip: shaped.skip, message_id: msg?.id ?? null, payload: redactPayload(msg) })

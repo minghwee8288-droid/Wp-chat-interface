@@ -225,9 +225,18 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
   const body = typeof rawBody === 'string' && rawBody ? rawBody : null
 
   if (!groupJid && !customerNumber) return { skip: 'no_identifier' }
-  // Belt and braces: nothing over the E.164 maximum is a real phone number, so
-  // an unrecognised group id still cannot become a 1:1 contact.
-  if (customerNumber && customerNumber.length > MAX_E164_DIGITS) return { skip: 'over_long_id' }
+  // A 1:1 "number" that is not a real phone number is junk, not a customer —
+  // most often a 15–16 digit Facebook/Meta Page or system id that arrives with an
+  // @s.whatsapp.net suffix. Reject it BEFORE it can create a conversation:
+  //   • length >= MAX_E164_DIGITS (15) — E.164 tops out at 15 and real numbers
+  //     are in practice ≤13, whereas Meta ids are 15–16 all-numeric, so the
+  //     15-digit boundary itself is treated as a system id.
+  //   • leading 0 — no E.164 country code begins with 0 (that is a national trunk
+  //     prefix), so a leading zero here is never a valid international number.
+  // Groups are unaffected: they carry groupJid, so customerNumber is null here.
+  if (customerNumber && (customerNumber.length >= MAX_E164_DIGITS || customerNumber.startsWith('0'))) {
+    return { skip: 'invalid_number' }
+  }
   // Without media, a body is mandatory — otherwise there is nothing to show.
   if (!explicitMedia && !attachment && !body) return { skip: 'empty' }
 
