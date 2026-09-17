@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Sparkles, AlertTriangle, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Sparkles, AlertTriangle, X, Send, Copy, Check, CornerDownLeft } from 'lucide-react'
 import { api } from '../lib/api.js'
 
 const ATTENTION = { management: 'Management', team: 'Team', general: 'General' }
@@ -17,11 +17,28 @@ const MAX_POLLS = 12 // ~36s, then stop and keep whatever we have
 function computePosition(rect) {
   const vw = window.innerWidth
   const vh = window.innerHeight
-  const width = Math.min(300, vw - 16)
+  // Wider than the old summary-only panel: it now also holds the AI chat,
+  // whose drafts and action buttons need the room. Still clamped to the
+  // viewport so it never overflows a 390px screen.
+  const width = Math.min(360, vw - 16)
   const left = Math.max(8, Math.min(Math.round(rect.right - width), vw - width - 8))
   const style = { position: 'fixed', width, left }
-  if (rect.bottom < vh * 0.62) style.top = Math.round(rect.bottom + 6)
-  else style.bottom = Math.round(vh - rect.top + 6)
+
+  // Open downward when there is genuinely room, otherwise flip above. This
+  // measures the actual gap rather than testing the row against a fixed
+  // fraction of the viewport: the panel grew to fit the AI chat, so a row at
+  // (say) 55% height would have passed the old test and then overflowed the
+  // bottom of the screen. Whichever side wins also caps the panel's height, so
+  // the composer stays on screen either way.
+  const below = vh - rect.bottom - 14
+  const above = rect.top - 14
+  if (below >= Math.min(above, 320) || below >= 420) {
+    style.top = Math.round(rect.bottom + 6)
+    style.maxHeight = Math.round(below)
+  } else {
+    style.bottom = Math.round(vh - rect.top + 6)
+    style.maxHeight = Math.round(above)
+  }
   return style
 }
 
@@ -30,7 +47,7 @@ function computePosition(rect) {
  * SAME summary endpoint (api.summary) — no second summary path — and caches the
  * result per conversation so re-opening is instant and taps stay lazy.
  */
-export default function SummaryPopover({ conversation, anchorRect, cache, onDismiss, onClose }) {
+export default function SummaryPopover({ conversation, anchorRect, cache, onDismiss, onSend, onClose }) {
   const cached = cache.get(conversation.id)
   const [pos] = useState(() => computePosition(anchorRect))
   // A cached summary paints on the FIRST render — no request, no spinner. Only
@@ -45,6 +62,108 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
   const [refreshing, setRefreshing] = useState(false)
   // Guards a double-tap on the banner's dismiss button.
   const [dismissing, setDismissing] = useState(false)
+
+  // --- Chat with AI ------------------------------------------------------
+  // The panel's conversation with the assistant. Session-only and deliberately
+  // NOT cached across opens: it is a scratchpad for the agent, not part of the
+  // stored summary, and nothing here is ever written server-side.
+  //
+  // Each turn is { role, content, draft? }. `draft` is a ready-to-send message
+  // the agent can copy or push straight into the thread.
+  const [turns, setTurns] = useState([])
+  const [question, setQuestion] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [askError, setAskError] = useState(null)
+  // Which draft was just copied / just sent, for the transient confirmations.
+  const [copiedAt, setCopiedAt] = useState(null)
+  const [sentAt, setSentAt] = useState(null)
+  const [sendingAt, setSendingAt] = useState(null)
+  const askAbort = useRef(null)
+  const turnsEndRef = useRef(null)
+  // The panel element, so a scroll inside it can be told apart from one outside.
+  const panelRef = useRef(null)
+
+  // Abort any in-flight ask when the popover closes, so a late reply cannot
+  // set state on an unmounted component.
+  useEffect(() => () => askAbort.current?.abort(), [])
+
+  // Keep the newest turn in view as the thread grows.
+  useEffect(() => {
+    if (turns.length || asking) turnsEndRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [turns, asking])
+
+  const handleAsk = async (e) => {
+    e?.preventDefault?.()
+    const text = question.trim()
+    if (!text || asking) return
+
+    // Only the plain role/content pairs go back as history — `draft` is a
+    // client-side convenience and the model already has it in `content`.
+    const history = turns.map((t) => ({ role: t.role, content: t.content }))
+
+    setTurns((prev) => [...prev, { role: 'user', content: text }])
+    setQuestion('')
+    setAskError(null)
+    setAsking(true)
+
+    askAbort.current?.abort()
+    const controller = new AbortController()
+    askAbort.current = controller
+
+    try {
+      const res = await api.askAi(conversation.id, text, { history, signal: controller.signal })
+      if (controller.signal.aborted) return
+      setTurns((prev) => [
+        ...prev,
+        { role: 'assistant', content: res.answer || '', draft: res.draft || null },
+      ])
+    } catch (err) {
+      if (controller.signal.aborted || err?.name === 'AbortError') return
+      setAskError(err?.message || 'Couldn’t get an answer. Try again.')
+    } finally {
+      if (!controller.signal.aborted) setAsking(false)
+    }
+  }
+
+  // Copy a draft to the clipboard. Falls back to a hidden textarea where the
+  // async clipboard API is unavailable (older iOS Safari, non-secure origins).
+  const handleCopy = async (text, index) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.setAttribute('readonly', '')
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopiedAt(index)
+      setTimeout(() => setCopiedAt((c) => (c === index ? null : c)), 1600)
+    } catch {
+      setAskError('Couldn’t copy to the clipboard.')
+    }
+  }
+
+  // Send a draft straight into the thread. The parent owns the actual send so
+  // the message lands through exactly the same path as a typed one.
+  const handleSendDraft = async (text, index) => {
+    if (sendingAt != null || !onSend) return
+    setSendingAt(index)
+    setAskError(null)
+    try {
+      await onSend(conversation.id, text)
+      setSentAt(index)
+    } catch (err) {
+      setAskError(err?.message || 'Couldn’t send the message.')
+    } finally {
+      setSendingAt(null)
+    }
+  }
 
   // Manually clear the attention flag. Optimistic: drop the banner right away,
   // keep the shared popover cache in step so a reopen doesn't resurrect it, and
@@ -73,15 +192,24 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
   }
 
   // Close on anything that moves the anchor or on Escape.
+  //
+  // The scroll listener is in the CAPTURE phase, so it also sees scrolls that
+  // happen INSIDE the popover — which, now that the panel holds a scrollable AI
+  // conversation, would slam it shut the moment the agent scrolled their own
+  // chat. Only a scroll outside the panel actually moves the anchor, so that is
+  // the only one that closes it.
   useEffect(() => {
-    const onScroll = () => onClose()
+    const onScroll = (e) => {
+      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
+      onClose()
+    }
     window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onScroll)
+    window.addEventListener('resize', onClose)
     const onKey = (e) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onScroll)
+      window.removeEventListener('resize', onClose)
       window.removeEventListener('keydown', onKey)
     }
   }, [onClose])
@@ -164,7 +292,7 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
   return (
     <>
       <div className="summary-pop-backdrop" onClick={onClose} />
-      <div className="summary-pop" style={pos} role="dialog" aria-label="AI summary">
+      <div className="summary-pop" style={pos} role="dialog" aria-label="AI summary" ref={panelRef}>
         <div className="summary-pop-head">
           <span className="summary-pop-title">
             <Sparkles size={13} />
@@ -216,6 +344,97 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
             ) : null}
           </div>
         )}
+
+        {/* --- Chat with AI -------------------------------------------------
+            Always available, even when there is no summary yet: the answer is
+            drawn from the conversation itself, not from the summary, so an
+            un-summarised chat can still be asked about. */}
+        <div className="summary-ask">
+          <div className="summary-ask-head">Chat with AI</div>
+
+          {turns.length ? (
+            <div className="summary-ask-turns">
+              {turns.map((turn, i) =>
+                turn.role === 'user' ? (
+                  <div key={i} className="summary-ask-turn summary-ask-turn--user">
+                    {turn.content}
+                  </div>
+                ) : (
+                  <div key={i} className="summary-ask-turn summary-ask-turn--ai">
+                    {turn.content ? <p className="summary-ask-answer">{turn.content}</p> : null}
+                    {turn.draft ? (
+                      <div className="summary-ask-draft">
+                        <p className="summary-ask-draft-text">{turn.draft}</p>
+                        <div className="summary-ask-draft-actions">
+                          <button
+                            type="button"
+                            className="summary-ask-action"
+                            onClick={() => handleCopy(turn.draft, i)}
+                            title="Copy this message"
+                          >
+                            {copiedAt === i ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedAt === i ? 'Copied' : 'Copy'}
+                          </button>
+                          {onSend ? (
+                            <button
+                              type="button"
+                              className="summary-ask-action summary-ask-action--send"
+                              onClick={() => handleSendDraft(turn.draft, i)}
+                              disabled={sendingAt != null || sentAt === i}
+                              title="Send this message to the chat"
+                            >
+                              {sentAt === i ? (
+                                <Check size={12} />
+                              ) : sendingAt === i ? (
+                                <span className="spinner" />
+                              ) : (
+                                <CornerDownLeft size={12} />
+                              )}
+                              {sentAt === i ? 'Sent' : sendingAt === i ? 'Sending…' : 'Send'}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              )}
+              {asking ? (
+                <div className="summary-ask-turn summary-ask-turn--ai summary-ask-pending">
+                  <span className="spinner" />
+                  Thinking…
+                </div>
+              ) : null}
+              <div ref={turnsEndRef} />
+            </div>
+          ) : (
+            <p className="summary-ask-hint">
+              Ask anything about this chat, or ask for a message to send.
+            </p>
+          )}
+
+          {askError ? <div className="summary-ask-error">{askError}</div> : null}
+
+          <form className="summary-ask-form" onSubmit={handleAsk}>
+            <input
+              type="text"
+              className="summary-ask-input"
+              placeholder="Ask about this chat…"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              disabled={asking}
+              aria-label="Ask the AI about this conversation"
+            />
+            <button
+              type="submit"
+              className="summary-ask-send"
+              disabled={asking || !question.trim()}
+              aria-label="Ask"
+            >
+              <Send size={14} />
+            </button>
+          </form>
+        </div>
       </div>
     </>
   )

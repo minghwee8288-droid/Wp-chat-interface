@@ -247,6 +247,21 @@ export const api = {
     }),
 
   /**
+   * Ask a free-form question about ONE conversation, or have the AI draft a
+   * message for it. Reads the WHOLE thread, not just the summary's 30-day
+   * window, and stores nothing — so it never disturbs the cached summary.
+   *
+   * `history` is the panel's prior turns, so follow-ups like "make it shorter"
+   * resolve against the last answer.
+   */
+  askAi: (conversationId, question, { history = [], signal } = {}) =>
+    request('/conversation/ask', {
+      method: 'POST',
+      body: { conversation_id: conversationId, question, history },
+      signal,
+    }),
+
+  /**
    * Bulk read of stored short summaries, for warming the popover cache.
    * Read-only: it never generates, so a miss here just means "not summarised
    * yet" and the per-conversation endpoint remains the way to produce one.

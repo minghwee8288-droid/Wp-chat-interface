@@ -52,6 +52,9 @@ export default function ConversationList({
   onNewMessage,
   onRefresh = () => {},
   onDismissAttention = () => {},
+  // Sends an AI-drafted message from the summary popover. Omitted (or null)
+  // simply hides the popover's Send action, leaving Copy as the way out.
+  onSendDraft = null,
   users = [],
   summaryCache = null,
 }) {
@@ -385,6 +388,7 @@ export default function ConversationList({
           anchorRect={popover.rect}
           cache={cache}
           onDismiss={onDismissAttention}
+          onSend={onSendDraft}
           onClose={() => setPopover(null)}
         />
       ) : null}

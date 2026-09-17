@@ -93,7 +93,8 @@ const SYSTEM_PROMPT = [
   '      Current status: what is pending and the stage of any process (e.g. a verification)',
   '      Recent activity: what happened in the latest messages',
   '      Action needed: what needs follow-up',
-  `    Put a newline between the heading and its bullets and between every bullet; omit a heading only when it genuinely has nothing. This is the memory. Keep it UNDER ~${BIG_SUMMARY_TARGET_CHARS} characters: compress older or resolved detail to make room for new activity, but NEVER drop an item that is still pending or unresolved, however old.`,
+  `    Put a newline between the heading and its bullets and between every bullet; omit a heading only when it genuinely has nothing. This is the memory. Keep it UNDER ~${BIG_SUMMARY_TARGET_CHARS} characters: compress older or resolved detail to make room for new activity.`,
+  `  SCOPE: cover ONLY the last ${SEED_WINDOW_DAYS} days of the conversation. Drop anything whose activity falls entirely outside that window, even if it is still unresolved — it is out of scope. Within the window, never drop a still-pending or unresolved item.`,
   '  "short_summary": 2-3 concise bullet points (each line starting with "• ") covering the most important current state — NOT a paragraph. Derived from big_summary.',
   '  "department": one of "sales" (pricing, negotiation, quotes, sales enquiries), "operations" (documents, paperwork, process/operational matters), or "unclear" (cannot confidently determine).',
   '  "attention_required": boolean — true if a human should look at this soon.',
@@ -103,6 +104,11 @@ const SYSTEM_PROMPT = [
   'For a group chat, note it is a group and you may reference senders.',
   'Format the big_summary as a structured list with bullet points ("• "), grouped under the headings above. Format the short_summary as 2-3 bullet points ("• "), not a paragraph. Both stay plain-text JSON strings: use "• " for bullets and "\\n" for line breaks inside the string — no markdown fences.',
 ].join('\n')
+
+/** The ISO date (YYYY-MM-DD) on which the rolling summary window opens. */
+export function windowCutoffDate(now = Date.now()) {
+  return new Date(now - SEED_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
 
 /**
  * 
@@ -124,12 +130,19 @@ export function buildSummaryRequest({ mode, existingBigSummary, messages, isGrou
   const groupNote = isGroup ? 'This is a group chat.\n' : ''
   const truncNote = truncated ? '\n(Note: earlier messages were omitted for length.)' : ''
 
+  // The rolling 30-day boundary, stated to the model as a date so it can age
+  // content out of the carried-over memory rather than accumulating forever.
+  const cutoff = windowCutoffDate()
+  const cutoffNote =
+    `The reporting window is the last ${SEED_WINDOW_DAYS} days: everything on or after ${cutoff}.\n`
+
   const user =
     mode === 'incremental'
-      ? `${groupNote}Here is the existing big_summary (the memory so far):\n"""\n${existingBigSummary || ''}\n"""\n\n` +
-        `Update it by folding in ONLY these NEW messages (oldest to newest) and compacting older/resolved detail to stay under ~${BIG_SUMMARY_TARGET_CHARS} characters. Do NOT re-summarize from scratch and do NOT drop still-pending items. Then derive short_summary, department and attention from the updated big_summary.\n\n` +
+      ? `${groupNote}${cutoffNote}Here is the existing big_summary (the memory so far):\n"""\n${existingBigSummary || ''}\n"""\n\n` +
+        `Update it by folding in ONLY these NEW messages (oldest to newest) and compacting older/resolved detail to stay under ~${BIG_SUMMARY_TARGET_CHARS} characters. Do NOT re-summarize from scratch.\n\n` +
+        `ROLLING WINDOW: the existing big_summary may hold items that have now aged out. REMOVE any item whose activity is entirely older than ${cutoff}, even if it is unresolved. Keep every still-pending item that falls inside the window. Then derive short_summary, department and attention from the updated big_summary.\n\n` +
         `New messages:\n${transcript}${truncNote}`
-      : `${groupNote}Build the big_summary from these recent messages (about the last ${SEED_WINDOW_DAYS} days, oldest to newest), then derive short_summary, department and attention from it.\n\n` +
+      : `${groupNote}${cutoffNote}Build the big_summary from these recent messages (the last ${SEED_WINDOW_DAYS} days, oldest to newest), then derive short_summary, department and attention from it.\n\n` +
         `Messages:\n${transcript}${truncNote}`
 
   return {
@@ -234,10 +247,14 @@ export function decideRefresh({ summaryRow, latestMessageId, hasMessages, now, r
 // --------------------------------------------------------------------
 
 /** Low-level model call. Returns the raw assistant text. Throws AiError. */
-export async function callOpenRouter(env, requestMessages) {
+export async function callOpenRouter(env, requestMessages, options = {}) {
   const key = env?.OPENROUTER_API_KEY
   if (!key) throw new AiError('OPENROUTER_API_KEY is not configured')
   const model = env?.OPENROUTER_MODEL || AI_MODEL
+  // Defaults are the summary path's long-standing values, so that caller is
+  // byte-for-byte unchanged; the ask path passes its own wider budget.
+  const maxTokens = options.maxTokens || MAX_OUTPUT_TOKENS
+  const temperature = options.temperature ?? 0.2
 
   let res
   try {
@@ -250,8 +267,8 @@ export async function callOpenRouter(env, requestMessages) {
       body: JSON.stringify({
         model,
         messages: requestMessages,
-        temperature: 0.2,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        temperature,
+        max_tokens: maxTokens,
         response_format: { type: 'json_object' },
       }),
     })
@@ -289,4 +306,125 @@ export async function produceSummary({ env, mode, existingBigSummary, messages, 
   const parsed = parseSummaryResponse(raw)
   const lastId = messages && messages.length ? messages[messages.length - 1].id : null
   return { ...parsed, last_summarized_message_id: lastId, model: env?.OPENROUTER_MODEL || AI_MODEL }
+}
+
+// ====================================================================
+// Ask-AI — the interactive "Chat with AI" side of the panel.
+//
+// Deliberately SEPARATE from the summary pipeline above: that one is a cached,
+// background, cost-guarded memory keyed to a 30-day window. This one is a
+// user-initiated question answered against the WHOLE conversation, and nothing
+// it returns is ever written to wp_chat_summaries. The two never interfere.
+// ====================================================================
+
+/** How many messages of history an ask may draw on. Far wider than a summary. */
+export const ASK_MESSAGE_CAP = 400
+
+/** Transcript ceiling for an ask — larger than the summary's, still bounded. */
+const ASK_MAX_TRANSCRIPT_CHARS = 40000
+
+/** Room for a drafted reply plus a short rationale. */
+const ASK_MAX_OUTPUT_TOKENS = 900
+
+/** Turns of prior ask/answer context carried back, so follow-ups make sense. */
+export const ASK_HISTORY_TURNS = 6
+
+const ASK_SYSTEM_PROMPT = [
+  'You are an assistant embedded in a customer-support WhatsApp team inbox.',
+  'You are given the transcript of ONE conversation and a question from the agent handling it.',
+  '',
+  'You do two kinds of work:',
+  '  1. ANSWER questions about the conversation — find details, dates, amounts, names, commitments, whatever was asked. Search the whole transcript.',
+  '  2. DRAFT a message for the agent to send to this contact, when asked for one (e.g. "write a follow-up", "what should I say about the invoice", "draft a reply").',
+  '',
+  'Return ONLY a JSON object — no prose, no markdown fences — with these keys:',
+  '  "answer": your reply to the agent, in plain text. Keep it tight and factual. Use "• " bullets for lists and "\n" for line breaks. This is what the agent reads, NOT what gets sent to the contact.',
+  '  "draft": when the agent asked you to write/draft/suggest a message to SEND to the contact, the message text itself, ready to send as-is — no greeting placeholders like [Name] unless the name is genuinely unknown, no commentary, no quotes around it. When the agent only asked a question, this MUST be null.',
+  '',
+  'Rules:',
+  '  - Ground every claim in the transcript. If it is not there, say so plainly rather than inventing it.',
+  '  - A draft must match the language and tone already used with this contact, and read like the agent wrote it — never mention that it was AI-generated.',
+  '  - Keep a draft to what a real support agent would actually send: short, direct, no corporate padding.',
+  '  - When you produce a draft, keep "answer" to one short line (e.g. "Here is a follow-up you can send:"), since the draft is displayed separately.',
+].join('\n')
+
+/**
+ * Build the ask request. `history` is prior [{role:'user'|'assistant', content}]
+ * turns from this panel session so follow-ups ("make it shorter") resolve; it is
+ * capped by the caller and never persisted server-side.
+ */
+export function buildAskRequest({ question, messages, isGroup, history = [] }) {
+  let transcript = formatTranscript(messages, isGroup)
+  let truncated = false
+  if (transcript.length > ASK_MAX_TRANSCRIPT_CHARS) {
+    // Keep the most recent — the tail is what a question usually concerns.
+    transcript = transcript.slice(transcript.length - ASK_MAX_TRANSCRIPT_CHARS)
+    truncated = true
+  }
+
+  const groupNote = isGroup
+    ? 'This is a GROUP chat; inbound lines are labelled with the sender name.\n'
+    : ''
+  const truncNote = truncated
+    ? '\n(Note: the oldest messages were omitted for length; this is the most recent history.)'
+    : ''
+
+  const turns = (history || [])
+    .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string')
+    .slice(-ASK_HISTORY_TURNS)
+    .map((t) => ({ role: t.role, content: clip(t.content) }))
+
+  return {
+    messages: [
+      { role: 'system', content: ASK_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content:
+          `${groupNote}Conversation transcript (oldest to newest):\n"""\n${transcript}\n"""${truncNote}`,
+      },
+      // The transcript is established once; the turns that follow are the
+      // actual back-and-forth, so "make it shorter" refers to the last draft.
+      ...turns,
+      { role: 'user', content: String(question || '').trim() },
+    ],
+    truncated,
+  }
+}
+
+/** Defensive parse of an ask reply. Falls back to raw text over failing. */
+export function parseAskResponse(text) {
+  if (!text || typeof text !== 'string') throw new AiError('empty model response')
+
+  const s = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  const start = s.indexOf('{')
+  const end = s.lastIndexOf('}')
+
+  if (start !== -1 && end > start) {
+    try {
+      const obj = JSON.parse(s.slice(start, end + 1))
+      if (obj && typeof obj === 'object') {
+        const answer = typeof obj.answer === 'string' ? obj.answer.trim() : ''
+        const draft = typeof obj.draft === 'string' && obj.draft.trim() ? obj.draft.trim() : null
+        if (answer || draft) return { answer: answer || 'Here is a message you can send:', draft }
+      }
+    } catch {
+      /* fall through to the plain-text salvage below */
+    }
+  }
+
+  // The model answered in prose instead of JSON. That is still a usable answer,
+  // so show it rather than turning a good response into an error.
+  if (s) return { answer: s, draft: null }
+  throw new AiError('model returned no usable answer')
+}
+
+/**
+ * Run one ask. Unlike the summary path this DOES block the request: it is a
+ * direct user action with a visible pending state, not a background refresh.
+ */
+export async function produceAnswer({ env, question, messages, isGroup, history, generate }) {
+  const run = generate || ((rm) => callOpenRouter(env, rm, { maxTokens: ASK_MAX_OUTPUT_TOKENS, temperature: 0.4 }))
+  const { messages: requestMessages, truncated } = buildAskRequest({ question, messages, isGroup, history })
+  const raw = await run(requestMessages)
+  return { ...parseAskResponse(raw), truncated, model: env?.OPENROUTER_MODEL || AI_MODEL }
 }

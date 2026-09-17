@@ -27,7 +27,9 @@ const SUMMARY_MSG_COLUMNS = 'id, direction, body, sender_name, media_type, media
  *   'empty'          — no messages and no summary; nothing done.
  *   'cached'         — dormant (no new messages) or within the 6-hour gate; NO model call.
  *   'generating'     — another run holds the lease; NO model call.
- *   'no_messages'    — decided to generate but the window was empty (raced a delete).
+ *   'no_messages'    — decided to generate but the window was empty (all new traffic
+ *                      predates the 30-day cutoff, or a delete was raced); the cursor is
+ *                      advanced so the conversation goes dormant instead of retrying.
  *   'generated'      — a fresh summary was produced and saved (`row` is the new row).
  *   'refresh_failed' — the model/parse failed; the last good `row` is kept.
  *
@@ -111,20 +113,46 @@ export async function refreshConversationSummary(env, conversationId, isGroup, d
         .eq('conversation_id', conversationId)
         .order('id', { ascending: false })
 
+    // The rolling window applies to BOTH modes: the summary must only ever
+    // describe the last SEED_WINDOW_DAYS. For incremental that means new
+    // messages are also clipped to the window, so a conversation that went
+    // quiet for months cannot drag pre-window traffic back into the memory.
+    const cutoff = new Date(Date.now() - SEED_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
+
     let desc
     if (decision.mode === 'incremental') {
       desc =
-        unwrap(await base().gt('id', summaryRow.last_summarized_message_id ?? 0).limit(INCREMENTAL_MESSAGE_CAP)) || []
+        unwrap(
+          await base()
+            .gt('id', summaryRow.last_summarized_message_id ?? 0)
+            .gte('created_at', cutoff)
+            .limit(INCREMENTAL_MESSAGE_CAP)
+        ) || []
     } else {
-      const cutoff = new Date(Date.now() - SEED_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
       desc = unwrap(await base().gte('created_at', cutoff).limit(FIRST_MESSAGE_CAP)) || []
       if (!desc.length) desc = unwrap(await base().limit(FIRST_MESSAGE_CAP)) || []
     }
     const messages = desc.reverse()
 
     if (!messages.length) {
-      await releaseLease()
-      return { action: 'no_messages', row: summaryRow }
+      // Incremental with nothing inside the window: the new traffic is all
+      // older than the cutoff, so there is nothing to summarise. Advance the
+      // cursor past it anyway and release the lease — otherwise decideRefresh
+      // keeps seeing "new messages" and every open re-enters this path and
+      // pays for the two reads forever instead of going dormant.
+      const patch = { lease_until: null, updated_at: new Date().toISOString() }
+      if (decision.mode === 'incremental' && latestMessageId != null) {
+        patch.last_summarized_message_id = latestMessageId
+      }
+      const skipped = unwrap(
+        await db
+          .from('wp_chat_summaries')
+          .update(patch)
+          .eq('conversation_id', conversationId)
+          .select('*')
+          .maybeSingle()
+      )
+      return { action: 'no_messages', row: skipped || summaryRow }
     }
 
     const result = await produceSummary({

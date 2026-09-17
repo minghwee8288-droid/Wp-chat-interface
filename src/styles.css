@@ -1101,7 +1101,10 @@ button {
 }
 .summary-pop {
   z-index: 201;
-  max-height: min(56vh, 340px);
+  /* Taller than the summary-only panel was: the AI chat lives below the
+     summary, and the composer has to stay reachable without the whole popover
+     turning into a scroll marathon. */
+  max-height: min(78vh, 560px);
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -5491,4 +5494,168 @@ button {
     flex: 1;
     min-width: 140px;
   }
+}
+
+/* --- Chat with AI, inside the summary popover ---------------------------
+   Sits under the short summary. The popover itself scrolls, so this block has
+   no independent height; the turns list caps its own growth so a long Q&A
+   never pushes the composer out of reach. */
+.summary-ask {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.summary-ask-head {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 8px;
+}
+.summary-ask-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.summary-ask-turns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.summary-ask-turn {
+  font-size: 12.5px;
+  line-height: 1.45;
+  border-radius: 9px;
+  padding: 7px 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* The agent's own question — right-aligned, accent-tinted, mirroring the
+   thread's outbound bubble so the direction of each turn is obvious. */
+.summary-ask-turn--user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--accent);
+  color: #fff;
+}
+.summary-ask-turn--ai {
+  align-self: flex-start;
+  max-width: 95%;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.summary-ask-answer {
+  margin: 0;
+}
+.summary-ask-pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+}
+/* A ready-to-send draft, set apart from the AI's commentary so it is obvious
+   which text would actually reach the contact. */
+.summary-ask-draft {
+  margin-top: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.summary-ask-draft-text {
+  margin: 0;
+  padding: 8px 9px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.summary-ask-draft-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px 7px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.summary-ask-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.summary-ask-action:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.summary-ask-action--send {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.summary-ask-action--send:hover:not(:disabled) {
+  color: #fff;
+  background: var(--accent);
+}
+.summary-ask-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.summary-ask-error {
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--danger, #c0392b);
+}
+.summary-ask-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.summary-ask-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+.summary-ask-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.summary-ask-input:disabled {
+  opacity: 0.6;
+}
+.summary-ask-send {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.summary-ask-send:disabled {
+  opacity: 0.45;
+  cursor: default;
 }

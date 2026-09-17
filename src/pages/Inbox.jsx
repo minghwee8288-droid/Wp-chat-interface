@@ -621,6 +621,47 @@ export default function Inbox() {
   }
 
   /**
+   * Send an AI-drafted message from the summary popover.
+   *
+   * Separate from `send` above because the popover can be opened on ANY row,
+   * not just the conversation currently on screen — `send` is bound to
+   * `conversation` and would post to the wrong thread (or no-op) for any other
+   * row. This takes the id explicitly and only touches the visible thread when
+   * it happens to be the same one.
+   *
+   * It goes through the same /api/send as a typed message, so the draft is an
+   * ordinary outbound message with nothing marking it as AI-written.
+   */
+  const sendDraft = useCallback(
+    async (conversationId, body) => {
+      const text = String(body || '').trim()
+      if (!conversationId || !text) return
+
+      const data = await api.send(conversationId, text, null, null)
+
+      // Append only when that conversation is the one open AND the reader is at
+      // the live edge; otherwise the list refresh below is the whole update.
+      if (
+        String(threadRef.current.conversationId) === String(conversationId) &&
+        !threadRef.current.hasMoreAfter
+      ) {
+        setThread((current) =>
+          String(current.conversationId) === String(conversationId)
+            ? { ...current, messages: [...current.messages, data.message] }
+            : current
+        )
+      }
+      applyOutbound(conversationId, text)
+
+      if (data.message.status === 'send_failed') {
+        toast.error('Message not delivered', 'Whapi did not accept it.')
+      }
+      return data
+    },
+    [applyOutbound, toast]
+  )
+
+  /**
    * Forward the current selection into the picked conversations.
    *
    * On failure the selection is deliberately KEPT and the picker stays open, so
@@ -692,6 +733,7 @@ export default function Inbox() {
           onNewMessage={() => setComposing(true)}
           onRefresh={refresh}
           onDismissAttention={dismissAttention}
+          onSendDraft={sendDraft}
           users={users}
           summaryCache={summaryCache.current}
         />
