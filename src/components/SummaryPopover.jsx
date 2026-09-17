@@ -80,7 +80,8 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
   const [sendingAt, setSendingAt] = useState(null)
   const askAbort = useRef(null)
   const turnsEndRef = useRef(null)
-  // The panel element, so a scroll inside it can be told apart from one outside.
+  // The panel element. Nothing dismisses on outside interaction any more, so
+  // this is just a handle on the panel itself.
   const panelRef = useRef(null)
 
   // Abort any in-flight ask when the popover closes, so a late reply cannot
@@ -191,28 +192,14 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
     }
   }
 
-  // Close on anything that moves the anchor or on Escape.
+  // The panel is modal and locked open: the close button is the ONLY way out.
   //
-  // The scroll listener is in the CAPTURE phase, so it also sees scrolls that
-  // happen INSIDE the popover — which, now that the panel holds a scrollable AI
-  // conversation, would slam it shut the moment the agent scrolled their own
-  // chat. Only a scroll outside the panel actually moves the anchor, so that is
-  // the only one that closes it.
-  useEffect(() => {
-    const onScroll = (e) => {
-      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
-      onClose()
-    }
-    window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onClose)
-    const onKey = (e) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onClose)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
+  // Nothing dismisses it implicitly any more - not a tap outside, not a scroll,
+  // not a resize, not Escape. On a phone the whole thing is a tall panel whose
+  // chat input raises the keyboard, and a raised keyboard fires resize while
+  // the focus tap itself landed outside the old anchor: both used to close the
+  // popover the instant someone tried to type. Rather than special-case those,
+  // dismissal is deliberate everywhere, desktop included.
 
   // Lazy fetch — only when opened, and only if not already cached. A cache HIT
   // is rendered synchronously by the useState initialisers above, so a
@@ -291,7 +278,11 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
 
   return (
     <>
-      <div className="summary-pop-backdrop" onClick={onClose} />
+      {/* A shield, not a dismisser. The panel is modal: it stays open until the
+          close button is pressed, so a tap anywhere else - including the chat
+          input, which sits over the list on a phone - must not close it. The
+          backdrop still swallows the click so it never reaches the row behind. */}
+      <div className="summary-pop-backdrop" />
       <div className="summary-pop" style={pos} role="dialog" aria-label="AI summary" ref={panelRef}>
         <div className="summary-pop-head">
           <span className="summary-pop-title">

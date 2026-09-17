@@ -1092,7 +1092,8 @@ button {
 }
 
 /* AI short-summary popover, launched from a row icon. Fixed + clamped so it
-   never overflows a 390px screen; closes on tap-outside (backdrop) or Escape. */
+   never overflows a 390px screen. Modal: the backdrop swallows outside clicks
+   rather than dismissing - only the close button shuts the panel. */
 .summary-pop-backdrop {
   position: fixed;
   inset: 0;
