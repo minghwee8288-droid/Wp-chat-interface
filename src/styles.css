@@ -1112,6 +1112,81 @@ button {
   box-shadow: var(--shadow-menu);
   padding: 12px 14px 14px;
 }
+
+/* Mobile: the popover stops being a small anchored card and becomes a tall
+   panel that starts just under the filter chips row (Assigned / Unassigned /
+   + Agent) and runs to the bottom of the screen. The AI chat lives in here, so
+   the extra height is what keeps the composer reachable without the whole
+   thing turning into a scroll marathon.
+
+   The top offset is the list header stack on a phone: safe-area + topbar
+   (52px) + search-wrap (~45px) + filter-row (~38px). The !important flags are
+   deliberate - SummaryPopover anchors itself with inline top/bottom/left/width/
+   max-height, and only a cascade win overrides those without touching the JS.
+   Everything else (surface, border, 12px radius, shadow, padding) is exactly
+   the desktop card's. */
+@media (max-width: 720px) {
+  .summary-pop {
+    top: calc(135px + env(safe-area-inset-top, 0px)) !important;
+    /* Off the very edge, so all four 12px corners and the shadow stay visible
+       exactly as they do on the small card. */
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    /* Column layout so the extra height is spent on the AI chat rather than
+       leaving dead space under a two-line summary: the summary block keeps its
+       natural size, the turns list takes the slack, and the composer stays put
+       at the bottom of the panel. */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Head stays pinned; the summary text keeps its natural size but yields
+     (and scrolls) if it is unusually long, so the chat below is never crushed. */
+  .summary-pop > .summary-pop-head {
+    flex: 0 0 auto;
+  }
+  .summary-pop > .summary-pop-body,
+  .summary-pop > .summary-pop-note {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* The Chat-with-AI block owns the leftover height... */
+  .summary-pop > .summary-ask {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ...and inside it only the turns list scrolls, so the composer never
+     scrolls out of reach. The desktop 220px cap is lifted here because the
+     panel now has real height to give it. */
+  .summary-pop .summary-ask-turns {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+  }
+
+  /* No summary yet / short summary: the hint keeps its place at the top of the
+     empty chat area instead of being stretched down the panel. */
+  .summary-pop .summary-ask-hint {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .summary-pop .summary-ask-form {
+    flex: 0 0 auto;
+  }
+}
+
 .summary-pop-head {
   display: flex;
   align-items: center;
