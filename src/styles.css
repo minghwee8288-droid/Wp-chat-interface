@@ -1206,9 +1206,29 @@ button {
   color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  /* Takes the leftover width so a long contact name truncates inside the title
+     instead of shoving the close button off the edge. */
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* The contact's name, sitting after the AI SUMMARY label. Opts out of the
+   label's uppercase shouting so it reads as a name, and is separated by a thin
+   divider rather than more whitespace. */
+.summary-pop-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 7px;
+  border-left: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
 }
 .summary-pop-close {
   display: flex;
+  flex: 0 0 auto;
   border: none;
   background: transparent;
   color: var(--text-3);

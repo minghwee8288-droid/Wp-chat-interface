@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles, AlertTriangle, X, Send, Copy, Check, CornerDownLeft } from 'lucide-react'
 import { api } from '../lib/api.js'
+import { displayName } from '../lib/format.js'
 
 const ATTENTION = { management: 'Management', team: 'Team', general: 'General' }
 
@@ -288,6 +289,11 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
           <span className="summary-pop-title">
             <Sparkles size={13} />
             AI summary
+            {/* Whose chat this is. The panel can be opened from any row and then
+                sits over the list, so without the name there is nothing on screen
+                tying the summary back to a person. Same helper as the list rows,
+                so an unnamed contact falls back to their formatted number. */}
+            <span className="summary-pop-who">{displayName(conversation)}</span>
           </span>
           <button type="button" className="summary-pop-close" aria-label="Close" onClick={onClose}>
             <X size={14} />
