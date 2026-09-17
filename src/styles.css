@@ -1131,9 +1131,12 @@ button {
     top: calc(135px + env(safe-area-inset-top, 0px)) !important;
     /* Off the very edge, so all four 12px corners and the shadow stay visible
        exactly as they do on the small card. */
-    bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: calc(0px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 0px !important;
+    right: 0px !important;
+    /* bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
     left: 8px !important;
-    right: 8px !important;
+    right: 8px !important; */
     width: auto !important;
     height: auto !important;
     max-height: none !important;
