@@ -26,9 +26,15 @@ export function previewFor(message) {
 /**
  * Who should hear about this conversation.
  *
- * Assigned → that agent alone. Unassigned → every active user, admins
- * included: an unassigned conversation sits in everyone's inbox, so limiting
- * it to role='agent' would leave admins unaware of unclaimed messages.
+ * Assigned → that agent alone. Unassigned → every active user WITH ACCESS TO
+ * THIS CONVERSATION'S ACCOUNT, admins included: an unassigned conversation sits
+ * in the inbox of everyone who can see it, so limiting it to role='agent' would
+ * leave admins unaware of unclaimed messages.
+ *
+ * The account filter is what stops a push for account A reaching an agent who
+ * only works account B — they would get a notification for a chat they cannot
+ * open, which leaks the customer's name and message preview across the boundary
+ * the rest of the system enforces.
  */
 async function recipientIds(env, conversation) {
   const db = getDb(env)
@@ -46,8 +52,22 @@ async function recipientIds(env, conversation) {
   }
 
   const users =
-    unwrap(await db.from('wp_chat_users').select('id').eq('is_active', true)) || []
-  return users.map((u) => u.id)
+    unwrap(await db.from('wp_chat_users').select('id, role').eq('is_active', true)) || []
+
+  const accountId = conversation?.account_id ?? null
+  // No account on the row (a pre-migration remnant) keeps the original
+  // behaviour rather than silently notifying nobody.
+  if (accountId == null) return users.map((u) => u.id)
+
+  const members =
+    unwrap(
+      await db.from('wp_chat_user_accounts').select('user_id').eq('account_id', accountId)
+    ) || []
+  const assigned = new Set(members.map((m) => String(m.user_id)))
+
+  // Admins reach every account by role, so they are included without a
+  // membership row — matching accessibleAccountIds().
+  return users.filter((u) => u.role === 'admin' || assigned.has(String(u.id))).map((u) => u.id)
 }
 
 /** Host only — the endpoint path contains the device token. */

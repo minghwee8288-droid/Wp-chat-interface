@@ -259,6 +259,9 @@ export function shapeInboundMessage(msg, env, { allowOutbound = false } = {}) {
     explicitMedia,
     attachment,
     businessNumber: toDigits(env?.BUSINESS_NUMBER),
+    // Set by envForAccount() on an account-scoped env. Callers stamp the
+    // conversation with it, so a message is bound to the channel it arrived on.
+    accountId: env?.ACCOUNT_ID ?? null,
   }
 }
 
@@ -299,12 +302,17 @@ export async function resolveLidChatId(env, msg, cache = null) {
  * participants write in. Returns the row; a freshly created one carries
  * __created so the caller can kick off the one-time group sync.
  */
-export async function findOrCreateGroup(db, groupJid, businessNumber, chatName, source = null) {
+export async function findOrCreateGroup(db, groupJid, businessNumber, chatName, source = null, accountId = null) {
+  // Scoped by account: group_jid is unique WITHIN an account (migration 018), so
+  // the same WhatsApp group reachable from two connected numbers is two separate
+  // conversations — one per account — rather than one shared row that would mix
+  // two companies' threads together.
   const existing = unwrap(
     await db
       .from('wp_chat_conversations')
-      .select('id, customer_name, assigned_user_id')
+      .select('id, account_id, customer_name, assigned_user_id')
       .eq('group_jid', groupJid)
+      .eq('account_id', accountId)
       .maybeSingle()
   )
   if (existing) return existing
@@ -314,6 +322,7 @@ export async function findOrCreateGroup(db, groupJid, businessNumber, chatName, 
   const created = await db
     .from('wp_chat_conversations')
     .insert({
+      account_id: accountId,
       is_group: true,
       group_jid: groupJid,
       customer_number: null,
@@ -323,7 +332,7 @@ export async function findOrCreateGroup(db, groupJid, businessNumber, chatName, 
       status: 'open',
       created_source: source,
     })
-    .select('id, customer_name, assigned_user_id')
+    .select('id, account_id, customer_name, assigned_user_id')
     .single()
 
   if (created.error) {
@@ -332,8 +341,9 @@ export async function findOrCreateGroup(db, groupJid, businessNumber, chatName, 
       const row = unwrap(
         await db
           .from('wp_chat_conversations')
-          .select('id, customer_name, assigned_user_id')
+          .select('id, account_id, customer_name, assigned_user_id')
           .eq('group_jid', groupJid)
+          .eq('account_id', accountId)
           .maybeSingle()
       )
       if (row) return row
@@ -347,12 +357,15 @@ export async function findOrCreateGroup(db, groupJid, businessNumber, chatName, 
  * Find-or-create by customer_number. Fills a blank name only — never clobbers a
  * name a human may have corrected.
  */
-export async function findOrCreateConversation(db, customerNumber, businessNumber, customerName, source = null) {
+export async function findOrCreateConversation(db, customerNumber, businessNumber, customerName, source = null, accountId = null) {
+  // Scoped by account — see findOrCreateGroup. The same customer writing to two
+  // of the business's numbers is two conversations, one per account.
   const existing = unwrap(
     await db
       .from('wp_chat_conversations')
-      .select('id, customer_name, assigned_user_id')
+      .select('id, account_id, customer_name, assigned_user_id')
       .eq('customer_number', customerNumber)
+      .eq('account_id', accountId)
       .maybeSingle()
   )
 
@@ -371,6 +384,7 @@ export async function findOrCreateConversation(db, customerNumber, businessNumbe
   const created = await db
     .from('wp_chat_conversations')
     .insert({
+      account_id: accountId,
       customer_number: customerNumber,
       business_number: businessNumber,
       customer_name: customerName,
@@ -378,19 +392,20 @@ export async function findOrCreateConversation(db, customerNumber, businessNumbe
       status: 'open',
       created_source: source,
     })
-    .select('id, customer_name, assigned_user_id')
+    .select('id, account_id, customer_name, assigned_user_id')
     .single()
 
   if (created.error) {
-    // customer_number is UNIQUE: another delivery for a brand-new number raced
-    // us. Re-read and use theirs — and do NOT claim creation, or both racers
-    // would fetch the same avatar.
+    // (account_id, customer_number) is UNIQUE: another delivery for a brand-new
+    // number raced us. Re-read and use theirs — and do NOT claim creation, or
+    // both racers would fetch the same avatar.
     if (created.error.code === UNIQUE_VIOLATION) {
       const row = unwrap(
         await db
           .from('wp_chat_conversations')
-          .select('id, customer_name, assigned_user_id')
+          .select('id, account_id, customer_name, assigned_user_id')
           .eq('customer_number', customerNumber)
+          .eq('account_id', accountId)
           .maybeSingle()
       )
       if (row) return row

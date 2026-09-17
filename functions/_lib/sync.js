@@ -149,11 +149,14 @@ export async function persistHistorical(env, db, msg, chatName) {
   const {
     fromMe, groupJid, sender, customerNumber, customerName,
     whapiMessageId, body, createdAt, explicitMedia, attachment, businessNumber,
+    accountId,
   } = shaped
 
+  // accountId is carried on the account-scoped env the caller built, so a sync
+  // lands its messages in the account whose channel it walked.
   const conversation = groupJid
-    ? await findOrCreateGroup(db, groupJid, businessNumber, chatName, 'sync')
-    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName, 'sync')
+    ? await findOrCreateGroup(db, groupJid, businessNumber, chatName, 'sync', accountId)
+    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName, 'sync', accountId)
 
   // Same fetch-and-store pipeline for BOTH directions. An expired media id
   // (common on year-old messages) comes back as media_error rather than
@@ -266,7 +269,24 @@ export async function persistHistorical(env, db, msg, chatName) {
 // Memoises @lid → real-JID lookups across the sync run (per isolate), so a chat
 // synced over many steps resolves each LID once. A LID→real mapping is stable,
 // so a longer-lived cache is safe.
-const syncLidCache = new Map()
+//
+// KEYED BY ACCOUNT. resolveLid() is a call to a SPECIFIC Whapi channel, and a
+// LID is only meaningful to the channel that issued it — the same LID string can
+// denote different contacts on two accounts. One shared Map would let account
+// A's resolution answer account B's lookup and mis-file a message into the wrong
+// customer's thread, which is exactly the cross-account leak this design exists
+// to prevent.
+const syncLidCaches = new Map()
+
+function lidCacheFor(env) {
+  const key = String(env?.ACCOUNT_ID ?? 'default')
+  let cache = syncLidCaches.get(key)
+  if (!cache) {
+    cache = new Map()
+    syncLidCaches.set(key, cache)
+  }
+  return cache
+}
 
 /**
  * persistHistorical + Facebook LID resolution for the sync paths. A message whose
@@ -275,7 +295,7 @@ const syncLidCache = new Map()
  * persistHistorical itself is unchanged.
  */
 async function persistWithLidResolution(env, db, msg, chatName) {
-  const resolution = await resolveLidChatId(env, msg, syncLidCache)
+  const resolution = await resolveLidChatId(env, msg, lidCacheFor(env))
   if (resolution.skip) {
     console.log('sync: skipped unresolvable @lid ' + JSON.stringify({ chat_id: msg?.chat_id ?? null, id: msg?.id ?? null }))
     return { added: false, skipped: true, reason: 'unresolvable_lid' }

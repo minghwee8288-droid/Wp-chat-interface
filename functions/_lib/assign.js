@@ -29,9 +29,17 @@ export function pickByRotation(agents, cursor) {
 // DB-backed assignment.
 // --------------------------------------------------------------------
 
-/** Active agents in a department, deterministic order for a stable cycle. */
-export async function activeAgentsIn(db, department) {
-  return (
+/**
+ * Active agents in a department who are ALSO assigned to this account —
+ * deterministic order for a stable cycle.
+ *
+ * The account filter is what stops a chat on account A being routed to an agent
+ * who only works account B (and would then get a 404 opening it). When
+ * `accountId` is null the account filter is skipped, preserving the original
+ * single-account behaviour exactly.
+ */
+export async function activeAgentsIn(db, department, accountId = null) {
+  const agents =
     unwrap(
       await db
         .from('wp_chat_users')
@@ -41,12 +49,42 @@ export async function activeAgentsIn(db, department) {
         .eq('department', department)
         .order('id', { ascending: true })
     ) || []
-  )
+
+  if (accountId == null || !agents.length) return agents
+
+  const members =
+    unwrap(
+      await db
+        .from('wp_chat_user_accounts')
+        .select('user_id')
+        .eq('account_id', accountId)
+        .in('user_id', agents.map((a) => a.id))
+    ) || []
+
+  const allowed = new Set(members.map((m) => String(m.user_id)))
+  return agents.filter((a) => allowed.has(String(a.id)))
 }
 
-/** Atomic per-department cursor. Distinct value per call -> distinct agents. */
-async function nextRotation(db, department) {
-  const { data, error } = await db.rpc('wp_chat_next_rotation', { p_department: department })
+/**
+ * Atomic per-(account, department) cursor. Distinct value per call -> distinct
+ * agents, so two chats created in the same instant can never grab one agent.
+ *
+ * Per account, not just per department: two accounts sharing one sales cursor
+ * would interleave their rotations, so neither account's team would actually go
+ * round-robin. Falls back to 009's single-argument function when there is no
+ * account, which also covers a deploy that has not run migration 018 yet.
+ */
+async function nextRotation(db, department, accountId = null) {
+  if (accountId == null) {
+    const { data, error } = await db.rpc('wp_chat_next_rotation', { p_department: department })
+    if (error) throw new Error(error.message)
+    return Number(data)
+  }
+
+  const { data, error } = await db.rpc('wp_chat_next_rotation_account', {
+    p_account_id: accountId,
+    p_department: department,
+  })
   if (error) throw new Error(error.message)
   return Number(data)
 }
@@ -60,13 +98,13 @@ async function nextRotation(db, department) {
  * The rotation is advanced only when there is at least one active agent, so an
  * empty department neither errors nor burns a slot.
  */
-export async function autoAssign(db, conversationId, department) {
+export async function autoAssign(db, conversationId, department, accountId = null) {
   if (!ASSIGNABLE_DEPARTMENTS.includes(department)) return { assigned: false, reason: 'no_department' }
 
-  const agents = await activeAgentsIn(db, department)
+  const agents = await activeAgentsIn(db, department, accountId)
   if (!agents.length) return { assigned: false, reason: 'no_active_agents' }
 
-  const cursor = await nextRotation(db, department)
+  const cursor = await nextRotation(db, department, accountId)
   const agent = pickByRotation(agents, cursor)
 
   // Conditional claim: only assign if STILL unassigned. This is the idempotency

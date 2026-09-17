@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 import { useAuth } from './AuthContext.jsx'
+import { useAccounts } from './AccountContext.jsx'
 
 const ChannelContext = createContext(null)
 
@@ -18,6 +19,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 export function ChannelProvider({ children }) {
   const { isAdmin } = useAuth()
+  // Channel health belongs to ONE account, so the poll follows the selection.
+  // In the "All accounts" view there is no single channel to report, so
+  // `accountId` is null and the server answers for the user's first account —
+  // which is the existing behaviour for anyone with one account.
+  const { accountId, accounts } = useAccounts()
 
   const [state, setState] = useState({
     connected: true, // optimistic: never flash a disconnect banner on cold start
@@ -25,6 +31,10 @@ export function ChannelProvider({ children }) {
     uptime: null,
     checkedAt: null,
     known: false,
+    // Whether the selected account has Whapi credentials at all. A freshly
+    // created account is not "disconnected" — it is not set up yet, and the
+    // banner must say so rather than urging a reconnect that cannot work.
+    configured: true,
   })
   // Surfaced so the UI can show an auto-recovery in progress / a halt.
   const [autoRecovering, setAutoRecovering] = useState(false)
@@ -33,6 +43,8 @@ export function ChannelProvider({ children }) {
   const checkRef = useRef(null)
   const isAdminRef = useRef(isAdmin)
   isAdminRef.current = isAdmin
+  const accountIdRef = useRef(accountId)
+  accountIdRef.current = accountId
   // Single-flight: one auto-recovery drive per tab at a time.
   const drivingAutoRef = useRef(false)
 
@@ -66,7 +78,7 @@ export function ChannelProvider({ children }) {
 
     const check = async () => {
       try {
-        const data = await api.channelStatus(controller.signal)
+        const data = await api.channelStatus(accountIdRef.current, controller.signal)
         if (cancelled) return
         setState({
           connected: data.connected !== false,
@@ -74,6 +86,7 @@ export function ChannelProvider({ children }) {
           uptime: data.uptime ?? null,
           checkedAt: data.checked_at ?? null,
           known: true,
+          configured: data.configured !== false,
         })
         setAutoHalted(data.auto_halted ?? null)
 
@@ -99,17 +112,25 @@ export function ChannelProvider({ children }) {
       clearInterval(interval)
       controller.abort()
     }
-  }, [])
+    // Re-polls on an account switch so the banner never shows the previous
+    // account's health against the new account's name.
+  }, [accountId])
 
   const value = useMemo(
     () => ({
       ...state,
-      disconnected: state.known && !state.connected,
+      // An unconfigured account is not a disconnection — nothing has been
+      // connected yet — so it must not raise the reconnect banner.
+      disconnected: state.known && !state.connected && state.configured,
+      unconfigured: state.known && !state.configured,
       autoRecovering,
       autoHalted,
+      // Which account this health actually describes, so the UI can name it.
+      accountId,
+      accountName: accounts.find((a) => String(a.id) === String(accountId))?.name ?? null,
       recheck: () => checkRef.current?.(),
     }),
-    [state, autoRecovering, autoHalted]
+    [state, autoRecovering, autoHalted, accountId, accounts]
   )
 
   return <ChannelContext.Provider value={value}>{children}</ChannelContext.Provider>
@@ -121,7 +142,9 @@ export function useChannel() {
   return (
     ctx || {
       connected: true, disconnected: false, known: false, uptime: null, status: null,
-      autoRecovering: false, autoHalted: null, recheck: () => {},
+      configured: true, unconfigured: false,
+      autoRecovering: false, autoHalted: null,
+      accountId: null, accountName: null, recheck: () => {},
     }
   )
 }

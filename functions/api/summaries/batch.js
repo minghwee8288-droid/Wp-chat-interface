@@ -1,6 +1,7 @@
 import { getDb, unwrap } from '../../_lib/db.js'
 import { requireAuth } from '../../_lib/auth.js'
 import { json, badRequest, serverError } from '../../_lib/respond.js'
+import { accessibleAccountIds } from '../../_lib/accounts.js'
 
 // Bulk read of already-generated short summaries, for warming the client cache
 // after the conversation list loads.
@@ -59,15 +60,36 @@ export async function onRequestGet({ request, env }) {
   if (ids.length > MAX_IDS) return badRequest(`No more than ${MAX_IDS} ids per request`)
 
   try {
-    // No per-conversation access check. requireConversationAccess grants every
-    // authenticated user access to every conversation (it only 404s on a
-    // missing row), so a per-id check here would add N round trips and change
-    // nothing about what this user may read. If that rule ever tightens, this
-    // endpoint must gain the same filter — it is the only reason it is safe to
-    // skip.
+    const db = getDb(env)
+
+    // ACCOUNT FILTER. Assignment is not a permission boundary — every user on an
+    // account may read every summary on it — but the ACCOUNT is, so the ids are
+    // narrowed to conversations the caller can actually reach before any summary
+    // is read. Without this an agent could pass another account's conversation
+    // ids and receive its AI summaries, which quote the customer's messages.
+    //
+    // One extra round trip, not N: the ids are already capped at MAX_IDS, so
+    // this is a single bounded `in` query regardless of how many were asked for.
+    const allowed = await accessibleAccountIds(env, auth.user)
+    if (!allowed.length) return json({ ok: true, summaries: {} })
+
+    const visible =
+      unwrap(
+        await db
+          .from('wp_chat_conversations')
+          .select('id')
+          .in('id', ids)
+          .in('account_id', allowed)
+      ) || []
+
+    const visibleIds = visible.map((c) => Number(c.id))
+    // Every requested id was out of reach (or does not exist) — an empty map is
+    // the same answer the client already handles as "not cached".
+    if (!visibleIds.length) return json({ ok: true, summaries: {} })
+
     const rows =
       unwrap(
-        await getDb(env).from('wp_chat_summaries').select(BATCH_COLUMNS).in('conversation_id', ids)
+        await db.from('wp_chat_summaries').select(BATCH_COLUMNS).in('conversation_id', visibleIds)
       ) || []
 
     const summaries = {}

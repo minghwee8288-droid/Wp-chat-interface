@@ -3449,6 +3449,12 @@ button {
   justify-content: flex-end;
 }
 
+/* Spans both columns of a .form-grid without imposing an alignment, for rows
+   that bring their own (e.g. .settings-actions, which is left-aligned). */
+.form-grid-full {
+  grid-column: 1 / -1;
+}
+
 /* ------------------------------------------------------------------ *
  * Search results
  *
@@ -5208,4 +5214,281 @@ button {
 .media-fwd-chip:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* ==========================================================================
+   MULTI-ACCOUNT
+   Account switcher, per-chat account badge, and the Settings page.
+   ========================================================================== */
+
+/* A warning alert — amber rather than red, for a state that needs attention but
+   is not an error (an unconfigured webhook, a missing ENCRYPTION_KEY). Matches
+   the .alert-error / .alert-info shape already defined above. */
+.alert-warn {
+  background: var(--warning-soft);
+  border-color: var(--warning);
+  color: var(--warning);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.alert-warn svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* --------------------------------------------------------------------------
+   Account switcher — sits above the conversation list, and ONLY renders when
+   the user has more than one account, so a single-account install is visually
+   unchanged.
+   -------------------------------------------------------------------------- */
+.account-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.account-switcher svg {
+  flex: none;
+  color: var(--text-3);
+}
+.account-switcher .select {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------------------------
+   Per-row account badge. Sits in the existing .conv-meta line, so it costs no
+   extra vertical space in the list.
+   -------------------------------------------------------------------------- */
+.conv-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 120px;
+  padding: 0 5px;
+  height: 15px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  /* A long account name must never push the member count or the Summary
+     button out of the row. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The same badge in the thread header, where there is room for it to breathe. */
+.thread-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  height: 19px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Settings page.
+   -------------------------------------------------------------------------- */
+
+/* An input paired with a button on one line (new-account name, webhook URL).
+   Wraps on a phone so the button never gets squeezed to nothing. */
+.settings-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.settings-inline-form .input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.settings-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+/* A locked row (an admin, who reaches every account by role) reads as
+   informational rather than as a control that failed to respond. */
+.settings-toggle input:disabled {
+  cursor: default;
+}
+.settings-toggle input:disabled + span {
+  color: var(--text-3);
+}
+.settings-toggle span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.settings-system-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 12px;
+}
+.settings-system-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+.settings-system-row:last-child {
+  border-bottom: none;
+}
+
+/* Page header — a title and one line of context, so the page identifies itself
+   instead of opening straight onto a card. */
+.page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+
+.page-sub {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+/* Groups the cards that configure ONE account. The left rule and the heading
+   above it are what make "everything in here belongs to the account you picked"
+   visible, rather than leaving five cards reading as five unrelated sections. */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-left: 15px;
+  border-left: 2px solid var(--border);
+}
+
+.settings-group-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: -15px;
+  padding-left: 15px;
+}
+
+.settings-group-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.settings-group-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* Card-head trailing metadata (counts, "3 accounts"). */
+.card-meta {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.card-icon {
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+/* A long roster must not push the rest of the page out of reach, so it scrolls
+   within the card once it passes roughly six rows. */
+.settings-user-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+/* Row separators come from .user-row; the scroll container supplies the top
+   edge, so the final row must not double it up against the card border. */
+.settings-user-list .user-row:last-child {
+  border-bottom: none;
+}
+
+.settings-empty {
+  padding: 14px 17px;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+/* The webhook URL is long and must stay readable rather than scrolling inside
+   a 40px input the admin has to drag through. */
+.settings-webhook-url {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+}
+
+@media (max-width: 720px) {
+  /* The left rule costs horizontal room a phone does not have; the heading
+     alone still carries the grouping. */
+  .settings-group {
+    padding-left: 0;
+    border-left: none;
+    gap: 16px;
+  }
+
+  .settings-group-head {
+    margin-left: 0;
+    padding-left: 0;
+  }
+
+  .settings-user-list {
+    max-height: none;
+  }
+
+  .settings-actions .btn {
+    flex: 1;
+    min-width: 140px;
+  }
 }

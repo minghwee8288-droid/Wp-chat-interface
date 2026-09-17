@@ -1,6 +1,7 @@
 import { getDb, unwrap } from '../../_lib/db.js'
 import { requireAuth, requireConversationAccess } from '../../_lib/auth.js'
 import { syncGroup } from '../../_lib/group.js'
+import { envForConversation } from '../../_lib/accounts.js'
 import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
 
 const MEMBER_COLUMNS = 'id, member_number, member_name, is_admin, synced_at'
@@ -55,7 +56,10 @@ export async function onRequestPost({ request, env }) {
       return badRequest('That conversation is not a group')
     }
 
-    const sync = await syncGroup(env, conversationId, conversation.group_jid)
+    // Group info/icon come from Whapi, so this runs on the conversation's own
+    // account credentials.
+    const accountEnv = await envForConversation(env, conversation)
+    const sync = await syncGroup(accountEnv, conversationId, conversation.group_jid)
     const members = await readMembers(env, conversationId)
 
     // A failed refresh still returns the previous snapshot — stale data beats

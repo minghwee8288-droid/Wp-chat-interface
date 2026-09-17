@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Send } from 'lucide-react'
 import Modal from './Modal.jsx'
 import { api } from '../lib/api.js'
+import { useAccounts } from '../context/AccountContext.jsx'
 
 /**
  * Start a conversation with a number that has not messaged in yet.
@@ -9,11 +10,20 @@ import { api } from '../lib/api.js'
  * this never creates a duplicate of an existing conversation.
  */
 export default function NewMessageModal({ onClose, onCreated }) {
+  const { accounts, hasMultiple, accountId: selectedAccountId } = useAccounts()
+
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState(null)
   const [sending, setSending] = useState(false)
+
+  // Which number the message goes out FROM. Defaults to the account currently
+  // selected in the inbox; in the "All accounts" view there is no such choice,
+  // so it falls back to the first account the user can use.
+  const [accountId, setAccountId] = useState(
+    () => selectedAccountId ?? (accounts.length ? accounts[0].id : null)
+  )
 
   const digits = phone.replace(/\D/g, '')
 
@@ -37,6 +47,7 @@ export default function NewMessageModal({ onClose, onCreated }) {
         phone,
         name: name.trim() || null,
         message: message.trim(),
+        ...(accountId ? { account_id: accountId } : {}),
       })
       onCreated(data.conversation_id)
       onClose()
@@ -55,6 +66,26 @@ export default function NewMessageModal({ onClose, onCreated }) {
     >
       <form className="modal-form" onSubmit={submit}>
         {error ? <div className="alert alert-error">{error}</div> : null}
+
+        {/* Only when there is a real choice to make. */}
+        {hasMultiple ? (
+          <div className="field">
+            <label className="label" htmlFor="nm-account">Send from</label>
+            <select
+              id="nm-account"
+              className="select"
+              value={accountId ?? ''}
+              onChange={(e) => setAccountId(Number(e.target.value))}
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                  {a.business_number ? ` (+${a.business_number})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
 
         <div className="field">
           <label className="label" htmlFor="nm-phone">

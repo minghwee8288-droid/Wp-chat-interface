@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, AlertTriangle, RefreshCw, Smartphone } from 'lucide-react'
 import Modal from './Modal.jsx'
 import { api } from '../lib/api.js'
+import { useAccounts } from '../context/AccountContext.jsx'
 import { useChannel } from '../context/ChannelContext.jsx'
 
 // After a relaunch, poll health a few times before falling back to the QR —
@@ -34,6 +35,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * live in an effect keyed on the phase, so they are always torn down on close.
  */
 export default function ReconnectModal({ onClose }) {
+  // Reconnect acts on the account whose channel is currently being reported,
+  // so scanning a QR always connects the number the banner is complaining about.
+  const { accountId } = useAccounts()
+
   const channel = useChannel()
   const [phase, setPhase] = useState('relaunching') // relaunching | qr | connected | error
   const [qr, setQr] = useState(null)
@@ -86,7 +91,7 @@ export default function ReconnectModal({ onClose }) {
     }
 
     try {
-      const data = await api.channelQr()
+      const data = await api.channelQr(accountId)
       if (!alive(runId)) return
       if (data.connected) return succeed()
       if (!data.qr) {
@@ -138,7 +143,7 @@ export default function ReconnectModal({ onClose }) {
     setQr(null)
 
     try {
-      const data = await api.channelRelaunch()
+      const data = await api.channelRelaunch(accountId)
       if (!alive(runId)) return
       if (data.connected) return succeed()
     } catch (err) {
@@ -155,7 +160,7 @@ export default function ReconnectModal({ onClose }) {
       await sleep(RELAUNCH_POLL_MS)
       if (!alive(runId)) return
       try {
-        const data = await api.channelStatus()
+        const data = await api.channelStatus(accountId)
         if (data.connected && alive(runId)) return succeed()
       } catch {
         /* transient */
@@ -180,7 +185,7 @@ export default function ReconnectModal({ onClose }) {
 
     const health = setInterval(async () => {
       try {
-        const data = await api.channelStatus()
+        const data = await api.channelStatus(accountId)
         if (data.connected && alive(runId)) succeed()
       } catch {
         /* keep polling */

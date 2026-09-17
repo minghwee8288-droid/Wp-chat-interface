@@ -1,6 +1,7 @@
 import { getDb, unwrap } from '../_lib/db.js'
 import { requireAuth, requireConversationAccess } from '../_lib/auth.js'
 import { json, badRequest, serverError } from '../_lib/respond.js'
+import { accessibleAccountIds } from '../_lib/accounts.js'
 import {
   SEARCH_PAGE_SIZE,
   SEARCH_MAX_PAGE_SIZE,
@@ -16,13 +17,19 @@ const MESSAGE_FIELDS =
   'id, conversation_id, direction, body, media_caption, media_type, sender_name, sender_number, created_at'
 
 const CONVERSATION_FIELDS =
-  'id, customer_name, customer_number, is_group, avatar_path, avatar_error'
+  'id, account_id, customer_name, customer_number, is_group, avatar_path, avatar_error'
+
+// Above this many conversations, the account filter stops being an id list (see
+// the note where it is built) and is applied after the fetch instead.
+const CONVERSATION_ID_FILTER_CAP = 900
 
 /**
  * GET /api/search?q=...&conversation_id=N&limit=25&cursor_at=...&cursor_id=...
  *
  * Message-body search. Global by default, across every conversation the caller
- * may see; scoped to one conversation when conversation_id is supplied.
+ * may see — which now means every conversation on the accounts they belong to,
+ * not every conversation in the system; scoped to one conversation when
+ * conversation_id is supplied. An optional account_id narrows it further.
  *
  * Ordering follows the use: global results are newest-first, because recency is
  * the best relevance proxy for an inbox. Scoped results are OLDEST-first, so
@@ -64,13 +71,60 @@ export async function onRequestGet({ request, env }) {
     const db = getDb(env)
 
     // ---- Scope -------------------------------------------------------
-    // Global search now spans every conversation for everyone: assignment is no
-    // longer a permission boundary, so the old per-agent id list is gone. A
-    // scoped search still passes through requireConversationAccess so a
-    // conversation id that does not exist 404s rather than returning [].
+    // Assignment is not a permission boundary, but the ACCOUNT is. A scoped
+    // search passes through requireConversationAccess, which enforces it (and
+    // 404s an id on an unreachable account). A global search has no conversation
+    // to check, so the account boundary is applied here by resolving the
+    // caller's conversation ids up front.
+    let allowedConversationIds = null
+    // Non-null only for a global search; the scoped path is already gated by
+    // requireConversationAccess.
+    let allowedAccountSet = null
+
     if (scoped) {
       const access = await requireConversationAccess(env, auth.user, conversationId)
       if (access.response) return access.response
+    } else {
+      const allowedAccounts = await accessibleAccountIds(env, auth.user)
+      if (!allowedAccounts.length) {
+        return json({ ok: true, query, results: [], has_more: false, next_cursor: null })
+      }
+
+      let accountScope = allowedAccounts
+      const requestedAccount = url.searchParams.get('account_id')
+      if (requestedAccount) {
+        const id = Number(requestedAccount)
+        if (!Number.isInteger(id) || !allowedAccounts.includes(id)) {
+          return json({ ok: true, query, results: [], has_more: false, next_cursor: null })
+        }
+        accountScope = [id]
+      }
+
+      allowedAccountSet = new Set(accountScope)
+
+      // wp_chat_messages carries no account_id (it is reached through its
+      // conversation), so the filter is an explicit id list. Capped: PostgREST
+      // limits a plain select to 1000 rows, and an .in() of many thousands of
+      // ids would also outgrow the URL. Above the cap the filter is dropped and
+      // results are filtered after the fetch instead — correctness is preserved
+      // either way, only the efficiency differs.
+      const convRows =
+        unwrap(
+          await db
+            .from('wp_chat_conversations')
+            .select('id')
+            .in('account_id', accountScope)
+            .limit(CONVERSATION_ID_FILTER_CAP + 1)
+        ) || []
+
+      allowedConversationIds =
+        convRows.length > CONVERSATION_ID_FILTER_CAP
+          ? null
+          : convRows.map((c) => Number(c.id))
+
+      if (allowedConversationIds && !allowedConversationIds.length) {
+        return json({ ok: true, query, results: [], has_more: false, next_cursor: null })
+      }
     }
 
     // ---- Page --------------------------------------------------------
@@ -89,6 +143,7 @@ export async function onRequestGet({ request, env }) {
       .limit(limit + 1)
 
     if (scoped) builder = builder.eq('conversation_id', conversationId)
+    else if (allowedConversationIds) builder = builder.in('conversation_id', allowedConversationIds)
 
     const cursorAt = url.searchParams.get('cursor_at')
     const rawCursorId = url.searchParams.get('cursor_id')
@@ -127,7 +182,20 @@ export async function onRequestGet({ request, env }) {
 
     const byId = new Map(conversations.map((c) => [String(c.id), c]))
 
-    const results = page.map((m) => {
+    // Backstop for the uncapped path: when the deployment has more conversations
+    // than CONVERSATION_ID_FILTER_CAP the .in() filter above was skipped, so the
+    // account boundary is enforced here instead, against the conversation rows
+    // just fetched. Also covers a message whose conversation vanished mid-query.
+    // When the id filter DID apply this is a no-op, so the rule is enforced on
+    // every path rather than only the cheap one.
+    const visible = allowedAccountSet
+      ? page.filter((m) => {
+          const conversation = byId.get(String(m.conversation_id))
+          return conversation && allowedAccountSet.has(Number(conversation.account_id))
+        })
+      : page
+
+    const results = visible.map((m) => {
       const conversation = byId.get(String(m.conversation_id)) || null
 
       // The indexed text is body + caption + sender name. Attribute the hit to
@@ -165,6 +233,9 @@ export async function onRequestGet({ request, env }) {
       }
     })
 
+    // Deliberately from `page`, not `visible`: the cursor must track what the
+    // QUERY returned, or a page whose rows were all filtered out by the account
+    // backstop would rewind the cursor and page forever over the same rows.
     const last = page[page.length - 1]
 
     return json({

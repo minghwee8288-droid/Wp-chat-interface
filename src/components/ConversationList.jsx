@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal, Sparkles, Building2 } from 'lucide-react'
 import SummaryPopover from './SummaryPopover.jsx'
 import PullToRefresh from './PullToRefresh.jsx'
 import SwipeToDismiss from './SwipeToDismiss.jsx'
@@ -18,6 +18,7 @@ import ConversationFilters, {
 } from './ConversationFilters.jsx'
 import SearchResults from './SearchResults.jsx'
 import { useMessageSearch } from '../lib/useMessageSearch.js'
+import { useAccounts, ALL_ACCOUNTS } from '../context/AccountContext.jsx'
 
 // Attention levels that get a coloured bar down the row's left edge. The
 // colours and the bar itself live in the stylesheet
@@ -89,8 +90,37 @@ export default function ConversationList({
   // Distinguishes "filters hid everything" from "there is nothing at all".
   const hiddenByFilters = filtersActive && searched.length > 0 && filtered.length === 0
 
+  const {
+    accounts: accountList,
+    hasMultiple,
+    selected,
+    isAll,
+    select: selectAccount,
+  } = useAccounts()
+
   return (
     <>
+      {/* Only rendered with more than one account, so a single-account install
+          shows no new chrome at all. */}
+      {hasMultiple ? (
+        <div className="account-switcher">
+          <Building2 size={14} />
+          <select
+            className="select"
+            aria-label="Filter conversations by account"
+            value={selected}
+            onChange={(e) => selectAccount(e.target.value)}
+          >
+            <option value={ALL_ACCOUNTS}>All accounts</option>
+            {accountList.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <div className="search-wrap">
         <div className="search">
           <Search size={15} className="search-icon" />
@@ -269,6 +299,14 @@ export default function ConversationList({
                       opens the popover, not the chat (stopPropagation). Only taps
                       fetch the summary — lazy. */}
                   <div className="conv-meta">
+                    {/* Which account this chat belongs to. Shown only in the
+                        merged view — when one account is selected every row is
+                        on it, so a badge on each would be noise. */}
+                    {isAll && hasMultiple && conversation.account_name ? (
+                      <span className="conv-account" title={conversation.account_name}>
+                        {conversation.account_name}
+                      </span>
+                    ) : null}
                     <span className="conv-number">
                       {isGroup
                         ? conversation.member_count

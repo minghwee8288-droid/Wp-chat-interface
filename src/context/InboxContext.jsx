@@ -13,6 +13,7 @@ import { playChime } from '../lib/chime.js'
 import { useToast } from './ToastContext.jsx'
 import { useTheme } from './ThemeContext.jsx'
 import { setAppBadge, ensurePushSubscription } from '../lib/push.js'
+import { useAccounts } from './AccountContext.jsx'
 
 const CONVERSATION_POLL_MS = 5000
 
@@ -23,6 +24,9 @@ const BASE_TITLE = 'Team Inbox'
 export function InboxProvider({ children }) {
   const toast = useToast()
   const { soundOn } = useTheme()
+  // `accountId` is null in the "All accounts" view, which fetches everything the
+  // user can reach — the single-account case, and therefore the default.
+  const { accountId, syncAccounts } = useAccounts()
 
   const [conversations, setConversations] = useState([])
   const [loading, setLoading] = useState(true)
@@ -121,10 +125,13 @@ export function InboxProvider({ children }) {
   const refresh = useCallback(
     async (signal) => {
       try {
-        const data = await api.conversations(signal)
+        const data = await api.conversations(accountId, signal)
         const rows = data.conversations || []
         announce(rows)
         setConversations(rows)
+        // The list comes back with the rows, so the switcher stays current
+        // without a second request on every poll.
+        syncAccounts(data.accounts)
         setError(null)
       } catch (err) {
         if (err.name === 'AbortError' || err.status === 401) return
@@ -133,13 +140,24 @@ export function InboxProvider({ children }) {
         setLoading(false)
       }
     },
-    [announce]
+    [announce, accountId, syncAccounts]
   )
 
-  // Poll every ~5s.
+  // Poll every ~5s. Re-runs when the account changes, because `refresh` depends
+  // on accountId — switching therefore aborts the in-flight request and fetches
+  // the new account immediately rather than waiting out the interval.
   useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
+
+    // Drop the previous account's rows so its chats cannot linger on screen
+    // while the new ones load — showing one account's chats under another's
+    // name, even for a moment, is exactly the confusion to avoid.
+    setConversations([])
+    setLoading(true)
+    // The diff baseline belongs to the old account; keeping it would announce
+    // every chat in the newly selected one as "new" and fire a toast storm.
+    snapshot.current = null
 
     refresh(controller.signal)
     const interval = setInterval(() => {

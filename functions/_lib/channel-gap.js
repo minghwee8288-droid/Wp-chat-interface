@@ -7,9 +7,15 @@
 //   disconnected -> connected : the gap just closed — create a recovery sync
 //                               for [gap start, now], buffered.
 //
-// A single wp_chat_channel_state row (key='channel') holds the last observed
-// state. The reconnect flip is a compare-and-swap, so when several tabs observe
-// the same reconnect only ONE creates the recovery job.
+// ONE wp_chat_channel_state row PER ACCOUNT (account_id, key='channel') holds
+// that account's last observed state. Per-account is essential: with a single
+// shared row, account B's disconnect would overwrite account A's state and the
+// reconnect would create a recovery job that walked the wrong channel's history.
+// The reconnect flip is a compare-and-swap, so when several tabs observe the
+// same reconnect only ONE creates the recovery job.
+//
+// The account is taken from the account-scoped env (env.ACCOUNT_ID), so callers
+// pass the same scoped env they already use for the health check.
 //
 // Accepted, surfaced limitation: an outage that both starts AND ends while
 // nobody has the app open is never observed, so never auto-recovered. But an
@@ -56,11 +62,14 @@ export async function observeChannel(env, health) {
     const connected = health.connected === true
     const status = health.status ?? null
 
+    const accountId = env?.ACCOUNT_ID ?? null
+
     const prev = unwrap(
       await db
         .from('wp_chat_channel_state')
         .select('id, connected, status, checked_at, changed_at, gap_started_at, auto_halted_reason')
         .eq('key', STATE_KEY)
+        .eq('account_id', accountId)
         .maybeSingle()
     )
 
@@ -69,7 +78,7 @@ export async function observeChannel(env, health) {
       unwrap(
         await db
           .from('wp_chat_channel_state')
-          .insert({ key: STATE_KEY, connected, status, checked_at: nowIso, changed_at: nowIso })
+          .insert({ account_id: accountId, key: STATE_KEY, connected, status, checked_at: nowIso, changed_at: nowIso })
       )
       return { auto: null, halted: null }
     }
@@ -85,7 +94,7 @@ export async function observeChannel(env, health) {
           .update({ status, checked_at: nowIso })
           .eq('id', prev.id)
       )
-      return { auto: await currentAutoJob(db), halted: prev.auto_halted_reason || null }
+      return { auto: await currentAutoJob(db, accountId), halted: prev.auto_halted_reason || null }
     }
 
     // connected -> disconnected: mark the gap start at the LAST-known-good poll,
@@ -129,7 +138,7 @@ export async function observeChannel(env, health) {
 
     if (!flipped.length) {
       // Another poll won the flip and (if appropriate) created the job.
-      return { auto: await currentAutoJob(db), halted: prev.auto_halted_reason || null }
+      return { auto: await currentAutoJob(db, accountId), halted: prev.auto_halted_reason || null }
     }
 
     // A prior account-level error halted auto-recovery — do not start a new one.
@@ -156,6 +165,7 @@ export async function observeChannel(env, health) {
           // Too long -> recorded but NOT auto-run; an admin runs it from the
           // Sync page.
           status: tooLong ? 'deferred' : 'pending',
+          account_id: accountId,
           scope,
           cursor: {},
           created_by: null,
@@ -187,17 +197,21 @@ export async function observeChannel(env, health) {
  * running auto job, if any. Driving one at a time is what "only one auto-sync
  * at a time" means. Never throws.
  */
-async function currentAutoJob(db) {
+async function currentAutoJob(db, accountId = null) {
   try {
-    const rows =
-      unwrap(
-        await db
-          .from('wp_chat_sync_jobs')
-          .select('id, status, scope')
-          .in('status', ['pending', 'running'])
-          .order('created_at', { ascending: true })
-          .limit(20)
-      ) || []
+    let builder = db
+      .from('wp_chat_sync_jobs')
+      .select('id, status, scope')
+      .in('status', ['pending', 'running'])
+      .order('created_at', { ascending: true })
+      .limit(20)
+
+    // Scoped so an admin tab viewing account A never starts driving account B's
+    // recovery — which would run against A's credentials and walk the wrong
+    // channel.
+    if (accountId != null) builder = builder.eq('account_id', accountId)
+
+    const rows = unwrap(await builder) || []
     const auto = rows.find((j) => j?.scope?.type === 'auto')
     if (!auto) return null
     return { job_id: auto.id, from_ts: auto.scope.from_ts, to_ts: auto.scope.to_ts }
@@ -209,12 +223,16 @@ async function currentAutoJob(db) {
 /** Record an account-level halt (e.g. Whapi 402). Never throws. */
 export async function haltAutoRecovery(env, reason) {
   try {
-    unwrap(
-      await getDb(env)
-        .from('wp_chat_channel_state')
-        .update({ auto_halted_reason: String(reason || 'account_error').slice(0, 300) })
-        .eq('key', STATE_KEY)
-    )
+    let builder = getDb(env)
+      .from('wp_chat_channel_state')
+      .update({ auto_halted_reason: String(reason || 'account_error').slice(0, 300) })
+      .eq('key', STATE_KEY)
+
+    // One account's quota failure must not pause every other account's recovery.
+    const accountId = env?.ACCOUNT_ID ?? null
+    if (accountId != null) builder = builder.eq('account_id', accountId)
+
+    unwrap(await builder)
   } catch (err) {
     console.error('haltAutoRecovery failed:', err?.message || err)
   }
@@ -223,12 +241,15 @@ export async function haltAutoRecovery(env, reason) {
 /** Clear the account-level halt (admin intervened). Never throws. */
 export async function clearAutoHalt(env) {
   try {
-    unwrap(
-      await getDb(env)
-        .from('wp_chat_channel_state')
-        .update({ auto_halted_reason: null })
-        .eq('key', STATE_KEY)
-    )
+    let builder = getDb(env)
+      .from('wp_chat_channel_state')
+      .update({ auto_halted_reason: null })
+      .eq('key', STATE_KEY)
+
+    const accountId = env?.ACCOUNT_ID ?? null
+    if (accountId != null) builder = builder.eq('account_id', accountId)
+
+    unwrap(await builder)
   } catch (err) {
     console.error('clearAutoHalt failed:', err?.message || err)
   }

@@ -2,6 +2,7 @@ import { getDb, unwrap } from '../../_lib/db.js'
 import { requireAuth, requireConversationAccess } from '../../_lib/auth.js'
 import { sendText, sendMedia, toDigits } from '../../_lib/whapi.js'
 import { signUrl, MESSAGE_COLUMNS } from '../../_lib/storage.js'
+import { envForConversation } from '../../_lib/accounts.js'
 import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
 
 // Forward existing messages into other conversations.
@@ -51,7 +52,16 @@ function mediaPreviewLabel(media) {
  */
 async function forwardOne(env, db, source, target, agentName) {
   const now = new Date().toISOString()
-  const businessNumber = toDigits(env.BUSINESS_NUMBER) || target.business_number
+
+  // Scoped PER TARGET, not once for the whole fan-out: forwarding one message
+  // into conversations on two different accounts must send each copy over its
+  // own account's channel. requireConversationAccess has already confirmed the
+  // caller may reach every target.
+  const accountEnv = await envForConversation(env, target)
+
+  // The target's own number wins over the env fallback — see /api/send.
+  const businessNumber =
+    target.business_number || toDigits(accountEnv.BUSINESS_NUMBER) || null
   const destination = target.is_group ? target.group_jid : target.customer_number
 
   const hasMedia = Boolean(source.media_path)
@@ -109,9 +119,10 @@ async function forwardOne(env, db, source, target, agentName) {
   // (3) Hand off to Whapi. Neither send call throws.
   let result
   if (hasMedia) {
+    // Storage is system-wide, so this stays on the base env.
     const signed = await signUrl(env, source.media_path, OUTBOUND_MEDIA_TTL)
     result = signed.ok
-      ? await sendMedia(env, destination, {
+      ? await sendMedia(accountEnv, destination, {
           mediaUrl: signed.url,
           mediaType: source.media_type,
           caption: text || null,
@@ -120,7 +131,7 @@ async function forwardOne(env, db, source, target, agentName) {
         })
       : { ok: false, error: signed.error }
   } else {
-    result = await sendText(env, destination, text)
+    result = await sendText(accountEnv, destination, text)
   }
 
   if (result.ok) {

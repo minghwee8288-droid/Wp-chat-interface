@@ -4,6 +4,7 @@ import { ArrowLeft, RefreshCw, Play, CheckCircle2, AlertTriangle, Zap } from 'lu
 import { api } from '../lib/api.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useChannel } from '../context/ChannelContext.jsx'
+import { useAccounts } from '../context/AccountContext.jsx'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -49,6 +50,9 @@ function scopeLabel(job) {
 export default function Sync() {
   const { isAdmin } = useAuth()
   const channel = useChannel()
+  // Recovery runs against ONE account's channel, so the page follows the same
+  // selection the inbox uses, and lets the admin override it per sync.
+  const { accounts, hasMultiple, accountId: selectedAccountId, nameFor } = useAccounts()
 
   const [job, setJob] = useState(null)
   const [jobs, setJobs] = useState([])
@@ -56,6 +60,9 @@ export default function Sync() {
   const [error, setError] = useState(null)
   const [fromDate, setFromDate] = useState(() => isoDay(-1))
   const [toDate, setToDate] = useState(() => isoDay(1))
+  const [syncAccountId, setSyncAccountId] = useState(
+    () => selectedAccountId ?? null
+  )
 
   const drivingRef = useRef(false)
 
@@ -127,7 +134,12 @@ export default function Sync() {
 
     setError(null)
     try {
-      const result = await api.syncStart({ type: 'range', from: fromDate, to: toDate })
+      const result = await api.syncStart({
+        type: 'range',
+        from: fromDate,
+        to: toDate,
+        ...(syncAccountId ? { account_id: syncAccountId } : {}),
+      })
       setJob(result.job)
       drive(result.job.id)
     } catch (err) {
@@ -137,7 +149,7 @@ export default function Sync() {
 
   const clearHalt = async () => {
     try {
-      await api.clearAutoHalt()
+      await api.clearAutoHalt(channel.accountId)
       channel.recheck?.()
       loadJobs()
     } catch (err) {
@@ -193,6 +205,25 @@ export default function Sync() {
               automatically, so use its Run button to recover it deliberately.
             </p>
             <form className="sync-manual-form" onSubmit={startRangeSync}>
+              {/* Which account's history to walk. Only shown when there is a
+                  choice; with one account the job is stamped with it anyway. */}
+              {hasMultiple ? (
+                <label>
+                  Account
+                  <select
+                    className="select"
+                    value={syncAccountId ?? (accounts.length ? accounts[0].id : '')}
+                    onChange={(event) => setSyncAccountId(Number(event.target.value))}
+                    disabled={driving}
+                  >
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
                 From
                 <input
@@ -238,7 +269,10 @@ export default function Sync() {
                     : `Recovery ${job.status}`
                   : 'Recovering…'}
               </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{scopeLabel(job)}</span>
+              <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
+                {hasMultiple && nameFor(job.account_id) ? `${nameFor(job.account_id)} — ` : ''}
+                {scopeLabel(job)}
+              </span>
             </div>
 
             <div className="card-body">
@@ -304,7 +338,16 @@ export default function Sync() {
                       {auto ? <Zap size={11} /> : null}
                       {auto ? 'Auto' : 'Manual'}
                     </span>
-                    <span className="sync-history-scope">{scopeLabel(j)}</span>
+                    <span className="sync-history-scope">
+                      {/* Which account this job ran against — without it, two
+                          accounts' recoveries are indistinguishable in the list. */}
+                      {hasMultiple && nameFor(j.account_id) ? (
+                        <span className="conv-account" style={{ marginRight: 6 }}>
+                          {nameFor(j.account_id)}
+                        </span>
+                      ) : null}
+                      {scopeLabel(j)}
+                    </span>
                     <span className={`sync-history-status is-${j.status}`}>
                       {deferred ? 'Needs manual run' : j.status}
                     </span>

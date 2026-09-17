@@ -14,6 +14,7 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
@@ -61,7 +62,9 @@ export default function Shell() {
     ? 'Team'
     : location.pathname.startsWith('/sync')
       ? 'Sync'
-      : 'Inbox'
+      : location.pathname.startsWith('/settings')
+        ? 'Settings'
+        : 'Inbox'
 
   return (
     <div className="shell" data-mobile-view={mobileView}>
@@ -104,17 +107,50 @@ export default function Shell() {
           </NavLink>
         ) : null}
 
+        {isAdmin ? (
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `rail-link${isActive ? ' is-active' : ''}`}
+            title="Accounts & settings"
+            aria-label="Accounts and settings"
+          >
+            <SettingsIcon size={18} />
+          </NavLink>
+        ) : null}
+
         <div className="rail-spacer" />
       </nav>
 
       <div className="main">
         {/* Shown to agents as well as admins: when the channel is down nothing
             arrives, and an agent staring at a silent inbox needs to know why. */}
+        {/* An account that has never been connected is not "disconnected" —
+            it is unconfigured, and the fix is in Settings, not the QR. */}
+        {channel.unconfigured && isAdmin ? (
+          <div className="channel-banner" role="status">
+            <AlertTriangle size={15} />
+            <span>
+              {channel.accountName ? `"${channel.accountName}" has` : 'This account has'} no
+              WhatsApp channel connected yet.
+            </span>
+            <button
+              type="button"
+              className="channel-banner-fix"
+              onClick={() => navigate('/settings')}
+            >
+              Open settings
+            </button>
+          </div>
+        ) : null}
+
         {channel.disconnected ? (
           <div className="channel-banner" role="status">
             <AlertTriangle size={15} />
             <span>
-              WhatsApp is disconnected — messages are not being sent or received.
+              {/* Naming the account matters once there are several — otherwise
+                  the banner reads as "everything is down". */}
+              {channel.accountName ? `"${channel.accountName}" is` : 'WhatsApp is'} disconnected —
+              messages are not being sent or received.
             </span>
             {/* Open to every signed-in user now — whoever is on shift can scan
                 the QR and reconnect, not just an admin. */}
@@ -205,6 +241,21 @@ export default function Shell() {
                   >
                     <RefreshCw size={15} />
                     Sync missed messages
+                  </button>
+                ) : null}
+
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/settings')
+                    }}
+                  >
+                    <SettingsIcon size={15} />
+                    Accounts &amp; settings
                   </button>
                 ) : null}
 

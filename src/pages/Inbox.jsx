@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ArrowLeft, MessagesSquare, Plus, Search, Users } from 'lucide-react'
+import { ArrowLeft, MessagesSquare, Plus, Search, Users, Building2 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
 import { useInbox } from '../context/InboxContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
+import { useAccounts } from '../context/AccountContext.jsx'
 import ConversationList from '../components/ConversationList.jsx'
 import Thread from '../components/Thread.jsx'
 import ReplyBox from '../components/ReplyBox.jsx'
@@ -49,6 +50,8 @@ const EMPTY_THREAD = {
 
 export default function Inbox() {
   const toast = useToast()
+  // Used to badge the open thread with its account when there is more than one.
+  const { hasMultiple: hasMultipleAccounts, accountId: selectedAccountId } = useAccounts()
   // The app runs inside a BrowserRouter, so the URL is written through the
   // router rather than history.replaceState directly — a raw call would leave
   // the router's own location state pointing at the previous URL, and the next
@@ -88,6 +91,13 @@ export default function Inbox() {
   const [threadSearchOpen, setThreadSearchOpen] = useState(false)
   const [threadSearchQuery, setThreadSearchQuery] = useState('')
   const [users, setUsers] = useState([])
+
+  // The account of the currently open conversation, used to scope the assign
+  // roster below. Derived from the already-loaded list rather than fetched, and
+  // falls back to the selected account when no thread is open (so the roster is
+  // still sensible for the account the user is looking at).
+  const openConversationAccountId =
+    conversations.find((c) => String(c.id) === String(openId))?.account_id ?? selectedAccountId ?? null
   const [composing, setComposing] = useState(false)
   // The contact/group info panel — opened by tapping the thread-header name.
   const [showInfo, setShowInfo] = useState(false)
@@ -337,16 +347,23 @@ export default function Inbox() {
   }, [searchParams, setSearchParams, setOpenId, setMobileView, clearUnread])
 
   // The assign dropdown needs the roster; agents get it for the read-only label.
+  //
+  // Scoped to the OPEN conversation's account, so the picker only offers agents
+  // who can actually open it — assigning one who cannot would leave the chat
+  // looking handled while its owner gets a 404. `openConversationAccountId` is
+  // derived below from the conversation list, which is already loaded, so this
+  // costs no extra request; it re-runs only when the open thread moves to a
+  // different account.
   useEffect(() => {
     const controller = new AbortController()
     api
-      .users(controller.signal)
+      .users(openConversationAccountId, controller.signal)
       .then((data) => setUsers(data.users || []))
       .catch(() => {
         /* assign control degrades to an empty list */
       })
     return () => controller.abort()
-  }, [])
+  }, [openConversationAccountId])
 
   // Load and then poll the open thread every ~4s.
   //
@@ -718,7 +735,19 @@ export default function Inbox() {
                 onClick={() => setShowInfo(true)}
                 aria-label="Conversation info"
               >
-                <div className="thread-name">{displayName(conversation)}</div>
+                <div className="thread-name">
+                  {displayName(conversation)}
+                  {/* Which account this chat is on. Shown whenever the user has
+                      more than one, regardless of the list filter — inside an
+                      open thread there is no other cue, and replying from the
+                      wrong number is exactly the mistake to prevent. */}
+                  {hasMultipleAccounts && conversation.account_name ? (
+                    <span className="thread-account" title={`Account: ${conversation.account_name}`}>
+                      <Building2 size={11} />
+                      {conversation.account_name}
+                    </span>
+                  ) : null}
+                </div>
                 {conversation.is_group ? (
                   <div className="thread-number">
                     <Users size={11} />

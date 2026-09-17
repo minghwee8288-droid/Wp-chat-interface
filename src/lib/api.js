@@ -156,7 +156,45 @@ export const api = {
   logout: () =>
     fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => null),
 
-  conversations: (signal) => request('/conversations', { signal }),
+  /**
+   * The inbox list. `accountId` narrows it to one account; omitted (or 'all'),
+   * the server returns every conversation the caller can reach, each tagged
+   * with its account. The response also carries the caller's accounts, so the
+   * switcher and the per-row account badge come from this one request.
+   */
+  conversations: (accountId, signal) => {
+    // Back-compat: this used to be conversations(signal). An AbortSignal in the
+    // first position still works, so no existing call site had to change.
+    if (accountId && typeof accountId === 'object') return request('/conversations', { signal: accountId })
+    const query = accountId && accountId !== 'all' ? `?account_id=${encodeURIComponent(accountId)}` : ''
+    return request(`/conversations${query}`, { signal })
+  },
+
+  /** Accounts the caller may use. `all` (admin) also returns deactivated ones. */
+  accounts: ({ all = false, signal } = {}) =>
+    request(all ? '/accounts?all=1' : '/accounts', { signal }),
+
+  createAccount: (payload) => request('/accounts', { method: 'POST', body: payload }),
+
+  /** Admin: this account's effective settings + masked secrets. */
+  accountSettings: (accountId, signal) =>
+    request(`/accounts/settings?account_id=${encodeURIComponent(accountId)}`, { signal }),
+
+  /** Admin: partial update — omitted keys are left untouched. */
+  saveAccountSettings: (payload) =>
+    request('/accounts/settings', { method: 'POST', body: payload }),
+
+  /** Admin: test this account's Whapi credentials. */
+  testAccount: (accountId) =>
+    request('/accounts/settings', { method: 'PUT', body: { account_id: accountId } }),
+
+  /** Admin: the roster with an `assigned` flag for this account. */
+  accountUsers: (accountId, signal) =>
+    request(`/accounts/users?account_id=${encodeURIComponent(accountId)}`, { signal }),
+
+  /** Admin: replace the account's membership with exactly these users. */
+  setAccountUsers: (accountId, userIds) =>
+    request('/accounts/users', { method: 'POST', body: { account_id: accountId, user_ids: userIds } }),
 
   newConversation: (payload) =>
     request('/conversations/new', { method: 'POST', body: payload }),
@@ -182,9 +220,14 @@ export const api = {
    * Global by default. With conversationId it is scoped to that thread and
    * comes back oldest-first, which is the order the in-thread stepper walks.
    */
-  search: (query, { conversationId, limit, cursor, signal } = {}) => {
+  search: (query, { conversationId, limit, cursor, accountId, signal } = {}) => {
     const params = new URLSearchParams({ q: query })
     if (conversationId != null) params.set('conversation_id', String(conversationId))
+    // Only meaningful for a global search — a scoped one is already pinned to a
+    // conversation, and therefore to its account.
+    if (accountId != null && accountId !== 'all' && conversationId == null) {
+      params.set('account_id', String(accountId))
+    }
     if (limit != null) params.set('limit', String(limit))
     if (cursor) {
       params.set('cursor_at', cursor.at)
@@ -298,15 +341,39 @@ export const api = {
   refreshGroupMembers: (conversationId) =>
     request('/groups/members', { method: 'POST', body: { conversation_id: conversationId } }),
 
-  channelStatus: (signal) => request('/channel/status', { signal }),
+  /** Health of ONE account's channel. Omitted account -> the caller's first. */
+  channelStatus: (accountId, signal) => {
+    // Back-compat with the old channelStatus(signal) shape.
+    if (accountId && typeof accountId === 'object') return request('/channel/status', { signal: accountId })
+    const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''
+    return request(`/channel/status${query}`, { signal })
+  },
 
-  /** Admin: ask Whapi to relaunch the channel, then report health. */
-  channelRelaunch: () => request('/channel/relaunch', { method: 'POST' }),
+  /** Ask Whapi to relaunch this account's channel, then report health. */
+  channelRelaunch: (accountId) =>
+    request('/channel/relaunch', { method: 'POST', body: accountId ? { account_id: accountId } : {} }),
 
-  /** Admin: a fresh login QR (data URL) or { connected: true }. */
-  channelQr: (signal) => request('/channel/qr', { signal }),
+  /** A fresh login QR (data URL) for this account, or { connected: true }. */
+  channelQr: (accountId, signal) => {
+    if (accountId && typeof accountId === 'object') return request('/channel/qr', { signal: accountId })
+    const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''
+    return request(`/channel/qr${query}`, { signal })
+  },
 
-  users: (signal) => request('/users', { signal }),
+  /**
+   * The roster. `accountId` narrows it to users who can work that account,
+   * which is what the assign picker needs — offering an agent who cannot open
+   * the conversation would only produce a rejected assignment.
+   */
+  users: (accountId, signal) => {
+    // (accountId, signal), matching conversations/channelStatus/channelQr. The
+    // object sniff keeps the original users(signal) shape working, so a caller
+    // that passes only a signal is still scoped correctly rather than silently
+    // fetching an unscoped roster.
+    if (accountId && typeof accountId === 'object') return request('/users', { signal: accountId })
+    const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''
+    return request(`/users${query}`, { signal })
+  },
 
   createUser: (payload) => request('/users/create', { method: 'POST', body: payload }),
 
@@ -336,11 +403,13 @@ export const api = {
       signal,
     }),
 
-  syncStatus: (jobId, signal) =>
-    request(jobId != null ? `/sync/status?job_id=${encodeURIComponent(jobId)}` : '/sync/status', {
-      signal,
-    }),
+  syncStatus: (jobId, signal, accountId = null) => {
+    if (jobId != null) return request(`/sync/status?job_id=${encodeURIComponent(jobId)}`, { signal })
+    const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''
+    return request(`/sync/status${query}`, { signal })
+  },
 
-  /** Admin: clear an account-level auto-recovery halt. */
-  clearAutoHalt: () => request('/channel/clear-halt', { method: 'POST' }),
+  /** Admin: clear this account's auto-recovery halt. */
+  clearAutoHalt: (accountId) =>
+    request('/channel/clear-halt', { method: 'POST', body: accountId ? { account_id: accountId } : {} }),
 }

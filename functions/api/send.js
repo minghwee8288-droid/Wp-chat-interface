@@ -4,6 +4,7 @@ import { sendText, sendMedia, toDigits } from '../_lib/whapi.js'
 import { readMediaFields, signUrl, MESSAGE_COLUMNS } from '../_lib/storage.js'
 import { json, badRequest, serverError, readJson } from '../_lib/respond.js'
 import { attachQuoted } from '../_lib/reply.js'
+import { envForConversation } from '../_lib/accounts.js'
 
 // Whapi fetches the media itself, so the URL has to outlive the request by a
 // comfortable margin.
@@ -42,7 +43,17 @@ export async function onRequestPost({ request, env }) {
 
     const db = getDb(env)
     const now = new Date().toISOString()
-    const businessNumber = toDigits(env.BUSINESS_NUMBER) || conversation.business_number
+
+    // Send over THIS conversation's account channel. Every Whapi call below
+    // takes `accountEnv` rather than `env`, so a reply always leaves from the
+    // number the customer wrote to — never from another account's channel.
+    const accountEnv = await envForConversation(env, conversation)
+
+    // The conversation's OWN number wins over the env fallback. The original
+    // order (env first) was correct when there was one number; with several it
+    // would stamp every account's outbound with the legacy number.
+    const businessNumber =
+      conversation.business_number || toDigits(accountEnv.BUSINESS_NUMBER) || null
 
     // Whapi's send endpoints take the recipient in `to` either way; for a
     // group that is the JID rather than a bare number. sendText/sendMedia run
@@ -101,9 +112,10 @@ export async function onRequestPost({ request, env }) {
     if (media) {
       // Whapi pulls the bytes from this URL, so it must be reachable without
       // Supabase credentials — hence a signed URL rather than the object path.
+      // Storage is system-wide, so this stays on the base env.
       const signed = await signUrl(env, media.media_path, OUTBOUND_MEDIA_TTL)
       result = signed.ok
-        ? await sendMedia(env, destination, {
+        ? await sendMedia(accountEnv, destination, {
             mediaUrl: signed.url,
             mediaType: media.media_type,
             caption: text || null,
@@ -113,7 +125,7 @@ export async function onRequestPost({ request, env }) {
           })
         : { ok: false, error: signed.error }
     } else {
-      result = await sendText(env, destination, text, { quoted: quotedWhapiId })
+      result = await sendText(accountEnv, destination, text, { quoted: quotedWhapiId })
     }
 
     if (result.ok) {

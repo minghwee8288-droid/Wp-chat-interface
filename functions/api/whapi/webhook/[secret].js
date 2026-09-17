@@ -15,6 +15,11 @@ import { autoAssign } from '../../../_lib/assign.js'
 import { refreshConversationSummary } from '../../../_lib/summarize.js'
 import { ingestAvatar } from '../../../_lib/avatar.js'
 import { syncGroup } from '../../../_lib/group.js'
+import {
+  accountForWebhookSecret,
+  defaultAccount,
+  envForAccountRow,
+} from '../../../_lib/accounts.js'
 
 // Public endpoint — called by Whapi, not by a logged-in user. Whapi supports
 // neither signed webhooks nor custom auth headers, so the secret path segment
@@ -51,14 +56,40 @@ function secretsMatch(provided, expected) {
 }
 
 export async function onRequest(context) {
-  const { request, env, params } = context
+  const { request, env: baseEnv, params } = context
   // Collected during processing and flushed after the response — Whapi must
   // get its 200 without waiting on push delivery.
   const pending = []
 
-  if (!secretsMatch(params?.secret, env?.WHAPI_WEBHOOK_SECRET)) return notFound()
   // Hide the route from anything that isn't the real delivery.
   if (request.method !== 'POST') return notFound()
+
+  // ---------------------------------------------------------------------
+  // ACCOUNT ROUTING. The secret in the path both authenticates the delivery
+  // AND identifies which account's channel it came from — that is what lets N
+  // Whapi channels share this one route while their messages stay separate.
+  //
+  // Two ways to resolve, in order:
+  //   1. A per-account secret, matched by indexed hash lookup.
+  //   2. The legacy env WHAPI_WEBHOOK_SECRET, which maps to the DEFAULT
+  //      account. This is what keeps the existing Whapi channel — already
+  //      configured with the old URL — delivering after the upgrade, with no
+  //      change needed in the Whapi dashboard.
+  // ---------------------------------------------------------------------
+  const secret = params?.secret
+  let account = await accountForWebhookSecret(baseEnv, secret).catch(() => null)
+
+  if (!account && secretsMatch(secret, baseEnv?.WHAPI_WEBHOOK_SECRET)) {
+    account = await defaultAccount(baseEnv).catch(() => null)
+  }
+
+  // A wrong secret gets a 404 so the route's existence stays unadvertised.
+  if (!account) return notFound()
+
+  // Everything downstream runs against THIS account's credentials. Because the
+  // whole ingest path threads `env`, swapping it here is all that is needed —
+  // no ingest/sync/whapi function had to learn about accounts.
+  const env = await envForAccountRow(baseEnv, account)
 
   let payload
   try {
@@ -262,13 +293,16 @@ async function handleMessage(env, msg, pending = [], lidCache = null) {
   const {
     fromMe, groupJid, sender, customerNumber, customerName,
     whapiMessageId, body, createdAt, explicitMedia, attachment, businessNumber,
+    accountId,
   } = shaped
 
   const db = getDb(env)
 
+  // accountId comes off the account-scoped env set in onRequest, so the
+  // conversation is bound to the channel the message actually arrived on.
   const conversation = groupJid
-    ? await findOrCreateGroup(db, groupJid, businessNumber, effectiveMsg?.chat_name, 'webhook')
-    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName, 'webhook')
+    ? await findOrCreateGroup(db, groupJid, businessNumber, effectiveMsg?.chat_name, 'webhook', accountId)
+    : await findOrCreateConversation(db, customerNumber, businessNumber, customerName, 'webhook', accountId)
 
   // On creation only — no refresh, no backfill. Fire-and-forget via the same
   // waitUntil the push fan-out uses, so it can never delay the 200.
@@ -285,7 +319,7 @@ async function handleMessage(env, msg, pending = [], lidCache = null) {
     // auto-assigned. If sales has no active agents it stays unassigned.
     if (!groupJid) {
       try {
-        const result = await autoAssign(db, conversation.id, 'sales')
+        const result = await autoAssign(db, conversation.id, 'sales', accountId)
         if (result.assigned) {
           conversation.assigned_user_id = result.agent.id
           conversation.assigned_to = result.agent.name
@@ -399,7 +433,12 @@ async function handleMessage(env, msg, pending = [], lidCache = null) {
   // stored but the push silently unsent).
   pending.push(
     notifyNewMessage(env, {
-      conversation: { id: conversation.id, assigned_user_id: conversation.assigned_user_id },
+      // account_id scopes the push fan-out to this account's members.
+      conversation: {
+        id: conversation.id,
+        assigned_user_id: conversation.assigned_user_id,
+        account_id: conversation.account_id ?? accountId,
+      },
       message: { id: inserted.data?.id ?? null, body, media_type: media?.media_type ?? null },
       title: groupJid
         ? conversation.customer_name || 'Group'

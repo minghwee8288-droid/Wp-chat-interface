@@ -5,12 +5,14 @@ import { ThemeProvider } from './context/ThemeContext.jsx'
 import { ToastProvider } from './context/ToastContext.jsx'
 import { InboxProvider } from './context/InboxContext.jsx'
 import { ChannelProvider } from './context/ChannelContext.jsx'
+import { AccountProvider } from './context/AccountContext.jsx'
 import { listenForInteraction } from './lib/chime.js'
 import Shell from './components/Shell.jsx'
 import Login from './pages/Login.jsx'
 import Inbox from './pages/Inbox.jsx'
 import Team from './pages/Team.jsx'
 import Sync from './pages/Sync.jsx'
+import Settings from './pages/Settings.jsx'
 
 /** Cold-start placeholder. Reuses existing classes — no new UI. */
 function Booting() {
@@ -45,17 +47,23 @@ function AppRoutes() {
       <Route
         element={
           <RequireAuth>
-            <ChannelProvider>
-              <InboxProvider>
-                <Shell />
-              </InboxProvider>
-            </ChannelProvider>
+            {/* Outermost of the three: both ChannelProvider (which polls one
+                account's health) and InboxProvider (which fetches one account's
+                chats) read the current selection from it. */}
+            <AccountProvider>
+              <ChannelProvider>
+                <InboxProvider>
+                  <Shell />
+                </InboxProvider>
+              </ChannelProvider>
+            </AccountProvider>
           </RequireAuth>
         }
       >
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/team" element={<Team />} />
         <Route path="/sync" element={<Sync />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/inbox" replace />} />
     </Routes>

@@ -66,15 +66,66 @@ parameters — never interpolated into a query string.
 
 Set these in **Cloudflare Pages → Settings → Environment variables**, all encrypted:
 
+These are **system-wide** — shared by every account:
+
 | Variable | What it is |
 | --- | --- |
 | `SUPABASE_URL` | The project URL, e.g. `https://your-project-ref.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | The **service role** key — secret, server-side only |
+| `OPENROUTER_API_KEY` | AI summaries, via OpenRouter |
 | `JWT_SECRET` | A long random string used to sign auth tokens |
+| `ENCRYPTION_KEY` | Encrypts per-account Whapi credentials at rest (see below) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web Push identity for this deployment |
+
+These are the **fallback** for the default account. With multi-account enabled they are
+optional: an account with its own credentials stored in the database ignores them, and an
+account with none falls back to these — which is what lets an existing single-account
+install keep running unchanged after the upgrade.
+
+| Variable | What it is |
+| --- | --- |
 | `WHAPI_TOKEN` | Whapi channel API token, sent as `Authorization: Bearer` |
 | `WHAPI_API_URL` | Whapi base URL — `https://gate.whapi.cloud` |
 | `WHAPI_WEBHOOK_SECRET` | A long random string that forms the inbound webhook URL |
 | `BUSINESS_NUMBER` | Your WhatsApp business number, digits only (e.g. `919000000000`) |
+
+Generate an `ENCRYPTION_KEY` the same way as `JWT_SECRET`. Without it the app still runs,
+but per-account tokens cannot be saved and every account falls back to the `WHAPI_*`
+environment variables above.
+
+> **Do not change `ENCRYPTION_KEY` once accounts have been configured.** Stored tokens are
+> encrypted with it; changing it makes them unreadable, and each account falls back to the
+> environment token until its credentials are re-entered.
+
+---
+
+## Multi-account
+
+The system runs any number of accounts, each with its own WhatsApp number, Whapi channel,
+credentials, chats and users. `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
+`OPENROUTER_API_KEY` stay shared.
+
+Run `sql/018_multi_account.sql` in the Supabase SQL editor. It is idempotent and
+non-destructive: all existing data is adopted by a seeded "Default" account, and every
+existing user is granted access to it, so nothing changes until a second account is added.
+
+To add an account: **Settings → Add account**, then
+
+1. **Channel & credentials** — set the WhatsApp number and paste that channel's Whapi
+   token. *Test connection* verifies it.
+2. **Inbound webhook** — *Generate webhook URL*, then paste it into that channel's Whapi
+   dashboard. The secret in the URL is what routes an incoming message to this account.
+3. **Users on this account** — tick the agents who should see its chats. Admins always
+   have access to every account.
+
+Each chat shows a badge naming its account, and the inbox has an account switcher (shown
+only when you have more than one). Sync and channel recovery run per account.
+
+**How credentials resolve.** Every Whapi call runs against an account-scoped copy of the
+environment (`envForAccount()` in `functions/_lib/accounts.js`), where the four
+account-specific variables are replaced by that account's stored values, each falling back
+to the environment variable when unset. Account tokens and webhook secrets are encrypted
+with AES-GCM (`functions/_lib/crypto.js`) and are never sent to the browser.
 
 Both Supabase values are in **Project Settings → API**. The service role key is the one
 under "Project API keys" marked `service_role` — it bypasses row-level security, so it

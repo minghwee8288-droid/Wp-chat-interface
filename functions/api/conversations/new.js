@@ -4,25 +4,30 @@ import { sendText, toDigits } from '../../_lib/whapi.js'
 import { MESSAGE_COLUMNS } from '../../_lib/storage.js'
 import { ingestAvatar } from '../../_lib/avatar.js'
 import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
+import { resolveAccountAccess, envForAccount } from '../../_lib/accounts.js'
 
 /**
  * POST /api/conversations/new
- * Body: { phone, name?, message }
+ * Body: { phone, name?, message, account_id? }
  *
  * Starts a conversation with a number that has not written in yet.
  *
  * The number is normalised with the SAME toDigits() the inbound webhook uses,
  * which is what makes a manually started conversation and a later inbound
- * message from that number resolve to one row instead of two. customer_number
- * is UNIQUE, so the find-or-create below is the only writer of that column
- * besides the webhook.
+ * message from that number resolve to one row instead of two.
+ * (account_id, customer_number) is UNIQUE, so the find-or-create below is the
+ * only writer of that pair besides the webhook.
+ *
+ * `account_id` chooses WHICH of the caller's numbers the message goes out from.
+ * Omitted, it falls back to their first accessible account, so a single-account
+ * user's request is unchanged.
  */
 export async function onRequestPost(context) {
   const { request, env } = context
   const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
-  const { phone, name, message } = await readJson(request)
+  const { phone, name, message, account_id } = await readJson(request)
 
   const customerNumber = toDigits(phone)
   // E.164 allows 8–15 digits; anything outside that is a typo, not a number.
@@ -39,14 +44,23 @@ export async function onRequestPost(context) {
   try {
     const db = getDb(env)
     const now = new Date().toISOString()
-    const businessNumber = toDigits(env.BUSINESS_NUMBER)
 
-    // --- find or create, keyed on the normalised digits ---
+    // Which account (and therefore which WhatsApp number) this goes out from.
+    const access = await resolveAccountAccess(env, auth.user, account_id)
+    if (access.response) return access.response
+    const accountId = access.accountId
+
+    // Credentials for that account — every Whapi call below uses this env.
+    const accountEnv = await envForAccount(env, accountId)
+    const businessNumber = toDigits(accountEnv.BUSINESS_NUMBER)
+
+    // --- find or create, keyed on (account, normalised digits) ---
     let conversation = unwrap(
       await db
         .from('wp_chat_conversations')
-        .select('id, customer_number, business_number, customer_name, assigned_user_id')
+        .select('id, account_id, customer_number, business_number, customer_name, assigned_user_id')
         .eq('customer_number', customerNumber)
+        .eq('account_id', accountId)
         .maybeSingle()
     )
 
@@ -56,6 +70,7 @@ export async function onRequestPost(context) {
       const created = await db
         .from('wp_chat_conversations')
         .insert({
+          account_id: accountId,
           customer_number: customerNumber,
           business_number: businessNumber,
           customer_name: customerName,
@@ -64,7 +79,7 @@ export async function onRequestPost(context) {
           created_at: now,
           updated_at: now,
         })
-        .select('id, customer_number, business_number, customer_name, assigned_user_id')
+        .select('id, account_id, customer_number, business_number, customer_name, assigned_user_id')
         .single()
 
       if (created.error) {
@@ -73,8 +88,9 @@ export async function onRequestPost(context) {
           conversation = unwrap(
             await db
               .from('wp_chat_conversations')
-              .select('id, customer_number, business_number, customer_name, assigned_user_id')
+              .select('id, account_id, customer_number, business_number, customer_name, assigned_user_id')
               .eq('customer_number', customerNumber)
+              .eq('account_id', accountId)
               .maybeSingle()
           )
         }
@@ -98,7 +114,7 @@ export async function onRequestPost(context) {
     // WhatsApp restricts messaging numbers that have not written in recently,
     // so this is the step most likely to fail. Sending first means a rejection
     // leaves no orphaned conversation and no phantom message in the thread.
-    const result = await sendText(env, customerNumber, text)
+    const result = await sendText(accountEnv, customerNumber, text)
 
     if (!result.ok) {
       // Roll back a conversation we created solely for this attempt. An
@@ -123,7 +139,7 @@ export async function onRequestPost(context) {
         .insert({
           conversation_id: conversation.id,
           direction: 'outbound',
-          from_number: businessNumber || conversation.business_number,
+          from_number: conversation.business_number || businessNumber,
           to_number: customerNumber,
           body: text,
           status: 'sent',
@@ -151,7 +167,8 @@ export async function onRequestPost(context) {
     // Creation only, and fire-and-forget — the send has already succeeded, so
     // a slow profile fetch must not hold up the response.
     if (createdConversation && typeof context.waitUntil === 'function') {
-      context.waitUntil(ingestAvatar(env, conversation.id, customerNumber))
+      // Avatar fetch is a Whapi call, so it needs the account's credentials.
+      context.waitUntil(ingestAvatar(accountEnv, conversation.id, customerNumber))
     }
 
     return json({

@@ -1,6 +1,7 @@
 import { requireAuth } from '../../_lib/auth.js'
 import { checkHealth, launchChannel, fetchLoginQr } from '../../_lib/whapi.js'
 import { json } from '../../_lib/respond.js'
+import { resolveAccountAccess, envForAccount, isAccountConfigured } from '../../_lib/accounts.js'
 
 // WhatsApp rotates the pairing QR roughly every 20 seconds; the client uses
 // this to show an expiry countdown and refetch before it dies.
@@ -53,8 +54,25 @@ export async function onRequestGet({ request, env }) {
   const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
+  // Which account's channel to show a QR for. The whole flow below runs on this
+  // account's credentials, so scanning connects the number the user expects.
+  const url = new URL(request.url)
+  const access = await resolveAccountAccess(env, auth.user, url.searchParams.get('account_id'))
+  if (access.response) return access.response
+
+  const accountEnv = await envForAccount(env, access.accountId)
+  if (!isAccountConfigured(accountEnv)) {
+    return json({
+      ok: false,
+      account_id: access.accountId,
+      connected: false,
+      status: 'not_configured',
+      error: 'This account has no Whapi token configured yet',
+    })
+  }
+
   // Cheap guard first: if we are already AUTH, do not even mint a QR.
-  const health = await checkHealth(env)
+  const health = await checkHealth(accountEnv)
   if (health.connected) {
     return json({ ok: true, connected: true, status: health.status })
   }
@@ -62,10 +80,10 @@ export async function onRequestGet({ request, env }) {
   // Launch, then poll /health until the channel reaches 'QR' (or connects). We
   // poll THROUGH STARTING/LAUNCHING but never fetch the image there. launchChannel
   // is GET /health?wakeup=true, so its result is already the first health read.
-  let state = await launchChannel(env)
+  let state = await launchChannel(accountEnv)
   for (let i = 0; i < READY_POLL_ATTEMPTS && !state.connected && state.status !== QR_READY_STATE; i++) {
     await sleep(READY_POLL_MS)
-    state = await checkHealth(env)
+    state = await checkHealth(accountEnv)
   }
 
   if (state.connected) {
@@ -91,7 +109,7 @@ export async function onRequestGet({ request, env }) {
   const startedAt = Date.now()
   for (let attempt = 1; attempt <= IMAGE_FETCH_ATTEMPTS; attempt++) {
     const wakeup = attempt % 2 === 0 // alternate: 1 no-wakeup, 2 wakeup, 3 no-wakeup, …
-    const qr = await fetchLoginQr(env, { size: 400, wakeup })
+    const qr = await fetchLoginQr(accountEnv, { size: 400, wakeup })
 
     // Whapi answered 409 "already authenticated" — treat as connected.
     if (qr.alreadyAuthed) {
