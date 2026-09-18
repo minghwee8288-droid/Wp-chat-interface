@@ -1137,15 +1137,25 @@ button {
   .summary-pop {
     top: calc(135px + env(safe-area-inset-top, 0px)) !important;
     /* Off the very edge, so all four 12px corners and the shadow stay visible
-       exactly as they do on the small card. */
-    bottom: calc(0px + env(safe-area-inset-bottom, 0px)) !important;
+       exactly as they do on the small card.
+
+       The height is driven from the top edge rather than left to resolve from
+       top+bottom, because `bottom` resolves against the LAYOUT viewport, which
+       does not shrink when the soft keyboard opens - the panel floor, and the
+       composer sitting on it, end up behind the keyboard. 100dvh tracks the
+       visible area instead, so the panel always ends where the screen (or the
+       keyboard) does and the composer stays on it. svh is the fallback for
+       engines without dvh; the plain px line covers older ones. */
+    bottom: auto !important;
+    height: calc(100vh - 135px - env(safe-area-inset-top, 0px)) !important;
+    height: calc(100svh - 135px - env(safe-area-inset-top, 0px)) !important;
+    height: calc(100dvh - 135px - env(safe-area-inset-top, 0px)) !important;
     left: 0px !important;
     right: 0px !important;
     /* bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
     left: 8px !important;
     right: 8px !important; */
     width: auto !important;
-    height: auto !important;
     max-height: none !important;
     /* Column layout so the extra height is spent on the AI chat rather than
        leaving dead space under a two-line summary: the summary block keeps its
@@ -1163,8 +1173,12 @@ button {
   }
   .summary-pop > .summary-pop-body,
   .summary-pop > .summary-pop-note {
+    /* Natural height, but capped: a long summary scrolls inside itself rather
+       than growing until it pushes the chat - and with it the composer - off
+       the bottom of the panel. */
     flex: 0 1 auto;
     min-height: 0;
+    max-height: 45%;
     overflow-y: auto;
   }
 
@@ -1200,10 +1214,13 @@ button {
      flex math. The surface background is what keeps the turns from showing
      through as they scroll underneath it. */
   .summary-pop .summary-ask-form {
+    /* Last item in the .summary-ask column and the only one that may not
+       shrink, so it always sits on the panel floor. position: sticky was the
+       wrong tool here - the panel is overflow: hidden, so there is no scroll
+       container for it to stick inside, and it just rode along with the
+       content. The flex layout does the pinning; margin-top: auto pushes it
+       down when the turns are short enough to leave slack. */
     flex: 0 0 auto;
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
     background: var(--surface);
     padding-top: 8px;
     margin-top: auto;
