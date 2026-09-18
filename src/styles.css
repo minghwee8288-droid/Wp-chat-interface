@@ -1130,32 +1130,8 @@ button {
   .summary-pop {
     top: calc(135px + env(safe-area-inset-top, 0px)) !important;
     /* Off the very edge, so all four 12px corners and the shadow stay visible
-<<<<<<< HEAD
-       exactly as they do on the small card.
-
-       The height is driven from the top edge rather than left to resolve from
-       top+bottom, because `bottom` resolves against the LAYOUT viewport, which
-       does not shrink when the soft keyboard opens - the panel floor, and the
-       composer sitting on it, end up behind the keyboard. 100dvh tracks the
-       visible area instead, so the panel always ends where the screen (or the
-       keyboard) does and the composer stays on it. svh is the fallback for
-       engines without dvh; the plain px line covers older ones. */
-    bottom: auto !important;
-    height: calc(100vh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100svh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100dvh - 135px - env(safe-area-inset-top, 0px)) !important;
-    /* iOS Safari does not shrink dvh for the soft keyboard - it treats the
-       keyboard as an overlay, so dvh stays at full-screen height and the panel
-       floor still ends up underneath it. Only visualViewport knows, and that is
-       JS. So the panel stops depending on the screen bottom entirely: it is
-       capped at the height the keyboard leaves free. 55vh is the worst case on
-       a phone (an iPhone keyboard with the suggestion strip eats ~45%), applied
-       only while a descendant has focus, so the resting panel keeps its full
-       height and only shrinks when the keyboard is actually up. */
-=======
        exactly as they do on the small card. */
     bottom: calc(0px + env(safe-area-inset-bottom, 0px)) !important;
->>>>>>> parent of ba66219 (fix mobile view)
     left: 0px !important;
     right: 0px !important;
     /* bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
@@ -1271,59 +1247,6 @@ button {
   .summary-pop .summary-ask-error {
     flex: 0 0 auto;
   }
-<<<<<<< HEAD
-
-  /* iOS Safari zooms the whole page in when a focused input's font is under
-     16px, and that zoom is what makes the layout pannable left/right and
-     shoves the send button off-screen. 16px is the threshold, so the field is
-     pinned to it on touch screens only - the desktop 12.5px is untouched. */
-  .summary-pop .summary-ask-input {
-    font-size: 16px;
-  }
-
-  /* The panel is a fixed-position element whose inline style carries a px
-     width from computePosition. Pinning both edges and forcing the box to
-     measure itself against the viewport means it can never be wider than the
-     screen, whatever that inline width says. */
-  .summary-pop {
-    max-width: 100vw !important;
-    box-sizing: border-box;
-  }
-
-  /* Nothing inside the panel may out-measure it either: long unbroken strings
-     (a URL in a summary, a pasted id) are the usual cause of a child forcing
-     its parent wide, and the panel then drags the page sideways with it. */
-  .summary-pop > * {
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  /* The keyboard case. :focus-within fires the moment the field is tapped and
-     clears when it blurs, which is exactly the window in which the keyboard is
-     on screen - so this needs no JS and no resize listener. The panel shrinks
-     from the top-anchored height above to something that fits in the strip the
-     keyboard leaves, and because the composer is the last flex child with
-     margin-top: auto it rides up to the new floor with it. Scrolling the
-     summary and the chat turns above it then leaves the field exactly where it
-     is, which is the behaviour being asked for. */
-  .summary-pop:focus-within {
-    height: calc(100vh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100svh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100dvh - 135px - env(safe-area-inset-top, 0px)) !important;
-    max-height: calc(55vh - env(safe-area-inset-top, 0px)) !important;
-    max-height: calc(55dvh - env(safe-area-inset-top, 0px)) !important;
-  }
-
-  /* With the panel that much shorter, a 45%-tall summary would leave the chat
-     almost nothing. Cap it harder while the keyboard is up - the summary is
-     still fully readable by scrolling it, which is the point of keeping the
-     composer fixed. */
-  .summary-pop:focus-within > .summary-pop-body,
-  .summary-pop:focus-within > .summary-pop-note {
-    max-height: 30%;
-  }
-=======
->>>>>>> parent of f1f4baf (fix mobile view ai summaruy section)
 }
 
 .summary-pop-head {
