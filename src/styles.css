@@ -210,13 +210,6 @@ body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
-  /* overflow-x alone only clips the overflow - the page stays pannable on
-     touch because the layout viewport is still the wider box. Capping the
-     width at the viewport is what actually stops the left/right drag on a
-     phone. 100% rather than 100vw: vw counts the scrollbar gutter on desktop
-     and would introduce a horizontal overflow of its own. */
-  width: 100%;
-  max-width: 100%;
 }
 
 html,
@@ -1278,6 +1271,7 @@ button {
   .summary-pop .summary-ask-error {
     flex: 0 0 auto;
   }
+<<<<<<< HEAD
 
   /* iOS Safari zooms the whole page in when a focused input's font is under
      16px, and that zoom is what makes the layout pannable left/right and
@@ -1328,6 +1322,8 @@ button {
   .summary-pop:focus-within > .summary-pop-note {
     max-height: 30%;
   }
+=======
+>>>>>>> parent of f1f4baf (fix mobile view ai summaruy section)
 }
 
 .summary-pop-head {
