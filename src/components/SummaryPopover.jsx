@@ -89,6 +89,40 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
   // set state on an unmounted component.
   useEffect(() => () => askAbort.current?.abort(), [])
 
+  // The soft keyboard's height is the one thing the stylesheet cannot see. iOS
+  // Safari treats the keyboard as an OVERLAY rather than a viewport change, so
+  // neither `bottom: 0` (layout viewport) nor `100dvh` (unchanged on iOS while
+  // the keyboard is up) shrinks the panel, and its floor - with the composer on
+  // it - ends up underneath the keys. visualViewport is the only API that
+  // reports the strip actually left visible.
+  //
+  // This measures and publishes; it decides nothing. The height goes out as a
+  // CSS variable and every layout choice stays in styles.css, so this adds no
+  // behaviour to the popover.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+
+    const panel = panelRef.current
+    if (!panel) return
+
+    const apply = () => {
+      // vv.height is the visible strip; offsetTop is how far the browser has
+      // scrolled the layout viewport up to keep the focused field in view.
+      // Their sum is where the visible area ENDS in layout coordinates, which
+      // is the line the panel's floor has to stop at.
+      panel.style.setProperty('--vv-bottom', `${Math.round(vv.height + vv.offsetTop)}px`)
+    }
+
+    apply()
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+    }
+  }, [])
+
   // Keep the newest turn in view as the thread grows.
   useEffect(() => {
     if (turns.length || asking) turnsEndRef.current?.scrollIntoView({ block: 'nearest' })
