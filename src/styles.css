@@ -1145,27 +1145,36 @@ button {
    the desktop card's. */
 @media (max-width: 720px) {
   .summary-pop {
-    /* --vv-top is the visual viewport's offset from the layout viewport, which
-       iOS sets when it scrolls the page up to make room for the keyboard.
-       Adding it keeps the panel's top edge glued to what is actually visible
-       instead of drifting up behind the keyboard. It is 0 (and the fallback
-       applies) whenever the keyboard is closed or the engine has no
-       visualViewport, so the resting position is unchanged. */
+    /* WIDTH: pinned to both screen edges and sized from the viewport, never
+       from the inline `width: 360px` the component computes. `left/right: 0`
+       already implies the full width, but the explicit 100% pair means the
+       panel is correct even if a future change gives it a different
+       positioning context. `box-sizing: border-box` (set globally in the
+       reset) keeps the 14px side padding INSIDE that width, so the panel is
+       exactly as wide as the screen - never one padding wider. */
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+
+    /* HEIGHT: anchored to the VISUAL viewport, not the layout one.
+       `position: fixed` resolves top/bottom against the layout viewport, and
+       iOS does not shrink that when the keyboard opens - it scrolls the page
+       up behind it instead. So a `bottom`-anchored floor sits under the
+       keyboard no matter what value it is given. Anchoring by top + an
+       explicit height taken from --vv-height (the actually-visible rectangle)
+       is the only geometry that holds with the keyboard up.
+
+       --vv-top is how far the page was scrolled up, so adding it keeps the
+       panel aligned with what is on screen. The fallbacks make this identical
+       to the old behaviour on desktop and on engines without visualViewport. */
     top: calc(135px + env(safe-area-inset-top, 0px) + var(--vv-top, 0px)) !important;
-    /* The floor rises by exactly the keyboard's height, so the composer sits on
-       top of the keyboard rather than underneath it. --vv-keyboard is 0 while
-       the keyboard is closed, leaving the original full-height panel. */
-    bottom: calc(
-      env(safe-area-inset-bottom, 0px) + var(--vv-keyboard, 0px)
+    bottom: auto !important;
+    height: calc(
+      var(--vv-height, 100dvh) - 135px - env(safe-area-inset-top, 0px) -
+        env(safe-area-inset-bottom, 0px)
     ) !important;
-    left: 0px !important;
-    right: 0px !important;
-    /* Belt and braces against the inline `width` the component computes: the
-       panel is pinned by left/right, and these cap it at the viewport so it can
-       never be the element that makes the page pannable sideways. */
-    width: auto !important;
-    max-width: 100vw !important;
-    height: auto !important;
     max-height: none !important;
     /* Column layout so the extra height is spent on the AI chat rather than
        leaving dead space under a two-line summary: the summary block keeps its
@@ -1174,6 +1183,15 @@ button {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+
+    /* Edge-to-edge now, so the side and bottom corners have nothing to round
+       against and the side borders sit off-screen. Keeping only the top
+       corners makes it read as a sheet rising from the bottom of the screen
+       rather than a card that has been stretched too wide. */
+    border-radius: 12px 12px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
   }
 
   /* Head stays pinned; the summary text keeps its natural size but yields
@@ -1213,12 +1231,15 @@ button {
     overflow-y: auto;
   }
 
+  /* The composer is the one row that must never be squeezed or pushed out.
+     `flex-shrink: 0` is the important half: without it the flex column will
+     happily shrink the form when the panel is short (exactly the keyboard
+     case), which is how the Send button ends up clipped. */
   .summary-pop .summary-ask-form {
     flex: 0 0 auto;
-    /* The composer is the thing that must never leave the screen, so it also
-       carries the bottom safe-area padding: when the keyboard is closed the
-       panel floor sits on the home indicator, and without this the Send button
-       would tuck under it. */
+    width: 100%;
+    min-width: 0;
+    /* Keeps the button off the home indicator when the keyboard is closed. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
@@ -1229,14 +1250,19 @@ button {
     padding-bottom: 0;
   }
 
-  /* With the keyboard open the panel loses most of its height to it. Giving up
-     the fixed top offset lets the panel start higher and keep a usable amount
-     of the chat visible above the composer, instead of being squeezed into a
-     sliver. It is still clamped to the visible viewport by --vv-top. */
+  /* Keyboard up. The visible rectangle is now only --vv-height tall and starts
+     --vv-top down the page, so the panel simply BECOMES that rectangle, minus a
+     small top gap. Filling it exactly is what puts the composer's bottom edge
+     on the keyboard's top edge - there is no room left underneath for it to
+     fall into.
+
+     The 135px header offset is dropped here on purpose: with a keyboard eating
+     over half the screen, spending another 135px on a header the user cannot
+     see would leave a sliver too short to hold the chat and the composer. */
   .summary-pop[data-keyboard='open'] {
-    top: calc(
-      8px + env(safe-area-inset-top, 0px) + var(--vv-top, 0px)
-    ) !important;
+    top: calc(8px + var(--vv-top, 0px)) !important;
+    bottom: auto !important;
+    height: calc(var(--vv-height, 100dvh) - 8px) !important;
   }
 
   /* Nothing inside the panel may be wider than the panel. Long unbroken text -
