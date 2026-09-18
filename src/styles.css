@@ -1130,19 +1130,8 @@ button {
   .summary-pop {
     top: calc(135px + env(safe-area-inset-top, 0px)) !important;
     /* Off the very edge, so all four 12px corners and the shadow stay visible
-       exactly as they do on the small card.
-
-       The height is driven from the top edge rather than left to resolve from
-       top+bottom, because `bottom` resolves against the LAYOUT viewport, which
-       does not shrink when the soft keyboard opens - the panel floor, and the
-       composer sitting on it, end up behind the keyboard. 100dvh tracks the
-       visible area instead, so the panel always ends where the screen (or the
-       keyboard) does and the composer stays on it. svh is the fallback for
-       engines without dvh; the plain px line covers older ones. */
-    bottom: auto !important;
-    height: calc(100vh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100svh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100dvh - 135px - env(safe-area-inset-top, 0px)) !important;
+       exactly as they do on the small card. */
+    bottom: calc(0px + env(safe-area-inset-bottom, 0px)) !important;
     left: 0px !important;
     right: 0px !important;
     /* bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
@@ -1158,45 +1147,6 @@ button {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-  }
-
-  /* Keyboard-aware geometry. --vv-* are written by SummaryPopover from
-     window.visualViewport: --vv-top is how far the page was scrolled up to make
-     room for the keyboard, --vv-keyboard is how much of the layout viewport the
-     keyboard covers. Both are 0 (or absent) with the keyboard closed, so this
-     rule is a no-op until a field is focused and the block above stays in
-     charge.
-
-     Why it is needed: `position: fixed` and every vh unit - dvh included - are
-     resolved against the LAYOUT viewport, which iOS Safari does NOT shrink for
-     the soft keyboard; it scrolls the page up behind it instead. So the panel
-     floor, and the composer sitting on it, slide under the keyboard, and
-     scrolling the list behind drags the composer with it. Offsetting `top` by
-     --vv-top re-pins the panel to the VISIBLE rectangle, and sizing it from
-     --vv-height puts its floor exactly on top of the keyboard, where the
-     composer then stays put. */
-  .summary-pop {
-    top: calc(135px + env(safe-area-inset-top, 0px) + var(--vv-top, 0px)) !important;
-    /* The height comes from the MEASURED visual-viewport height rather than
-       from dvh minus the keyboard. Subtracting the keyboard from a viewport
-       unit would double-count it on the engines where dvh already shrinks for
-       the keyboard (Chrome on Android), leaving the panel far too short.
-       --vv-height is the visible rectangle either way, so one expression is
-       correct on both. The panel starts 135px below the layout viewport's top
-       and --vv-top of that is already hidden above the fold, so only the
-       remainder of the header stack comes off the visible height. */
-    height: calc(
-      var(--vv-height) - max(0px, 135px + env(safe-area-inset-top, 0px) - var(--vv-top, 0px))
-    ) !important;
-  }
-
-  /* With the keyboard up the panel is short, so the summary must stop claiming
-     45% of it - otherwise the turns list collapses to nothing and the composer
-     is the only thing left with room. The chat is what you are looking at while
-     typing, so the summary yields. */
-  .summary-pop[data-keyboard='open'] > .summary-pop-body,
-  .summary-pop[data-keyboard='open'] > .summary-pop-note {
-    max-height: 30%;
   }
 
   /* Head stays pinned; the summary text keeps its natural size but yields
@@ -1236,52 +1186,8 @@ button {
     overflow-y: auto;
   }
 
-  /* The composer is pinned to the bottom of the panel and never scrolls with
-     the conversation above it. flex: 0 0 auto stops it being squeezed when the
-     turns list grows, and position: sticky holds it against the panel floor
-     even if an unexpected sibling (an error line, a long draft) defeats the
-     flex math. The surface background is what keeps the turns from showing
-     through as they scroll underneath it. */
   .summary-pop .summary-ask-form {
     flex: 0 0 auto;
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
-    background: var(--surface);
-    padding-top: 8px;
-    margin-top: auto;
-  }
-
-  /* The label and any error line sit above the scrolling turns and keep their
-     natural height, so neither can be crushed into the composer. */
-  .summary-pop .summary-ask-head,
-  .summary-pop .summary-ask-error {
-    flex: 0 0 auto;
-  }
-
-  /* The keyboard case. :focus-within fires the moment the field is tapped and
-     clears when it blurs, which is exactly the window in which the keyboard is
-     on screen - so this needs no JS and no resize listener. The panel shrinks
-     from the top-anchored height above to something that fits in the strip the
-     keyboard leaves, and because the composer is the last flex child with
-     margin-top: auto it rides up to the new floor with it. Scrolling the
-     summary and the chat turns above it then leaves the field exactly where it
-     is, which is the behaviour being asked for. */
-  .summary-pop:focus-within {
-    height: calc(100vh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100svh - 135px - env(safe-area-inset-top, 0px)) !important;
-    height: calc(100dvh - 135px - env(safe-area-inset-top, 0px)) !important;
-    max-height: calc(55vh - env(safe-area-inset-top, 0px)) !important;
-    max-height: calc(55dvh - env(safe-area-inset-top, 0px)) !important;
-  }
-
-  /* With the panel that much shorter, a 45%-tall summary would leave the chat
-     almost nothing. Cap it harder while the keyboard is up - the summary is
-     still fully readable by scrolling it, which is the point of keeping the
-     composer fixed. */
-  .summary-pop:focus-within > .summary-pop-body,
-  .summary-pop:focus-within > .summary-pop-note {
-    max-height: 30%;
   }
 }
 
