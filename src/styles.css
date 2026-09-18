@@ -1193,23 +1193,27 @@ button {
     max-width: 100% !important;
     min-width: 0 !important;
 
-    /* HEIGHT: anchored to the VISUAL viewport, not the layout one.
-       `position: fixed` resolves top/bottom against the layout viewport, and
-       iOS does not shrink that when the keyboard opens - it scrolls the page
-       up behind it instead. So a `bottom`-anchored floor sits under the
-       keyboard no matter what value it is given. Anchoring by top + an
-       explicit height taken from --vv-height (the actually-visible rectangle)
-       is the only geometry that holds with the keyboard up.
+    /* HEIGHT: the panel is a full-screen sheet, always - it does NOT wait to be
+       told the keyboard is open.
 
-       --vv-top is how far the page was scrolled up, so adding it keeps the
-       panel aligned with what is on screen. The fallbacks make this identical
-       to the old behaviour on desktop and on engines without visualViewport. */
-    top: calc(135px + env(safe-area-inset-top, 0px) + var(--vv-top, 0px)) !important;
+       That distinction matters. The component publishes --vv-* variables and a
+       data-keyboard flag from visualViewport, and the flag is derived from
+       `innerHeight - vv.height - vv.offsetTop > 80`. Since the document is
+       pinned (body is position:fixed, so it cannot scroll), offsetTop stays 0
+       and that subtraction no longer clears the threshold reliably - the flag
+       can stay 'closed' with the keyboard plainly up, leaving the panel parked
+       at the old 135px header offset. That is exactly the gap that kept
+       showing a conversation row above the panel.
+
+       So the geometry does not depend on the flag being right. The panel is
+       anchored to the top of the visible rectangle and given its full height,
+       which is correct whether or not the keyboard is up: --vv-height IS the
+       keyboard-shrunk height while typing, and the full screen height
+       otherwise. 100dvh is the fallback for desktop and engines without
+       visualViewport. */
+    top: var(--vv-top, 0px) !important;
     bottom: auto !important;
-    height: calc(
-      var(--vv-height, 100dvh) - 135px - env(safe-area-inset-top, 0px) -
-        env(safe-area-inset-bottom, 0px)
-    ) !important;
+    height: var(--vv-height, 100dvh) !important;
     max-height: none !important;
     /* Column layout so the extra height is spent on the AI chat rather than
        leaving dead space under a two-line summary: the summary block keeps its
@@ -1219,14 +1223,17 @@ button {
     flex-direction: column;
     overflow: hidden;
 
-    /* Edge-to-edge now, so the side and bottom corners have nothing to round
-       against and the side borders sit off-screen. Keeping only the top
-       corners makes it read as a sheet rising from the bottom of the screen
-       rather than a card that has been stretched too wide. */
-    border-radius: 12px 12px 0 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
+    /* Full-screen now, so every edge is the screen edge: nothing to round
+       against and no border to show. */
+    border-radius: 0;
+    border: none;
+  }
+
+  /* The panel covers the whole screen, so its head must clear the notch and
+     its composer the home indicator. --vv-top already accounts for browser
+     chrome in a tab; these handle the installed/standalone case. */
+  .summary-pop > .summary-pop-head {
+    padding-top: env(safe-area-inset-top, 0px);
   }
 
   /* Head stays pinned; the summary text keeps its natural size but yields
@@ -1285,34 +1292,12 @@ button {
     padding-bottom: 0;
   }
 
-  /* Keyboard up: the panel takes the WHOLE visible area above the keyboard.
-
-     It is anchored from the top of the visible rectangle (--vv-top, which is
-     how far iOS scrolled the page up to make room) and given exactly the
-     rectangle's height (--vv-height). So the panel's top edge is the top of
-     the screen and its bottom edge is the keyboard's top edge, with nothing of
-     the conversation list left showing behind it.
-
-     The 135px header offset is deliberately dropped here: with the keyboard
-     taking over half the screen, reserving space for a header the user cannot
-     see would leave too little room for the chat and the composer. The 8px top
-     gap is gone for the same reason - at this height every pixel counts, and a
-     full-bleed sheet reads as a proper modal rather than a floating card. */
-  .summary-pop[data-keyboard='open'] {
-    top: var(--vv-top, 0px) !important;
-    bottom: auto !important;
-    height: var(--vv-height, 100dvh) !important;
-    /* Full-bleed now, so the top corners stop rounding against the screen edge
-       and the panel reads as the whole surface rather than a sheet. */
-    border-radius: 0 !important;
-    border-top: none !important;
-  }
-
-  /* Installed to the home screen there is no browser chrome under the notch,
-     so a full-bleed panel would put its title bar into it. In a normal tab
-     --vv-top already clears the chrome and this resolves to 0. */
+  /* The geometry above already covers the keyboard-open case, so this flag no
+     longer drives size or position - only the safe-area detail that genuinely
+     differs. With the keyboard up the home indicator is behind it, so the
+     composer's bottom inset would be a stray gap. */
   .summary-pop[data-keyboard='open'] > .summary-pop-head {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: 0;
   }
 
   /* Nothing inside the panel may be wider than the panel. Long unbroken text -
