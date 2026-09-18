@@ -1150,6 +1150,14 @@ button {
     height: calc(100vh - 135px - env(safe-area-inset-top, 0px)) !important;
     height: calc(100svh - 135px - env(safe-area-inset-top, 0px)) !important;
     height: calc(100dvh - 135px - env(safe-area-inset-top, 0px)) !important;
+    /* iOS Safari does not shrink dvh for the soft keyboard - it treats the
+       keyboard as an overlay, so dvh stays at full-screen height and the panel
+       floor still ends up underneath it. Only visualViewport knows, and that is
+       JS. So the panel stops depending on the screen bottom entirely: it is
+       capped at the height the keyboard leaves free. 55vh is the worst case on
+       a phone (an iPhone keyboard with the suggestion strip eats ~45%), applied
+       only while a descendant has focus, so the resting panel keeps its full
+       height and only shrinks when the keyboard is actually up. */
     left: 0px !important;
     right: 0px !important;
     /* bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
@@ -1256,6 +1264,31 @@ button {
   .summary-pop > * {
     min-width: 0;
     max-width: 100%;
+  }
+
+  /* The keyboard case. :focus-within fires the moment the field is tapped and
+     clears when it blurs, which is exactly the window in which the keyboard is
+     on screen - so this needs no JS and no resize listener. The panel shrinks
+     from the top-anchored height above to something that fits in the strip the
+     keyboard leaves, and because the composer is the last flex child with
+     margin-top: auto it rides up to the new floor with it. Scrolling the
+     summary and the chat turns above it then leaves the field exactly where it
+     is, which is the behaviour being asked for. */
+  .summary-pop:focus-within {
+    height: calc(100vh - 135px - env(safe-area-inset-top, 0px)) !important;
+    height: calc(100svh - 135px - env(safe-area-inset-top, 0px)) !important;
+    height: calc(100dvh - 135px - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(55vh - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(55dvh - env(safe-area-inset-top, 0px)) !important;
+  }
+
+  /* With the panel that much shorter, a 45%-tall summary would leave the chat
+     almost nothing. Cap it harder while the keyboard is up - the summary is
+     still fully readable by scrolling it, which is the point of keeping the
+     composer fixed. */
+  .summary-pop:focus-within > .summary-pop-body,
+  .summary-pop:focus-within > .summary-pop-note {
+    max-height: 30%;
   }
 }
 
