@@ -1166,6 +1166,45 @@ button {
     overflow: hidden;
   }
 
+  /* Keyboard-aware geometry. --vv-* are written by SummaryPopover from
+     window.visualViewport: --vv-top is how far the page was scrolled up to make
+     room for the keyboard, --vv-keyboard is how much of the layout viewport the
+     keyboard covers. Both are 0 (or absent) with the keyboard closed, so this
+     rule is a no-op until a field is focused and the block above stays in
+     charge.
+
+     Why it is needed: `position: fixed` and every vh unit - dvh included - are
+     resolved against the LAYOUT viewport, which iOS Safari does NOT shrink for
+     the soft keyboard; it scrolls the page up behind it instead. So the panel
+     floor, and the composer sitting on it, slide under the keyboard, and
+     scrolling the list behind drags the composer with it. Offsetting `top` by
+     --vv-top re-pins the panel to the VISIBLE rectangle, and sizing it from
+     --vv-height puts its floor exactly on top of the keyboard, where the
+     composer then stays put. */
+  .summary-pop {
+    top: calc(135px + env(safe-area-inset-top, 0px) + var(--vv-top, 0px)) !important;
+    /* The height comes from the MEASURED visual-viewport height rather than
+       from dvh minus the keyboard. Subtracting the keyboard from a viewport
+       unit would double-count it on the engines where dvh already shrinks for
+       the keyboard (Chrome on Android), leaving the panel far too short.
+       --vv-height is the visible rectangle either way, so one expression is
+       correct on both. The panel starts 135px below the layout viewport's top
+       and --vv-top of that is already hidden above the fold, so only the
+       remainder of the header stack comes off the visible height. */
+    height: calc(
+      var(--vv-height) - max(0px, 135px + env(safe-area-inset-top, 0px) - var(--vv-top, 0px))
+    ) !important;
+  }
+
+  /* With the keyboard up the panel is short, so the summary must stop claiming
+     45% of it - otherwise the turns list collapses to nothing and the composer
+     is the only thing left with room. The chat is what you are looking at while
+     typing, so the summary yields. */
+  .summary-pop[data-keyboard='open'] > .summary-pop-body,
+  .summary-pop[data-keyboard='open'] > .summary-pop-note {
+    max-height: 30%;
+  }
+
   /* Head stays pinned; the summary text keeps its natural size but yields
      (and scrolls) if it is unusually long, so the chat below is never crushed. */
   .summary-pop > .summary-pop-head {
