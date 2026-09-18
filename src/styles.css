@@ -1285,19 +1285,34 @@ button {
     padding-bottom: 0;
   }
 
-  /* Keyboard up. The visible rectangle is now only --vv-height tall and starts
-     --vv-top down the page, so the panel simply BECOMES that rectangle, minus a
-     small top gap. Filling it exactly is what puts the composer's bottom edge
-     on the keyboard's top edge - there is no room left underneath for it to
-     fall into.
+  /* Keyboard up: the panel takes the WHOLE visible area above the keyboard.
 
-     The 135px header offset is dropped here on purpose: with a keyboard eating
-     over half the screen, spending another 135px on a header the user cannot
-     see would leave a sliver too short to hold the chat and the composer. */
+     It is anchored from the top of the visible rectangle (--vv-top, which is
+     how far iOS scrolled the page up to make room) and given exactly the
+     rectangle's height (--vv-height). So the panel's top edge is the top of
+     the screen and its bottom edge is the keyboard's top edge, with nothing of
+     the conversation list left showing behind it.
+
+     The 135px header offset is deliberately dropped here: with the keyboard
+     taking over half the screen, reserving space for a header the user cannot
+     see would leave too little room for the chat and the composer. The 8px top
+     gap is gone for the same reason - at this height every pixel counts, and a
+     full-bleed sheet reads as a proper modal rather than a floating card. */
   .summary-pop[data-keyboard='open'] {
-    top: calc(8px + var(--vv-top, 0px)) !important;
+    top: var(--vv-top, 0px) !important;
     bottom: auto !important;
-    height: calc(var(--vv-height, 100dvh) - 8px) !important;
+    height: var(--vv-height, 100dvh) !important;
+    /* Full-bleed now, so the top corners stop rounding against the screen edge
+       and the panel reads as the whole surface rather than a sheet. */
+    border-radius: 0 !important;
+    border-top: none !important;
+  }
+
+  /* Installed to the home screen there is no browser chrome under the notch,
+     so a full-bleed panel would put its title bar into it. In a normal tab
+     --vv-top already clears the chrome and this resolves to 0. */
+  .summary-pop[data-keyboard='open'] > .summary-pop-head {
+    padding-top: env(safe-area-inset-top, 0px);
   }
 
   /* Nothing inside the panel may be wider than the panel. Long unbroken text -
