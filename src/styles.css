@@ -227,6 +227,11 @@ body {
   padding: 0;
   overflow: hidden;
   overscroll-behavior: none;
+  /* Stop iOS from re-flowing text at its own scale after an orientation change
+     or a zoom. Without this Safari inflates font sizes on its own and the
+     layout no longer matches the widths this stylesheet computes. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -5902,4 +5907,53 @@ button {
 .summary-ask-send:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* ------------------------------------------------------------------ *
+ * iOS focus-zoom guard
+ *
+ * THE BUG THIS FIXES: on iPhone, focusing a text field whose font-size is
+ * under 16px makes Safari zoom the whole page in to "help" read it. The page
+ * is then wider than the screen, so the layout looks broken, everything spills
+ * off the right edge and the view can be dragged around - and the zoom is
+ * never undone when the field is blurred. It is a browser behaviour, not a
+ * layout error: no amount of width/overflow CSS can prevent it, which is why
+ * it survived the width and overflow fixes above.
+ *
+ * 16px is the exact threshold Safari uses. These fields are 12.5-14.5px by
+ * design on desktop, so the bump is scoped to the coarse-pointer + narrow
+ * breakpoint where the zoom actually happens, leaving desktop typography
+ * untouched.
+ *
+ * Applied to EVERY focusable text control, not just the AI panel's: the
+ * conversation search, the thread search and the message composer all sit
+ * under 16px too and trigger exactly the same zoom.
+ * ------------------------------------------------------------------ */
+@media (max-width: 720px) {
+  input[type='text'],
+  input[type='search'],
+  input[type='email'],
+  input[type='password'],
+  input[type='tel'],
+  input[type='url'],
+  input[type='number'],
+  input:not([type]),
+  textarea,
+  select,
+  .input,
+  .select,
+  .summary-ask-input,
+  /* Compound selectors need matching specificity to win: each of these
+     overrides the base control font size further down the stylesheet, and a
+     single-class rule here would lose to them and leave the zoom in place.
+     Verified by computing the used font-size at 390px, not by inspection. */
+  .search .input,
+  .thread-search-field .input,
+  .picker-search input,
+  .assign .select,
+  .account-switcher .select {
+    /* Must be >= 16px. Not `1rem`: a future root-font change would silently
+       drop it back under the threshold and the zoom would return. */
+    font-size: 16px;
+  }
 }
