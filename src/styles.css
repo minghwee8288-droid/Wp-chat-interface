@@ -3736,8 +3736,29 @@ button {
   padding-bottom: 12px;
 }
 
-.search-sub {
+/* Holds the number (or nothing, on a message row) on the left and the
+   ✦ Summary button on the right, mirroring .conv-meta in the unsearched
+   list so the button lands in the same place on both. */
+.search-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 2px;
+}
+
+/* A message row has no left-hand text, so the button would otherwise sit
+   flush against the snippet. */
+.search-sub-row.is-trailing {
+  justify-content: flex-end;
+  margin-top: 5px;
+}
+
+.search-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-2);
   font-size: 12.5px;
 }

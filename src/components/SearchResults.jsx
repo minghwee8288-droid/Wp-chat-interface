@@ -1,4 +1,4 @@
-import { SearchX, AlertCircle } from 'lucide-react'
+import { SearchX, AlertCircle, Sparkles } from 'lucide-react'
 import { displayName, formatNumber, relativeStamp, avatarIndex } from '../lib/format.js'
 import ContactAvatar from './ContactAvatar.jsx'
 import { MIN_QUERY_LENGTH } from '../lib/useMessageSearch.js'
@@ -39,6 +39,12 @@ export default function SearchResults({
   search,
   openId,
   onOpen,
+  // Opens the AI summary popover, same handler the unsearched list uses.
+  // Omitted simply leaves the button off, keeping this component standalone.
+  onSummary = null,
+  // Maps a message hit's conversation_id back to the loaded conversation the
+  // popover needs. Omitted leaves message rows without a Summary button.
+  resolveConversation = null,
 }) {
   const tooShort = query.trim().length < MIN_QUERY_LENGTH
   const loading = search.status === 'loading'
@@ -74,11 +80,19 @@ export default function SearchResults({
           {nameMatches.map((conversation) => {
             const isActive = String(conversation.id) === String(openId)
             return (
-              <button
+              <div
                 key={`c-${conversation.id}`}
-                type="button"
+                role="button"
+                tabIndex={0}
+                aria-current={isActive ? 'true' : undefined}
                 className={`conv-row search-row${isActive ? ' is-active' : ''}`}
                 onClick={() => onOpen(conversation.id, null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onOpen(conversation.id, null)
+                  }
+                }}
               >
                 <ContactAvatar conversation={conversation} />
                 <div className="conv-body">
@@ -88,13 +102,32 @@ export default function SearchResults({
                       {relativeStamp(conversation.last_message_at)}
                     </span>
                   </div>
-                  <div className="search-sub">
-                    {conversation.is_group
-                      ? 'Group'
-                      : formatNumber(conversation.customer_number)}
+                  {/* Number on the left, the same ✦ Summary button the
+                      unsearched list carries on its right. A role=button div
+                      above (not a <button>) so this one can nest inside. */}
+                  <div className="search-sub-row">
+                    <span className="search-sub">
+                      {conversation.is_group
+                        ? 'Group'
+                        : formatNumber(conversation.customer_number)}
+                    </span>
+                    {onSummary ? (
+                      <button
+                        type="button"
+                        className="conv-summary-btn"
+                        aria-label={`AI summary for ${displayName(conversation)}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSummary(conversation, e.currentTarget.getBoundingClientRect())
+                        }}
+                      >
+                        <Sparkles size={12} className="conv-summary-spark" />
+                        <span className="conv-summary-label">Summary</span>
+                      </button>
+                    ) : null}
                   </div>
                 </div>
-              </button>
+              </div>
             )
           })}
         </>
@@ -104,11 +137,18 @@ export default function SearchResults({
         <>
           <div className="search-group">Messages</div>
           {search.results.map((result) => (
-            <button
+            <div
               key={`m-${result.message_id}`}
-              type="button"
+              role="button"
+              tabIndex={0}
               className="conv-row search-row"
               onClick={() => onOpen(result.conversation_id, result.message_id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onOpen(result.conversation_id, result.message_id)
+                }
+              }}
             >
               <ContactAvatar conversation={avatarSubject(result)} />
               <div className="conv-body">
@@ -137,8 +177,33 @@ export default function SearchResults({
                     length={result.match_length}
                   />
                 </div>
+
+                {/* Summary for the conversation this message belongs to. Only
+                    offered when the row resolves to a conversation already
+                    loaded in the list — the result itself carries no full
+                    conversation object for the popover to work from. */}
+                {onSummary && resolveConversation ? (() => {
+                  const conversation = resolveConversation(result.conversation_id)
+                  if (!conversation) return null
+                  return (
+                    <div className="search-sub-row is-trailing">
+                      <button
+                        type="button"
+                        className="conv-summary-btn"
+                        aria-label={`AI summary for ${displayName(avatarSubject(result))}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSummary(conversation, e.currentTarget.getBoundingClientRect())
+                        }}
+                      >
+                        <Sparkles size={12} className="conv-summary-spark" />
+                        <span className="conv-summary-label">Summary</span>
+                      </button>
+                    </div>
+                  )
+                })() : null}
               </div>
-            </button>
+            </div>
           ))}
         </>
       ) : null}

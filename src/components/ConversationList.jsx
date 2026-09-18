@@ -78,6 +78,17 @@ export default function ConversationList({
     [conversations, query]
   )
 
+  // Message hits carry only a conversation_id, so the summary button on those
+  // rows looks the conversation up here — the same objects the list already
+  // holds, so no extra request. Indexed by string id because the result's id
+  // arrives as one.
+  const byId = useMemo(() => {
+    const map = new Map()
+    for (const c of conversations) map.set(String(c.id), c)
+    return map
+  }, [conversations])
+  const resolveConversation = (id) => byId.get(String(id)) ?? null
+
   const search = useMessageSearch(query)
   // Results mode is keyed on the typed query, not on the search status, so the
   // list switches over on the first keystroke rather than when a request
@@ -167,6 +178,8 @@ export default function ConversationList({
           search={search}
           openId={openId}
           onOpen={onOpen}
+          onSummary={(conversation, rect) => setPopover({ conversation, rect })}
+          resolveConversation={resolveConversation}
         />
       ) : (
       <PullToRefresh className="conv-list" onRefresh={onRefresh}>
