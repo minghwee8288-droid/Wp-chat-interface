@@ -89,6 +89,74 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
   // set state on an unmounted component.
   useEffect(() => () => askAbort.current?.abort(), [])
 
+  // --- Keyboard-aware panel geometry -------------------------------------
+  // On a phone the panel is a full-height sheet whose composer must sit on the
+  // keyboard. `position: fixed` and `100dvh` are both measured against the
+  // LAYOUT viewport, and iOS Safari does not shrink that when the soft keyboard
+  // opens - it scrolls the page up behind it instead. So the panel floor ends
+  // up under the keyboard, and any scroll of the page behind drags the whole
+  // panel (composer included) along with it. That is exactly the reported bug.
+  //
+  // window.visualViewport reports the actually-visible rectangle: `height`
+  // shrinks by the keyboard and `offsetTop` tracks how far the page was scrolled
+  // up to make room. Publishing both as CSS variables on the panel lets the
+  // stylesheet pin the sheet to the VISUAL viewport, so the composer is glued
+  // to the top of the keyboard and stays there no matter what scrolls behind.
+  //
+  // Desktop and engines without visualViewport never get the variables and fall
+  // through to the dvh/svh/vh rules already in the stylesheet.
+  useEffect(() => {
+    const vv = window.visualViewport
+    const panel = panelRef.current
+    if (!vv || !panel) return
+
+    let frame = null
+    const apply = () => {
+      frame = null
+      const el = panelRef.current
+      if (!el) return
+      el.style.setProperty('--vv-height', `${Math.round(vv.height)}px`)
+      el.style.setProperty('--vv-top', `${Math.round(vv.offsetTop)}px`)
+      // The keyboard's height, i.e. how much of the layout viewport it covers.
+      // Zero while it is closed, so the panel keeps its normal full-height
+      // geometry and only reacts once a field is actually focused.
+      const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      el.style.setProperty('--vv-keyboard', `${Math.round(keyboard)}px`)
+      el.dataset.keyboard = keyboard > 80 ? 'open' : 'closed'
+    }
+
+    // visualViewport fires resize/scroll in bursts as the keyboard animates in;
+    // coalescing into one rAF keeps that to a single style write per frame.
+    const schedule = () => {
+      if (frame == null) frame = requestAnimationFrame(apply)
+    }
+
+    apply()
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule)
+    return () => {
+      if (frame != null) cancelAnimationFrame(frame)
+      vv.removeEventListener('resize', schedule)
+      vv.removeEventListener('scroll', schedule)
+    }
+  }, [])
+
+  // The panel is modal and covers the phone screen, so the list behind it has
+  // no business scrolling while it is open. Locking it also removes the other
+  // half of the reported bug: with the document unable to scroll, the browser
+  // cannot pan the page out from under a fixed panel when the keyboard opens.
+  useEffect(() => {
+    const { body } = document
+    const previousOverflow = body.style.overflow
+    const previousOverscroll = body.style.overscrollBehavior
+    body.style.overflow = 'hidden'
+    body.style.overscrollBehavior = 'none'
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.overscrollBehavior = previousOverscroll
+    }
+  }, [])
+
   // Keep the newest turn in view as the thread grows.
   useEffect(() => {
     if (turns.length || asking) turnsEndRef.current?.scrollIntoView({ block: 'nearest' })
