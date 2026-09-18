@@ -205,26 +205,49 @@
   box-sizing: border-box;
 }
 
+/* Lock the document to the viewport. `overflow-x: hidden` alone does NOT stop
+   a phone from panning sideways: on html/body the value is propagated to the
+   viewport, and iOS still lets the user drag the page whenever a descendant -
+   typically a `position: fixed` overlay - is wider than the screen. Adding
+   `width: 100%` does not help either, because 100% of a containing block that
+   is already too wide is still too wide.
+
+   This app is a full-height shell that never scrolls as a document: every
+   scrollable region inside it (the conversation list, the thread, the settings
+   page, the summary panel) manages its own overflow. So the body is pinned to
+   the viewport instead, which removes the document scroll port altogether -
+   the one thing iOS cannot pan. That is what stops the layout sliding left and
+   right off screen.
+
+   Pinned on `body` only, not `html`: fixing both is redundant and `inset` on
+   the root element is not uniformly handled. */
 html,
 body {
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
-  /* Lock the document to the viewport width. `overflow-x: hidden` alone does
-     not stop a phone from panning sideways: iOS Safari still lets the user
-     drag the page when any descendant - typically a `position: fixed` overlay
-     - is wider than the visual viewport. Pinning the width and forbidding
-     horizontal overscroll removes the drag itself, so the layout can no longer
-     be slid left and right off screen. */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  position: fixed;
+  inset: 0;
   width: 100%;
   max-width: 100%;
-  overscroll-behavior-x: none;
 }
 
 html,
 body,
 #root {
   height: 100%;
+}
+
+/* With the body out of normal flow, the app root must still fill it rather
+   than shrink to fit its content. */
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -494,6 +517,13 @@ button {
   min-height: 100dvh;
   padding: 24px;
   background: var(--bg);
+  /* The document no longer scrolls (body is pinned to the viewport), so this
+     page has to own its own overflow. Without this the card would be clipped
+     instead of scrollable on a short screen - a landscape phone, or a portrait
+     one with the keyboard up on the password field. */
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .login-card {
