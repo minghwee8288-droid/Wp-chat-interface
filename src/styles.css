@@ -210,6 +210,13 @@ body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
+  /* overflow-x alone only clips the overflow - the page stays pannable on
+     touch because the layout viewport is still the wider box. Capping the
+     width at the viewport is what actually stops the left/right drag on a
+     phone. 100% rather than 100vw: vw counts the scrollbar gutter on desktop
+     and would introduce a horizontal overflow of its own. */
+  width: 100%;
+  max-width: 100%;
 }
 
 html,
@@ -1188,6 +1195,31 @@ button {
 
   .summary-pop .summary-ask-form {
     flex: 0 0 auto;
+  }
+
+  /* iOS Safari zooms the whole page in when a focused input's font is under
+     16px, and that zoom is what makes the layout pannable left/right and
+     shoves the send button off-screen. 16px is the threshold, so the field is
+     pinned to it on touch screens only - the desktop 12.5px is untouched. */
+  .summary-pop .summary-ask-input {
+    font-size: 16px;
+  }
+
+  /* The panel is a fixed-position element whose inline style carries a px
+     width from computePosition. Pinning both edges and forcing the box to
+     measure itself against the viewport means it can never be wider than the
+     screen, whatever that inline width says. */
+  .summary-pop {
+    max-width: 100vw !important;
+    box-sizing: border-box;
+  }
+
+  /* Nothing inside the panel may out-measure it either: long unbroken strings
+     (a URL in a summary, a pasted id) are the usual cause of a child forcing
+     its parent wide, and the panel then drags the page sideways with it. */
+  .summary-pop > * {
+    min-width: 0;
+    max-width: 100%;
   }
 }
 
