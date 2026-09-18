@@ -1193,7 +1193,26 @@ button {
     overflow-y: auto;
   }
 
+  /* The composer is pinned to the bottom of the panel and never scrolls with
+     the conversation above it. flex: 0 0 auto stops it being squeezed when the
+     turns list grows, and position: sticky holds it against the panel floor
+     even if an unexpected sibling (an error line, a long draft) defeats the
+     flex math. The surface background is what keeps the turns from showing
+     through as they scroll underneath it. */
   .summary-pop .summary-ask-form {
+    flex: 0 0 auto;
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: var(--surface);
+    padding-top: 8px;
+    margin-top: auto;
+  }
+
+  /* The label and any error line sit above the scrolling turns and keep their
+     natural height, so neither can be crushed into the composer. */
+  .summary-pop .summary-ask-head,
+  .summary-pop .summary-ask-error {
     flex: 0 0 auto;
   }
 
