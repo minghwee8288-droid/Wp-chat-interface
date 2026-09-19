@@ -262,6 +262,28 @@ export const api = {
     }),
 
   /**
+   * Ask a question across the WHOLE portal — every conversation the caller can
+   * reach, group chats and personal chats alike — or ask for a daily report.
+   *
+   * Answered from the stored per-conversation summaries rather than raw
+   * transcripts, so the cost is fixed however busy the inbox is. Stores
+   * nothing: the panel's turns are session-only and travel back as `history`.
+   *
+   * `accountId` narrows the scan to one account; omitted (or 'all') spans every
+   * account the user is on.
+   */
+  portalAsk: (question, { history = [], accountId = null, signal } = {}) =>
+    request('/portal/ask', {
+      method: 'POST',
+      body: {
+        question,
+        history,
+        ...(accountId && accountId !== 'all' ? { account_id: accountId } : {}),
+      },
+      signal,
+    }),
+
+  /**
    * Bulk read of stored short summaries, for warming the popover cache.
    * Read-only: it never generates, so a miss here just means "not summarised
    * yet" and the per-conversation endpoint remains the way to produce one.

@@ -428,3 +428,257 @@ export async function produceAnswer({ env, question, messages, isGroup, history,
   const raw = await run(requestMessages)
   return { ...parseAskResponse(raw), truncated, model: env?.OPENROUTER_MODEL || AI_MODEL }
 }
+
+// ====================================================================
+// Portal Ask — the inbox-wide assistant.
+//
+// The third AI surface, and deliberately separate from the two above.
+//
+//   produceSummary  — one conversation, cached, background, 30-day memory.
+//   produceAnswer   — one conversation, live, the WHOLE thread.
+//   producePortalAnswer (here) — EVERY conversation the caller can reach.
+//
+// THE COST PROBLEM AND ITS ANSWER. A portal-wide question ("what happened
+// today?") spans hundreds of chats. Feeding raw transcripts for all of them is
+// impossible inside a Worker's limits, and would cost a fortune per question.
+//
+// So this path reads the ALREADY-GENERATED per-conversation summaries instead.
+// They are written by the summary pipeline on new activity and cost nothing to
+// read, they already distil each chat down to its facts and pending items, and
+// they already cover groups and one-to-one chats alike. One model call over a
+// digest of N summaries answers portal questions and daily reports at a fixed,
+// predictable cost no matter how busy the inbox is.
+//
+// Nothing here writes to wp_chat_summaries. A portal ask can never disturb a
+// conversation's stored memory.
+// ====================================================================
+
+/** How many conversations may appear in one portal digest. */
+export const PORTAL_CONVERSATION_CAP = 120
+
+/** Ceiling on the assembled digest. Bounded like every other transcript. */
+const PORTAL_MAX_DIGEST_CHARS = 42000
+
+/** Per-conversation slice of the digest, so one huge summary cannot crowd out the rest. */
+const PORTAL_PER_ENTRY_CHARS = 1200
+
+/** Room for a full daily report with several sections. */
+const PORTAL_MAX_OUTPUT_TOKENS = 1600
+
+/** Turns of prior portal Q&A carried back, so follow-ups resolve. */
+export const PORTAL_HISTORY_TURNS = 6
+
+const LEVEL_WORD = {
+  management: 'MANAGEMENT ATTENTION',
+  team: 'TEAM ATTENTION',
+  general: 'ATTENTION',
+}
+
+/**
+ * One digest entry per conversation: who it is, what kind of chat, when it was
+ * last active, who owns it, whether it is flagged, and its stored summary.
+ *
+ * The summary is preferred big-then-short: the big summary is the structured
+ * memory (key facts / status / recent activity / action needed) and is what
+ * makes a useful report. A conversation with no summary row at all still gets
+ * an entry — its metadata alone answers "who has not been replied to".
+ */
+export function formatPortalEntry(c, s, now = Date.now()) {
+  const who = c.is_group
+    ? `${c.customer_name || 'Group'} (GROUP${c.member_count ? `, ${c.member_count} members` : ''})`
+    : c.customer_name || c.customer_number || 'Unknown contact'
+
+  const bits = [`### ${who}`]
+  if (c.account_name) bits.push(`Account: ${c.account_name}`)
+  bits.push(c.assigned_to ? `Assigned to: ${c.assigned_to}` : 'Assigned to: nobody')
+
+  if (c.last_message_at) {
+    const ageMs = now - new Date(c.last_message_at).getTime()
+    const hours = Math.floor(ageMs / 3600000)
+    const age =
+      hours < 1 ? 'under an hour ago' : hours < 48 ? `${hours}h ago` : `${Math.floor(hours / 24)} days ago`
+    const dir = c.last_direction === 'inbound' ? 'from the customer' : 'from the agent'
+    bits.push(`Last message: ${age} (${dir})`)
+  } else {
+    bits.push('Last message: none')
+  }
+
+  if (c.unread_count) bits.push(`Unread: ${c.unread_count}`)
+
+  if (s?.attention_required) {
+    const word = LEVEL_WORD[s.attention_level] || LEVEL_WORD.general
+    bits.push(`FLAGGED — ${word}${s.attention_reason ? `: ${s.attention_reason}` : ''}`)
+  }
+
+  if (s?.department) bits.push(`Department: ${s.department}`)
+
+  const body = (s?.big_summary || s?.short_summary || s?.summary_text || '').trim()
+  bits.push(body ? `Summary:\n${body}` : 'Summary: none generated yet.')
+
+  const entry = bits.join('\n')
+  return entry.length > PORTAL_PER_ENTRY_CHARS
+    ? entry.slice(0, PORTAL_PER_ENTRY_CHARS) + '…'
+    : entry
+}
+
+/**
+ * Assemble the digest of every supplied conversation, newest activity first so
+ * that if the character ceiling truncates, what survives is what matters most.
+ */
+export function buildPortalDigest(conversations, summaryById, now = Date.now()) {
+  const lookup = (id) =>
+    summaryById instanceof Map ? summaryById.get(Number(id)) : summaryById?.[id]
+
+  const parts = []
+  let used = 0
+  let omitted = 0
+
+  for (const c of conversations || []) {
+    const entry = formatPortalEntry(c, lookup(c.id), now)
+    // +2 for the blank line between entries.
+    if (used + entry.length + 2 > PORTAL_MAX_DIGEST_CHARS) {
+      omitted += 1
+      continue
+    }
+    parts.push(entry)
+    used += entry.length + 2
+  }
+
+  return { digest: parts.join('\n\n'), included: parts.length, omitted }
+}
+
+const PORTAL_SYSTEM_PROMPT = [
+  'You are the assistant for a WhatsApp team inbox used by a support and sales team.',
+  'You are given a DIGEST of every conversation the user can see — both one-to-one customer chats and group chats — and a question from that user.',
+  'Each digest entry carries the contact or group name, the account, who it is assigned to, how long ago it was last active, whether it is flagged for attention, and the running AI summary of that chat.',
+  '',
+  'You answer questions across the WHOLE inbox and you write reports.',
+  '',
+  'Return ONLY a JSON object — no prose, no markdown fences — with these keys:',
+  '  "answer": your reply, in plain text. Use "• " for bullets and "\\n" for line breaks. Use a line ending in ":" as a section heading when the reply has sections.',
+  '  "report": when the user asked for a REPORT, DIGEST or SUMMARY of activity (a daily report, "what happened today", "what needs attention", an end-of-day rundown, a per-department or per-person breakdown), put the full structured report here as plain text and keep "answer" to one short lead-in line. Otherwise this MUST be null.',
+  '',
+  'When you write a report, structure it with these sections, and OMIT any section that would be empty:',
+  '  Needs attention: the flagged conversations, most serious first (management, then team, then general). Name the contact or group and say in one line what is wrong.',
+  '  Waiting on us: chats where the last message came from the customer and nobody has replied, oldest first.',
+  '  Active today: what actually moved, grouped sensibly.',
+  '  Unassigned: chats with nobody handling them.',
+  '  Action needed: the concrete follow-ups, as a short list.',
+  '',
+  'Rules:',
+  '  - Ground EVERY claim in the digest. Never invent a conversation, a name, a number or an event that is not there.',
+  '  - Always name the contact or group you are talking about, so the user can find the chat.',
+  '  - When the digest has nothing matching the question, say so plainly rather than padding the answer.',
+  '  - A conversation whose summary says "none generated yet" has not been summarised — do not treat that as "nothing happened"; you may still use its metadata.',
+  '  - Be concise and factual. This is an operational tool, not a sales document. No preamble, no sign-off.',
+  '  - Counts matter: when you say "3 chats need attention", make sure it is actually 3.',
+].join('\n')
+
+/**
+ * Build the portal ask request.
+ *
+ * `history` is the panel's prior turns so follow-ups ("only the group chats",
+ * "now just sales") resolve against the last answer. It is capped by the caller
+ * and never persisted.
+ */
+export function buildPortalAskRequest({
+  question,
+  conversations,
+  summaryById,
+  history = [],
+  now = Date.now(),
+  scopeNote = '',
+}) {
+  const { digest, included, omitted } = buildPortalDigest(conversations, summaryById, now)
+
+  const today = new Date(now).toISOString().slice(0, 10)
+  const omitNote = omitted
+    ? `\n(Note: ${omitted} less-recently-active conversation${omitted === 1 ? ' was' : 's were'} omitted for length.)`
+    : ''
+  const countNote = `There ${included === 1 ? 'is' : 'are'} ${included} conversation${included === 1 ? '' : 's'} in this digest.`
+
+  const turns = (history || [])
+    .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string')
+    .slice(-PORTAL_HISTORY_TURNS)
+    .map((t) => ({ role: t.role, content: clip(t.content) }))
+
+  return {
+    messages: [
+      { role: 'system', content: PORTAL_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content:
+          `Today's date is ${today}.\n${scopeNote ? `${scopeNote}\n` : ''}${countNote}\n\n` +
+          `INBOX DIGEST (most recently active first):\n"""\n${digest}\n"""${omitNote}`,
+      },
+      // The digest is established once; the turns that follow are the actual
+      // back-and-forth, so "only the flagged ones" refers to the last answer.
+      ...turns,
+      { role: 'user', content: String(question || '').trim() },
+    ],
+    included,
+    omitted,
+  }
+}
+
+/** Defensive parse of a portal reply. Falls back to raw text over failing. */
+export function parsePortalResponse(text) {
+  if (!text || typeof text !== 'string') throw new AiError('empty model response')
+
+  const s = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  const start = s.indexOf('{')
+  const end = s.lastIndexOf('}')
+
+  if (start !== -1 && end > start) {
+    try {
+      const obj = JSON.parse(s.slice(start, end + 1))
+      if (obj && typeof obj === 'object') {
+        const answer = typeof obj.answer === 'string' ? obj.answer.trim() : ''
+        const report = typeof obj.report === 'string' && obj.report.trim() ? obj.report.trim() : null
+        if (answer || report) return { answer: answer || 'Here is the report:', report }
+      }
+    } catch {
+      /* fall through to the plain-text salvage below */
+    }
+  }
+
+  // The model answered in prose instead of JSON. That is still a usable answer,
+  // so show it rather than turning a good response into an error.
+  if (s) return { answer: s, report: null }
+  throw new AiError('model returned no usable answer')
+}
+
+/**
+ * Run one portal ask. Blocks on the model, like produceAnswer: it is a direct
+ * user action with a visible pending state, and there is nothing to show until
+ * the answer exists.
+ */
+export async function producePortalAnswer({
+  env,
+  question,
+  conversations,
+  summaryById,
+  history,
+  now,
+  scopeNote,
+  generate,
+}) {
+  const run =
+    generate ||
+    ((rm) => callOpenRouter(env, rm, { maxTokens: PORTAL_MAX_OUTPUT_TOKENS, temperature: 0.3 }))
+  const { messages: requestMessages, included, omitted } = buildPortalAskRequest({
+    question,
+    conversations,
+    summaryById,
+    history,
+    now,
+    scopeNote,
+  })
+  const raw = await run(requestMessages)
+  return {
+    ...parsePortalResponse(raw),
+    conversations_read: included,
+    omitted,
+    model: env?.OPENROUTER_MODEL || AI_MODEL,
+  }
+}

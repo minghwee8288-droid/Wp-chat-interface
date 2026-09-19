@@ -15,6 +15,7 @@ import {
   WifiOff,
   RefreshCw,
   Settings as SettingsIcon,
+  Sparkles,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
@@ -26,6 +27,7 @@ import ChangePasswordModal from './ChangePasswordModal.jsx'
 import AccountMenuExtras from './AccountMenuExtras.jsx'
 import PushDiagnostics from './PushDiagnostics.jsx'
 import ReconnectModal from './ReconnectModal.jsx'
+import PortalAssistant from './PortalAssistant.jsx'
 
 export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
@@ -38,6 +40,9 @@ export default function Shell() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
   const [reconnecting, setReconnecting] = useState(false)
+  // The inbox-wide AI panel. Lives in the shell rather than on a page so it is
+  // reachable from Inbox, Team, Sync and Settings alike.
+  const [askingAi, setAskingAi] = useState(false)
   // TEMPORARY — remove with the push diagnostics panel.
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const menuRef = useRef(null)
@@ -167,6 +172,20 @@ export default function Shell() {
         <header className="topbar">
           <span className="topbar-title">{title}</span>
           <div className="topbar-spacer" />
+
+          {/* The inbox-wide assistant. Distinct from the per-row summary
+              popover: this one reads every chat the user can reach, so it
+              belongs in the chrome rather than on any one conversation. */}
+          <button
+            type="button"
+            className="topbar-ai"
+            onClick={() => setAskingAi(true)}
+            title="Ask AI about all chats"
+            aria-label="Ask AI about all chats"
+          >
+            <Sparkles size={15} />
+            <span className="topbar-ai-label">Ask AI</span>
+          </button>
 
           <div className="user-menu" ref={menuRef}>
             <button
@@ -325,6 +344,8 @@ export default function Shell() {
       ) : null}
 
       {reconnecting ? <ReconnectModal onClose={() => setReconnecting(false)} /> : null}
+
+      {askingAi ? <PortalAssistant onClose={() => setAskingAi(false)} /> : null}
 
       {showDiagnostics ? (
         <PushDiagnostics onClose={() => setShowDiagnostics(false)} />

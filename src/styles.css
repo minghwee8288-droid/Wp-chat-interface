@@ -5978,3 +5978,347 @@ button {
     font-size: 16px;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Portal AI assistant — the inbox-wide "Ask AI" panel.
+ *
+ * Sibling to .summary-pop, one level up: that panel is anchored to a
+ * conversation row and reads ONE chat, this one is opened from the header and
+ * reads every chat the user can reach. Built from the same tokens (--surface,
+ * --border, 12px radius, --shadow-menu) so the two read as one family, and
+ * every colour resolves through a variable, so dark mode needs no overrides.
+ * ------------------------------------------------------------------ */
+
+/* The header trigger. Sits between the title and the user avatar. */
+.topbar-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.topbar-ai:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+.topbar-ai:active {
+  transform: translateY(0.5px);
+}
+
+/* On a phone the label goes and the control becomes a round icon button —
+   the topbar there is tight, and the sparkle already carries the meaning. */
+@media (max-width: 720px) {
+  .topbar-ai {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .topbar-ai-label {
+    display: none;
+  }
+}
+
+.portal-ai-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* Desktop: a tall panel pinned to the top-right, clear of the header. */
+.portal-ai {
+  position: fixed;
+  z-index: 301;
+  top: 64px;
+  right: 16px;
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(78vh, 680px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-menu);
+  overflow: hidden;
+}
+
+.portal-ai-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 11px 12px 9px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.portal-ai-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* Which chats the panel is reading. Muted — it is context, not a heading. */
+.portal-ai-scope {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.portal-ai-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.portal-ai-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* The scrolling conversation. */
+.portal-ai-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+/* --- Empty state ---------------------------------------------------- */
+.portal-ai-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 2px;
+}
+.portal-ai-empty-lead {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.portal-ai-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.portal-ai-suggestion {
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.portal-ai-suggestion:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+/* --- Turns ----------------------------------------------------------- */
+.portal-ai-turn {
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  /* The model answers in plain text with "• " bullets and real newlines, so
+     the whitespace has to survive — same contract as .summary-ask-turn. */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.portal-ai-turn--user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--accent);
+  color: #fff;
+}
+.portal-ai-turn--ai {
+  align-self: flex-start;
+  width: 100%;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.portal-ai-answer {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.portal-ai-pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+}
+
+/* A full report, set apart from the AI's lead-in line so it is obvious which
+   block is the thing worth copying out into an email or a group chat. */
+.portal-ai-report {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.portal-ai-report-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.portal-ai-report-text {
+  margin: 0;
+  padding: 10px 11px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.portal-ai-turn-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+.portal-ai-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.portal-ai-action:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* How many chats the last answer was drawn from. A footnote, never a heading. */
+.portal-ai-foot {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.portal-ai-error {
+  flex: 0 0 auto;
+  margin: 0 14px 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--attn-general-bg, var(--surface-3));
+  color: var(--badge);
+  font-size: 12px;
+}
+
+/* --- Composer -------------------------------------------------------- */
+.portal-ai-form {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.portal-ai-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--search-bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.portal-ai-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.portal-ai-input::placeholder {
+  color: var(--text-3);
+}
+.portal-ai-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+}
+.portal-ai-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Mobile: the panel stops being a card and becomes a full-screen sheet, so the
+   composer stays reachable with the keyboard up.
+   --vv-* are published by the component from visualViewport; engines without
+   it fall through to dvh. Same mechanism as .summary-pop. */
+@media (max-width: 720px) {
+  .portal-ai {
+    top: var(--vv-top, 0px);
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    height: var(--vv-height, 100dvh);
+    max-height: var(--vv-height, 100dvh);
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    padding-top: env(safe-area-inset-top);
+  }
+  /* With the keyboard closed, keep clear of the home indicator. With it open
+     the keyboard itself is the floor, so the inset would be dead space. */
+  .portal-ai[data-keyboard='closed'] .portal-ai-form {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+}
