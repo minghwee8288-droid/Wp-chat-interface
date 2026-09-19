@@ -326,13 +326,15 @@ export default function ConversationList({
 
             return (
               <div key={conversation.id} className="conv-row-wrap">
-                {/* Flagged rows swipe right (touch) to reveal a dismiss ✕, and
-                    show that same ✕ on hover (desktop). Unflagged rows render
-                    plain — no swipe shell, no button. */}
+                {/* Flagged rows swipe right (touch) to reveal a ✕, and show that
+                    same ✕ on hover (desktop). Neither clears the flag directly —
+                    both open the reason sheet, which is where the closure is
+                    actually made. Unflagged rows render plain: no swipe shell,
+                    no button. */}
                 {attention ? (
                   <SwipeToDismiss
                     level={attention}
-                    onDismiss={() => onDismissAttention(conversation.id)}
+                    onDismiss={() => onDismissAttention(conversation.id, attention)}
                   >
                     {rowInner}
                   </SwipeToDismiss>
@@ -340,7 +342,7 @@ export default function ConversationList({
                   rowInner
                 )}
                 {/* Desktop keeps a hover-revealed ✕ over the bar — touch uses the
-                    swipe above. Same handler, so both raise the Undo toast. */}
+                    swipe above. Same handler, so both open the same sheet. */}
                 {attention ? (
                   <button
                     type="button"
@@ -349,7 +351,7 @@ export default function ConversationList({
                     title="Dismiss attention flag"
                     onClick={(e) => {
                       e.stopPropagation()
-                      onDismissAttention(conversation.id)
+                      onDismissAttention(conversation.id, attention)
                     }}
                   >
                     <X size={13} />

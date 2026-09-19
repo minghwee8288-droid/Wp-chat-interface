@@ -1,6 +1,7 @@
 import { requireAuth, requireConversationAccess } from '../../_lib/auth.js'
 import { json, badRequest, serverError } from '../../_lib/respond.js'
 import { getDb, unwrap } from '../../_lib/db.js'
+import { recordAttentionEvent } from '../../_lib/attention-audit.js'
 
 const positiveInt = (v) => {
   const n = Number(v)
@@ -19,7 +20,16 @@ const positiveInt = (v) => {
  * no-op — importantly, it must NOT re-raise attention_required with a null
  * level, which the same CHECK constraint would reject.
  *
- * Any signed-in user may undo; the action is scoped to the one conversation.
+ * A 'restored' row is appended to the audit trail. Without it an accidental
+ * dismiss-then-undo would leave a lone 'dismissed' event that a manager reads
+ * as a closure which never happened; the pair together tell the truth. No
+ * reason is required — undoing a closure creates no accountability gap, and
+ * demanding prose for it would just push agents to leave bad closures standing.
+ *
+ * Any signed-in user may undo, INCLUDING re-raising a 'management' flag that
+ * only an admin could have cleared: restoring is the safe direction, and
+ * blocking it would leave an agent who mis-closed something unable to correct
+ * it themselves.
  */
 export async function onRequestPost({ request, env }) {
   const auth = await requireAuth(request, env)
@@ -54,6 +64,17 @@ export async function onRequestPost({ request, env }) {
     if (!parked || parked.dismissed_level == null) {
       return json({ ok: true, conversation_id: conversationId, restored: false })
     }
+
+    // Audit before mutating, as in dismiss — the level being restored is
+    // snapshot from the parked columns, which the update below clears.
+    await recordAttentionEvent(env, {
+      conversationId,
+      accountId: access.conversation?.account_id ?? null,
+      action: 'restored',
+      levelAtTime: parked.dismissed_level,
+      reasonAtTime: parked.dismissed_reason ?? null,
+      actor: auth.user,
+    })
 
     unwrap(
       await db

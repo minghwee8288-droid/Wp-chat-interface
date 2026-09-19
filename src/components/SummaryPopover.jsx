@@ -61,8 +61,6 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
   // A background regenerate is running while we already have text on screen.
   // Purely a footnote — it never suppresses the summary.
   const [refreshing, setRefreshing] = useState(false)
-  // Guards a double-tap on the banner's dismiss button.
-  const [dismissing, setDismissing] = useState(false)
 
   // --- Chat with AI ------------------------------------------------------
   // The panel's conversation with the assistant. Session-only and deliberately
@@ -235,30 +233,19 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
     }
   }
 
-  // Manually clear the attention flag. Optimistic: drop the banner right away,
-  // keep the shared popover cache in step so a reopen doesn't resurrect it, and
-  // let the parent own the request + list update. On failure the parent toasts
-  // and we put the banner back.
-  const handleDismiss = async () => {
-    if (dismissing || !summary) return
-    const previous = summary
-    setDismissing(true)
-    const cleared = {
-      ...summary,
-      attention_required: false,
-      attention_level: null,
-      attention_reason: null,
-    }
-    setSummary(cleared)
-    try {
-      await onDismiss?.(conversation.id)
-      const entry = cache.get(conversation.id)
-      if (entry?.summary) cache.set(conversation.id, { ...entry, summary: cleared })
-    } catch {
-      setSummary(previous)
-    } finally {
-      setDismissing(false)
-    }
+  // Ask the parent to open the reason sheet. NOT optimistic any more: clearing
+  // a flag now requires a reason and can still be refused server-side (wrong
+  // role for a management flag, or a "no response" closure inside the 24h
+  // window), so dropping the banner here would take it away on every rejection
+  // and put it back a moment later.
+  //
+  // The banner goes when the flag actually goes — this popover stays open over
+  // the sheet, and the list refresh that follows a successful closure carries
+  // the new state back. The cache line the optimistic version kept in step is
+  // gone with it: there is no longer a local guess to keep in step.
+  const handleDismiss = () => {
+    if (!summary) return
+    onDismiss?.(conversation.id, summary.attention_level)
   }
 
   // The panel is modal and locked open: the close button is the ONLY way out.
@@ -392,7 +379,6 @@ export default function SummaryPopover({ conversation, anchorRect, cache, onDism
                   aria-label="Dismiss attention flag"
                   title="Dismiss — mark as handled"
                   onClick={handleDismiss}
-                  disabled={dismissing}
                 >
                   <X size={13} />
                 </button>

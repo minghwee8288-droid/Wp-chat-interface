@@ -1,7 +1,12 @@
 import { useEffect } from 'react'
 import { X } from 'lucide-react'
 
-export default function Modal({ title, subtitle, onClose, children }) {
+/**
+ * `className` is appended to the overlay, not the panel — the one thing a
+ * caller has ever needed to vary is the stacking level, and that belongs to the
+ * backdrop. Optional, so every existing call site is unaffected.
+ */
+export default function Modal({ title, subtitle, onClose, className = '', children }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose()
@@ -12,7 +17,7 @@ export default function Modal({ title, subtitle, onClose, children }) {
 
   return (
     <div
-      className="overlay"
+      className={`overlay${className ? ` ${className}` : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label={title}

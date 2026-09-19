@@ -6427,3 +6427,69 @@ button {
     padding-bottom: calc(10px + env(safe-area-inset-bottom));
   }
 }
+
+/* --- Attention closure reason sheet ------------------------------------- */
+/* The radio list in DismissReasonModal. Whole rows are the hit target, not the
+   12px radio dot — this is tapped on a phone, often one-handed, and a missed
+   tap on a required field is what makes people resent a required field.
+   Everything is a token, so the sheet follows the dark theme with no override. */
+.dismiss-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dismiss-reason {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  /* Only the border and background move on selection. A transition on `all`
+     would animate the radio's own focus ring and make keyboard tabbing feel
+     laggy. */
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.dismiss-reason:hover {
+  border-color: var(--border-strong);
+}
+
+.dismiss-reason.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.dismiss-reason input {
+  /* The native control stays in the DOM and keeps the radiogroup keyboard- and
+     screen-reader-navigable; the row around it supplies the visuals. */
+  margin: 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.dismiss-reason-label {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+/* The note. Fixed height and freely resizable upward: the placeholder carries
+   the selected reason's hint, which is two lines on the narrowest phones. */
+.dismiss-note {
+  min-height: 76px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.4;
+}
+
+/* The reason sheet can be opened from INSIDE the summary popover, whose backdrop
+   and panel sit at 200/201 — above the 150 every other modal uses. Left at 150
+   the sheet would render behind the popover that launched it and be unreachable.
+   Scoped to this one overlay rather than raising .overlay globally, since the
+   other modals are never opened over the popover and 150 is correct for them. */
+.overlay--dismiss-reason {
+  z-index: 260;
+}

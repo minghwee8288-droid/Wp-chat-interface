@@ -18,6 +18,7 @@ import ThreadSearch from '../components/ThreadSearch.jsx'
 import MessageContextMenu from '../components/MessageContextMenu.jsx'
 import SelectionBar from '../components/SelectionBar.jsx'
 import ConversationPicker from '../components/ConversationPicker.jsx'
+import DismissReasonModal from '../components/DismissReasonModal.jsx'
 import { useSwipeBack } from '../lib/useSwipeBack.js'
 import { mergeMessages } from '../lib/thread.js'
 
@@ -521,28 +522,64 @@ export default function Inbox() {
   }, [])
 
   /**
-   * Manually clear a conversation's attention flag. Optimistic: the bar and the
-   * filter counts key on `attention_level`, so nulling it drops both at once,
-   * before the round trip. On success we raise the Undo toast. On failure we
-   * re-throw (so a caller like the summary popover can revert its own view) and
-   * reconcile from the server.
+   * The conversation whose reason sheet is open, or null. A flag can no longer
+   * be cleared by the tap alone — the ✕ and the swipe both land here, and the
+   * request is only made once a reason has been given.
+   *
+   * `error` holds the LAST SERVER REJECTION so the sheet can show it in place.
+   * Several of the rules cannot be checked in the browser — the caller's role
+   * against the flag's severity, and the "no response" window, which needs the
+   * newest inbound timestamp — so the sheet has to be able to fail after submit
+   * and stay open with the note intact rather than closing on a refusal.
    */
-  const dismissAttention = useCallback(
-    async (conversationId) => {
-      patchConversation(conversationId, { attention_level: null, attention_required: false })
+  const [dismissTarget, setDismissTarget] = useState(null)
+  const [dismissError, setDismissError] = useState(null)
+  const [dismissSaving, setDismissSaving] = useState(false)
+
+  const openDismissSheet = useCallback((conversationId, level) => {
+    setDismissError(null)
+    setDismissSaving(false)
+    setDismissTarget({ id: conversationId, level })
+  }, [])
+
+  const closeDismissSheet = useCallback(() => {
+    setDismissTarget(null)
+    setDismissError(null)
+    setDismissSaving(false)
+  }, [])
+
+  /**
+   * Commit the dismissal once a reason has been given.
+   *
+   * NOT optimistic, unlike the old tap-to-dismiss. The server can still refuse
+   * — wrong role for a management-level flag, or a "no response" closure inside
+   * the 24h window — and nulling the flag before knowing would flash the row
+   * out of the list and back in on every rejection. The sheet is already a
+   * modal, so the wait is visible and has somewhere to live; the row updates
+   * when the refresh lands.
+   */
+  const confirmDismiss = useCallback(
+    async (reason) => {
+      if (!dismissTarget) return
+      const conversationId = dismissTarget.id
+
+      setDismissSaving(true)
+      setDismissError(null)
       try {
-        await api.dismissAttention(conversationId)
-        // Reconcile to server truth — also snaps back any in-flight 5s poll that
-        // may have re-applied the old flag between the patch and the commit.
+        await api.dismissAttention(conversationId, reason)
+        closeDismissSheet()
+        // Reconcile to server truth — also snaps back any in-flight 5s poll
+        // that may still be carrying the old flag.
         refresh()
         showUndo(conversationId)
       } catch (err) {
-        toast.error('Could not dismiss', err.message)
-        refresh()
-        throw err
+        // Keep the sheet open with the note intact so the agent can pick a
+        // different reason rather than retyping.
+        setDismissError(err.message)
+        setDismissSaving(false)
       }
     },
-    [patchConversation, toast, refresh, showUndo]
+    [dismissTarget, closeDismissSheet, refresh, showUndo]
   )
 
   /**
@@ -732,7 +769,7 @@ export default function Inbox() {
           loading={loading}
           onNewMessage={() => setComposing(true)}
           onRefresh={refresh}
-          onDismissAttention={dismissAttention}
+          onDismissAttention={openDismissSheet}
           onSendDraft={sendDraft}
           users={users}
           summaryCache={summaryCache.current}
@@ -968,6 +1005,20 @@ export default function Inbox() {
             refresh()
             open(conversationId)
           }}
+        />
+      ) : null}
+
+      {/* The reason sheet. Every path that clears a flag — the hover ✕, the
+          touch swipe, and the summary popover's banner — opens this rather than
+          dismissing, so a closure without a recorded reason is not reachable
+          from the UI at all. */}
+      {dismissTarget ? (
+        <DismissReasonModal
+          level={dismissTarget.level}
+          error={dismissError}
+          saving={dismissSaving}
+          onCancel={closeDismissSheet}
+          onConfirm={confirmDismiss}
         />
       ) : null}
 

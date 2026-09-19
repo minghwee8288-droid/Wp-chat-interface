@@ -334,11 +334,17 @@ export const api = {
       body: { conversation_id: conversationId, assigned_user_id: assignedUserId },
     }),
 
-  /** Manually clear a conversation's attention flag (resolved off-channel). */
-  dismissAttention: (conversationId) =>
+  /**
+   * Manually clear a conversation's attention flag.
+   *
+   * `reason` is { reason_category, reason_note } and is NOT optional — the
+   * endpoint rejects a dismissal without one, and the reason is written to the
+   * append-only audit trail before the flag is touched.
+   */
+  dismissAttention: (conversationId, reason) =>
     request('/conversation/dismiss-attention', {
       method: 'POST',
-      body: { conversation_id: conversationId },
+      body: { conversation_id: conversationId, ...reason },
     }),
 
   /** Undo a dismissal — flip the retained attention flag back on. */
