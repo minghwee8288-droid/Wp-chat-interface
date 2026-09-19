@@ -29,6 +29,8 @@ import AccountSwitcher, { AccountSwitcherMenuItems } from './AccountSwitcher.jsx
 import PushDiagnostics from './PushDiagnostics.jsx'
 import ReconnectModal from './ReconnectModal.jsx'
 import PortalAssistant from './PortalAssistant.jsx'
+// Removable "new lead" feature — see functions/api/leads/mine.js to remove.
+import LeadsBell from '../features/leads/LeadsBell.jsx'
 
 export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
@@ -180,6 +182,10 @@ export default function Shell() {
         <header className="topbar">
           <span className="topbar-title">{title}</span>
           <div className="topbar-spacer" />
+
+          {/* Removable "new lead" feature. Renders nothing when the caller has
+              no new leads, so it is invisible to users who own none. */}
+          <LeadsBell />
 
           {/* The inbox-wide assistant. Distinct from the per-row summary
               popover: this one reads every chat the user can reach, so it

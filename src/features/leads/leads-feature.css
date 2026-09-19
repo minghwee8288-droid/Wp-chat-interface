@@ -1,0 +1,334 @@
+/* ------------------------------------------------------------------ *
+ * Removable feature: "new lead" bell.
+ *
+ * Kept out of src/styles.css so the feature deletes cleanly — see
+ * functions/api/leads/mine.js for the full removal checklist.
+ *
+ * Every colour here is an existing token, so dark mode needs no override
+ * block: the tokens are already redefined under the app's dark theme.
+ * ------------------------------------------------------------------ */
+
+.leads-bell {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.leads-bell-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.leads-bell-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+/* Matches .rail-badge so the two unread counts in the chrome read as one
+   system rather than two similar-looking widgets. */
+.leads-bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-full, 999px);
+  background: var(--badge);
+  color: var(--badge-text);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* --- dropdown ------------------------------------------------------ */
+
+.leads-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+
+.leads-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.leads-pop-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.leads-pop-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-full, 999px);
+  background: var(--badge);
+  color: var(--badge-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.leads-pop-clear {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.leads-pop-clear:hover {
+  text-decoration: underline;
+}
+
+/* Caps at roughly four rows, then scrolls — the panel must not grow taller
+   than the viewport on a phone. */
+.leads-pop-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+}
+
+.leads-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.leads-item:last-child {
+  border-bottom: 0;
+}
+
+.leads-item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.leads-item-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leads-item-no {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--r-full, 999px);
+  background: var(--accent-tint);
+  color: var(--accent-deep);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.leads-item-x {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.leads-item-x:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.leads-item-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-top: 3px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.leads-item-row > svg {
+  flex: 0 0 auto;
+  color: var(--text-3);
+}
+
+.leads-item-link {
+  color: var(--text-2);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leads-item-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.leads-item-muted {
+  color: var(--text-3);
+}
+
+/* --- detail chips -------------------------------------------------- */
+
+/* Wrapping row rather than a grid: chip widths vary a lot ('Warm' vs
+   'as soon as possible'), so letting them flow packs far more into the
+   panel's 320px than fixed columns would. */
+.leads-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.leads-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full, 999px);
+  background: var(--surface-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* The label is deliberately quieter than the value: with seven chips the
+   labels are scaffolding you read once, and the values are the content. */
+.leads-chip-label {
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.leads-chip-value {
+  color: var(--text);
+  font-weight: 600;
+  text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The base chip already carries the neutral look. Declared explicitly so the
+   tone set is complete in one place and a reader is not left wondering whether
+   a rule went missing. */
+.leads-chip-neutral {
+  /* intentionally the base appearance */
+}
+
+/* What the lead actually wants — the field an agent scans for first. */
+.leads-chip-primary {
+  border-color: transparent;
+  background: var(--accent-tint);
+}
+.leads-chip-primary .leads-chip-label {
+  color: var(--accent-deep);
+  opacity: 0.7;
+}
+.leads-chip-primary .leads-chip-value {
+  color: var(--accent-deep);
+}
+
+/* Urgency is the one field that should pull the eye out of order. */
+.leads-chip-urgent {
+  border-color: transparent;
+  background: var(--danger-soft);
+}
+.leads-chip-urgent .leads-chip-label {
+  color: var(--danger);
+  opacity: 0.75;
+}
+.leads-chip-urgent .leads-chip-value {
+  color: var(--danger);
+}
+
+/* temperature is a warm/cold scale, so it reads as a state, not a value. */
+.leads-chip-temp .leads-chip-value {
+  color: var(--text-2);
+}
+
+/* --- summary -------------------------------------------------------- */
+
+/* A button, not a <p>: it toggles, so it must be keyboard reachable and
+   announced as interactive. The button chrome is stripped back to text. */
+.leads-item-summary {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+
+  /* Two lines by default; one verbose lead must not push the rest of the
+     list out of view. Clicking removes the clamp. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.leads-item-summary.is-open {
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.leads-item-summary:hover {
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .leads-pop {
+    width: min(320px, calc(100vw - 24px));
+    /* The topbar sits flush to the right edge on a phone; nudging the panel
+       inward keeps it off the screen edge. */
+    right: -4px;
+  }
+}
