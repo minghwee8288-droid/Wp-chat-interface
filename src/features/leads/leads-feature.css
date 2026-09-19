@@ -82,6 +82,17 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
+  /* A flex item will not shrink below its content width without this, which
+     is what pushed "Clear all" past the panel edge on a narrow screen. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leads-pop-count,
+.leads-pop-clear {
+  flex: 0 0 auto;
 }
 
 .leads-pop-count {
@@ -143,6 +154,9 @@
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text);
+  /* Same reason as .leads-pop-title: without it the name refuses to shrink and
+     shoves the lead number and dismiss button off the row. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -325,10 +339,26 @@
 }
 
 @media (max-width: 720px) {
+  /* The bell is not the last control in the topbar — "Ask AI" and the account
+     menu sit to its right — so anchoring the panel to the bell with `right: 0`
+     pushed a 320px panel off the LEFT edge of a phone. Capping the width did
+     not help: the overflow came from the offset, not the size.
+
+     So on a phone the panel spans the viewport gutter-to-gutter instead. It
+     stays `absolute` (still vertically anchored to the bell, which matters
+     because a channel banner above the topbar shifts the bell down), and the
+     horizontal offset is handed over to the --leads-pop-shift variable that
+     LeadsBell measures: the distance from the bell's right edge to the
+     viewport's, so `right` lands the panel exactly on the 12px gutter. */
   .leads-pop {
-    width: min(320px, calc(100vw - 24px));
-    /* The topbar sits flush to the right edge on a phone; nudging the panel
-       inward keeps it off the screen edge. */
-    right: -4px;
+    right: calc(12px - var(--leads-pop-shift, 0px));
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+
+  /* Taller panels are fine now that it is full-bleed, but it still must not
+     run past the bottom of the screen. */
+  .leads-pop-list {
+    max-height: min(60vh, 460px);
   }
 }

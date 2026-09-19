@@ -37,6 +37,29 @@ export default function LeadsBell() {
     if (open && count === 0) setOpen(false)
   }, [open, count])
 
+  // The panel is anchored to the bell, but the bell is not the rightmost
+  // control in the topbar, so on a phone a right-aligned panel runs off the
+  // left edge of the screen. Measure how far the bell sits from the viewport's
+  // right edge and publish it; the mobile CSS subtracts it to pull the panel
+  // back onto the gutter. Recomputed on resize/orientation change because the
+  // gap moves with the topbar's layout.
+  useEffect(() => {
+    if (!open) return undefined
+    const measure = () => {
+      const el = wrapRef.current
+      if (!el) return
+      const gap = window.innerWidth - el.getBoundingClientRect().right
+      el.style.setProperty('--leads-pop-shift', `${Math.max(0, Math.round(gap))}px`)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('orientationchange', measure)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('orientationchange', measure)
+    }
+  }, [open])
+
   // Nothing to say, so nothing is drawn. Not even a zero-state bell: this is an
   // alert, and an alert with nothing to alert about is noise.
   if (loading || count === 0) return null
