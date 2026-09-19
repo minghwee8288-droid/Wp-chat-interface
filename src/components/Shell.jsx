@@ -25,6 +25,7 @@ import { initials } from '../lib/format.js'
 import { armAudio } from '../lib/chime.js'
 import ChangePasswordModal from './ChangePasswordModal.jsx'
 import AccountMenuExtras from './AccountMenuExtras.jsx'
+import AccountSwitcher, { AccountSwitcherMenuItems } from './AccountSwitcher.jsx'
 import PushDiagnostics from './PushDiagnostics.jsx'
 import ReconnectModal from './ReconnectModal.jsx'
 import PortalAssistant from './PortalAssistant.jsx'
@@ -123,6 +124,13 @@ export default function Shell() {
           </NavLink>
         ) : null}
 
+        {/* Below the destinations and above the spacer: the account is not a
+            place you navigate to, it is the scope everything above is shown
+            in, so it sits apart from the links rather than among them.
+            Hidden with a single account, and absent on mobile with the rail —
+            the user menu carries it there. */}
+        <AccountSwitcher />
+
         <div className="rail-spacer" />
       </nav>
 
@@ -206,6 +214,12 @@ export default function Shell() {
                   <div className="menu-head-name">{user?.name}</div>
                   <div className="menu-head-email">{user?.email}</div>
                 </div>
+
+                {/* Mobile only, and only with several accounts. The rail holds
+                    this on desktop, but the rail is gone below 720px and the
+                    channel row right underneath is account-scoped — so the
+                    switcher has to come first for that status to be readable. */}
+                <AccountSwitcherMenuItems onAction={() => setMenuOpen(false)} />
 
                 {/* Channel status + reconnect for every signed-in user, so any
                     agent can see the state and reconnect from the menu too. */}

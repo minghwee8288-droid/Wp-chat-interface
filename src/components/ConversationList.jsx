@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal, Sparkles, Building2 } from 'lucide-react'
+import { Search, X, Inbox as InboxIcon, Plus, SlidersHorizontal, Sparkles } from 'lucide-react'
 import SummaryPopover from './SummaryPopover.jsx'
 import PullToRefresh from './PullToRefresh.jsx'
 import SwipeToDismiss from './SwipeToDismiss.jsx'
@@ -18,7 +18,7 @@ import ConversationFilters, {
 } from './ConversationFilters.jsx'
 import SearchResults from './SearchResults.jsx'
 import { useMessageSearch } from '../lib/useMessageSearch.js'
-import { useAccounts, ALL_ACCOUNTS } from '../context/AccountContext.jsx'
+import { useAccounts } from '../context/AccountContext.jsx'
 
 // Attention levels that get a coloured bar down the row's left edge. The
 // colours and the bar itself live in the stylesheet
@@ -104,37 +104,14 @@ export default function ConversationList({
   // Distinguishes "filters hid everything" from "there is nothing at all".
   const hiddenByFilters = filtersActive && searched.length > 0 && filtered.length === 0
 
-  const {
-    accounts: accountList,
-    hasMultiple,
-    selected,
-    isAll,
-    select: selectAccount,
-  } = useAccounts()
+  // Only what the per-row account badge needs: the switcher itself now lives
+  // in the topbar.
+  const { hasMultiple, isAll } = useAccounts()
 
   return (
     <>
-      {/* Only rendered with more than one account, so a single-account install
-          shows no new chrome at all. */}
-      {hasMultiple ? (
-        <div className="account-switcher">
-          <Building2 size={14} />
-          <select
-            className="select"
-            aria-label="Filter conversations by account"
-            value={selected}
-            onChange={(e) => selectAccount(e.target.value)}
-          >
-            <option value={ALL_ACCOUNTS}>All accounts</option>
-            {accountList.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
-
+      {/* The account switcher used to sit here. It moved to the shell's topbar:
+          the selection is app-wide, not a filter on this list. */}
       <div className="search-wrap">
         <div className="search">
           <Search size={15} className="search-icon" />

@@ -5511,27 +5511,133 @@ button {
 }
 
 /* --------------------------------------------------------------------------
-   Account switcher — sits above the conversation list, and ONLY renders when
+   Account switcher — a rail button that opens a popover, and ONLY renders when
    the user has more than one account, so a single-account install is visually
    unchanged.
+
+   The rail is 60px and its buttons are 42px, which fits a mark and nothing
+   else; the names live in the popover. Below 720px the rail is display:none,
+   so the same choice is offered as .menu-accounts inside the user menu — see
+   the mobile block at the end of this section.
    -------------------------------------------------------------------------- */
-.account-switcher {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
+.rail-account {
+  position: relative;
+  flex-shrink: 0;
+  /* Set apart from the navigation links above: the account is the scope those
+     destinations are shown in, not another destination. */
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
-.account-switcher svg {
-  flex: none;
+
+/* Inherits .rail-link for size, radius and hover, so it sits on the same grid
+   as the nav icons; only the open state and the initials differ. */
+.rail-account-trigger.is-open {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.rail-account-initials {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* Opens to the RIGHT of the rail, vertically aligned with its trigger —
+   the rail is against the viewport edge, so a menu-style drop would be cut
+   off. Same surface, border, radius and shadow as .menu. */
+.rail-account-pop {
+  position: absolute;
+  left: calc(100% + 8px);
+  bottom: 0;
+  z-index: 60;
+  min-width: 230px;
+  max-width: 300px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+
+.rail-account-pop-head {
+  padding: 6px 10px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--text-3);
 }
-.account-switcher .select {
+
+/* The account's initials, as a small square inside a popover/menu row. Squared
+   off rather than round so it never reads as a person's avatar. */
+.rail-account-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.rail-account-name {
   flex: 1;
   min-width: 0;
-  height: 30px;
-  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-account-check {
+  flex: none;
+  color: var(--brand);
+}
+
+/* The chosen row. Tinted rather than merely ticked, so the current account is
+   findable at a glance and not only by reading to the end of each line. */
+.menu-item.is-selected {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.menu-item.is-selected .rail-account-swatch {
+  background: var(--brand);
+  color: var(--brand-contrast);
+}
+.menu-item.is-selected:hover {
+  background: var(--brand-soft);
+}
+
+/* --------------------------------------------------------------------------
+   Mobile: the rail is gone, so the switcher appears in the user menu instead.
+   Marked .mobile-only in the markup — this only adds the grouping.
+   -------------------------------------------------------------------------- */
+/* The .mobile-only helper unhides with `display: initial`, which on a div
+   computes to `inline` — that would collapse this grouping and strand its
+   border. Restated as a block at matching specificity so the padding, margin
+   and divider survive being shown. */
+.menu-accounts.mobile-only {
+  padding-bottom: 5px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+@media (max-width: 720px) {
+  .menu-accounts.mobile-only {
+    display: block;
+  }
+}
+
+.menu-section-label {
+  padding: 4px 10px 5px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
 }
 
 /* --------------------------------------------------------------------------
@@ -5971,8 +6077,7 @@ button {
   .search .input,
   .thread-search-field .input,
   .picker-search input,
-  .assign .select,
-  .account-switcher .select {
+  .assign .select {
     /* Must be >= 16px. Not `1rem`: a future root-font change would silently
        drop it back under the threshold and the zoom would return. */
     font-size: 16px;
