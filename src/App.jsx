@@ -13,6 +13,7 @@ import Inbox from './pages/Inbox.jsx'
 import Team from './pages/Team.jsx'
 import Sync from './pages/Sync.jsx'
 import Settings from './pages/Settings.jsx'
+import AttentionLog from './pages/AttentionLog.jsx'
 
 /** Cold-start placeholder. Reuses existing classes — no new UI. */
 function Booting() {
@@ -64,6 +65,9 @@ function AppRoutes() {
         <Route path="/team" element={<Team />} />
         <Route path="/sync" element={<Sync />} />
         <Route path="/settings" element={<Settings />} />
+        {/* Admin-only; the page itself redirects an agent and the endpoint
+            behind it answers 403 regardless. */}
+        <Route path="/attention-log" element={<AttentionLog />} />
       </Route>
       <Route path="*" element={<Navigate to="/inbox" replace />} />
     </Routes>

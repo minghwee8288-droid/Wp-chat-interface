@@ -347,6 +347,25 @@ export const api = {
       body: { conversation_id: conversationId, ...reason },
     }),
 
+  /**
+   * The attention closure audit log. ADMIN ONLY — the endpoint answers 403 to
+   * an agent, so callers must gate the UI on isAdmin as well.
+   *
+   * `filters` keys map straight to the query parameters: conversation_id,
+   * account_id, actor_user_id, category, action, since, until, limit, offset.
+   * Empty and null values are dropped rather than sent blank, which the server
+   * would treat as a filter on an empty string.
+   */
+  attentionEvents: (filters = {}, { signal } = {}) => {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(filters)) {
+      if (value === null || value === undefined || value === '') continue
+      params.set(key, String(value))
+    }
+    const qs = params.toString()
+    return request(`/attention/events${qs ? `?${qs}` : ''}`, { signal })
+  },
+
   /** Undo a dismissal — flip the retained attention flag back on. */
   restoreAttention: (conversationId) =>
     request('/conversation/restore-attention', {

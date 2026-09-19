@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
@@ -101,6 +102,17 @@ export default function Shell() {
             aria-label="Team"
           >
             <Users size={19} />
+          </NavLink>
+        ) : null}
+
+        {isAdmin ? (
+          <NavLink
+            to="/attention-log"
+            className={({ isActive }) => `rail-link${isActive ? ' is-active' : ''}`}
+            title="Attention audit log"
+            aria-label="Attention audit log"
+          >
+            <ShieldCheck size={18} />
           </NavLink>
         ) : null}
 
@@ -265,6 +277,23 @@ export default function Shell() {
                   >
                     <Users size={15} />
                     Team
+                  </button>
+                ) : null}
+
+                {/* The rail is hidden on mobile, so this menu is the only way
+                    to reach the audit log there. */}
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/attention-log')
+                    }}
+                  >
+                    <ShieldCheck size={15} />
+                    Attention audit log
                   </button>
                 ) : null}
 

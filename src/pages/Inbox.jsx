@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ArrowLeft, MessagesSquare, Plus, Search, Users, Building2 } from 'lucide-react'
+import { ArrowLeft, MessagesSquare, Plus, Search, Users, Building2, ShieldCheck } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
 import { useInbox } from '../context/InboxContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
+import { useAuth } from '../context/AuthContext.jsx'
 import { useAccounts } from '../context/AccountContext.jsx'
 import ConversationList from '../components/ConversationList.jsx'
 import Thread from '../components/Thread.jsx'
@@ -19,6 +20,7 @@ import MessageContextMenu from '../components/MessageContextMenu.jsx'
 import SelectionBar from '../components/SelectionBar.jsx'
 import ConversationPicker from '../components/ConversationPicker.jsx'
 import DismissReasonModal from '../components/DismissReasonModal.jsx'
+import AttentionHistoryModal from '../components/AttentionHistoryModal.jsx'
 import { useSwipeBack } from '../lib/useSwipeBack.js'
 import { mergeMessages } from '../lib/thread.js'
 
@@ -51,6 +53,9 @@ const EMPTY_THREAD = {
 
 export default function Inbox() {
   const toast = useToast()
+  // Gates the thread-header audit icon. Presentation only — the events endpoint
+  // answers 403 to an agent regardless.
+  const { isAdmin } = useAuth()
   // Used to badge the open thread with its account when there is more than one.
   const { hasMultiple: hasMultipleAccounts, accountId: selectedAccountId } = useAccounts()
   // The app runs inside a BrowserRouter, so the URL is written through the
@@ -102,6 +107,8 @@ export default function Inbox() {
   const [composing, setComposing] = useState(false)
   // The contact/group info panel — opened by tapping the thread-header name.
   const [showInfo, setShowInfo] = useState(false)
+  // The admin-only attention-history panel for the open conversation.
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   // Short-summary cache shared with ConversationList's popovers. Owned here so
   // the background preload below can fill it before any row is tapped; the
@@ -194,6 +201,9 @@ export default function Inbox() {
       setThreadSearchOpen(false)
       setThreadSearchQuery('')
       setShowInfo(false)
+      // Same reasoning: the audit panel is scoped to one conversation, so it
+      // must not survive into the next one.
+      setHistoryOpen(false)
       // Selection holds message ids from the thread being left. Carrying them
       // into a different one would show a stale count and forward messages the
       // user can no longer see, so every mode-piece resets with the thread.
@@ -854,6 +864,23 @@ export default function Inbox() {
                 <Search size={18} />
               </button>
 
+              {/* Admin-only: this chat's closure history. Hidden from agents
+                  because the audit trail is for the manager — an agent who can
+                  see which closures get reviewed learns which ones do not.
+                  The endpoint answers 403 either way, so this is presentation,
+                  not the boundary. */}
+              {isAdmin ? (
+                <button
+                  type="button"
+                  className="icon-btn thread-audit-btn"
+                  aria-label="Attention history"
+                  title="Attention history"
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <ShieldCheck size={18} />
+                </button>
+              ) : null}
+
               <AssignControl
                 conversation={conversation}
                 users={users}
@@ -1005,6 +1032,16 @@ export default function Inbox() {
             refresh()
             open(conversationId)
           }}
+        />
+      ) : null}
+
+      {/* This chat's closure history. Gated on `conversation` as well as the
+          open flag: switching chats must not leave the panel showing the
+          previous one's history under the new header. */}
+      {historyOpen && conversation && isAdmin ? (
+        <AttentionHistoryModal
+          conversation={conversation}
+          onClose={() => setHistoryOpen(false)}
         />
       ) : null}
 
