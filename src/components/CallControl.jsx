@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Phone, ChevronDown, RefreshCw, User } from 'lucide-react'
 import { api } from '../lib/api.js'
-import { avatarIndex, digitsOnly, formatNumber, initials } from '../lib/format.js'
+import { avatarIndex, digitsOnly, formatLocalNumber, initials, localNumber } from '../lib/format.js'
 
 /**
  * Click-to-call for the thread header.
@@ -16,6 +16,11 @@ import { avatarIndex, digitsOnly, formatNumber, initials } from '../lib/format.j
  * Leaving it as an <a href="tel:"> also means the control still works with no
  * extension installed — the OS dialer picks it up — which a button wired to a
  * click handler would not.
+ *
+ * Numbers are dialed WITHOUT their country code: the platform behind the
+ * extension rejects a number that carries one. localNumber() strips it only
+ * for countries whose subscriber length is known, so an unrecognised number
+ * keeps all its digits instead of being cut to an unreachable one.
  *
  * 1:1 chats get a single anchor. Groups get a menu, because the extension can
  * only dial one person at a time: there is no such thing as calling a group
@@ -87,13 +92,15 @@ export default function CallControl({ conversation }) {
 
   if (!isGroup) {
     if (!number) return null
+    const local = localNumber(number)
+    const pretty = formatLocalNumber(number)
     return (
       <a
         className="icon-btn call-btn"
-        href={`tel:+${number}`}
-        data-phone={`+${number}`}
-        aria-label={`Call ${formatNumber(number)}`}
-        title={`Call ${formatNumber(number)}`}
+        href={`tel:${local}`}
+        data-phone={local}
+        aria-label={`Call ${pretty}`}
+        title={`Call ${pretty}`}
       >
         <Phone size={18} />
       </a>
@@ -155,8 +162,8 @@ export default function CallControl({ conversation }) {
           ) : (
             <div className="call-pop-list">
               {dialable.map((m) => {
-                const digits = digitsOnly(m.member_number)
-                const pretty = formatNumber(m.member_number)
+                const digits = localNumber(m.member_number)
+                const pretty = formatLocalNumber(m.member_number)
                 // WhatsApp does not always expose a member's name, and most
                 // groups here have none at all. When there is no name the
                 // number IS the identity, so it becomes the single primary
@@ -169,8 +176,8 @@ export default function CallControl({ conversation }) {
                     key={m.id}
                     role="menuitem"
                     className="menu-item call-item"
-                    href={`tel:+${digits}`}
-                    data-phone={`+${digits}`}
+                    href={`tel:${digits}`}
+                    data-phone={digits}
                     aria-label={`Call ${name || pretty}`}
                     onClick={() => setOpen(false)}
                   >
