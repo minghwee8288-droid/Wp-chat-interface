@@ -2579,6 +2579,15 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* An unnamed member: the number is the identity, so it takes the primary
+   line's weight but the number's tabular figures — digits line up down the
+   list and stay legible at a glance. */
+.member-name-number {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
 .member-admin {
   display: inline-flex;
   align-items: center;
@@ -3212,6 +3221,177 @@ button {
   text-align: center;
   color: var(--text-3);
   background: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Call control (thread header)
+ * ------------------------------------------------------------------ */
+/* An anchor, not a button, so it carries a real tel: href for the dialer
+   extension to find — hence the explicit colour reset, which .icon-btn alone
+   does not give a link. */
+.call-btn {
+  color: var(--text-2);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.call-btn:hover {
+  text-decoration: none;
+}
+.call-btn:hover {
+  color: var(--text);
+}
+
+/* The group trigger carries a caret, so it is wider than a square icon. */
+.call-btn-group {
+  position: relative;
+  gap: 1px;
+  width: auto;
+  min-width: 46px;
+  padding: 0 5px 0 3px;
+}
+.call-btn-group.is-open {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.call-caret {
+  opacity: 0.7;
+}
+
+.call-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Anchored under the trigger and right-aligned, so it opens inward from the
+   header's right edge rather than off the side of the screen. */
+.call-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 264px;
+  max-width: calc(100vw - 24px);
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+
+.call-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 4px 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.call-refresh {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+}
+.call-refresh:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.call-refresh .is-spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+.call-pop-note {
+  margin: 0 4px 4px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+/* Long groups scroll rather than running past the bottom of the viewport. */
+.call-pop-list {
+  max-height: 264px;
+  overflow-y: auto;
+}
+
+/* These rows are anchors (for the dialer extension), so the browser's link
+   underline and link colour have to be turned off explicitly — otherwise the
+   menu reads as a list of raw hyperlinks rather than contacts. */
+.call-item {
+  gap: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+.call-item:hover,
+.call-item:focus-visible {
+  text-decoration: none;
+}
+
+/* An unnamed member: the number carries the row on its own. */
+.call-item-name-number {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.call-item-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.call-item-id {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.call-item-name {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-item-number {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.call-item-icon {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.call-item:hover .call-item-icon {
+  color: var(--accent);
+}
+
+.call-pop-state {
+  padding: 12px 10px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-3);
+}
+.call-pop-error {
+  color: var(--danger);
+}
+
+.call-pop-warn {
+  margin: 4px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--danger);
 }
 
 /* ------------------------------------------------------------------ *
@@ -4038,14 +4218,35 @@ button {
     gap: 8px;
   }
 
-  /* The search button makes this a FIVE-control header, and at 390px the
-     arithmetic is fixed: 390 - 22 padding - 34 back - 36 avatar - 42 search
-     - 116 assign - 32 gaps leaves the name 100px in the worst case (long
-     group name AND a long assignee). Two things were tried and rejected:
-     tightening the gap to 6px, which cramps every mobile header to buy 8px
-     in only the crowded case, and shrinking this button below the 42px tap
-     target every other icon at this breakpoint holds to. This header is now
-     full — a sixth control would have to collapse something into a menu. */
+  /* The call button makes this a SIX-control header, and the old note here
+     was right that six does not fit for free: 390 - 22 padding - 34 back
+     - 36 avatar - 42 search - 42 call - 116 assign - 40 gaps left the name
+     58px, which is not a name. The width is bought back from the assign
+     select below (116 -> 74), because the assignee is the one control here
+     that is also shown on every row of the list the user just came from —
+     losing its tail to an ellipsis costs the least. That puts the name back
+     to 100px in the worst case, exactly where it was at five controls.
+     Still rejected, as before: a 6px gap, which cramps every mobile header
+     to buy 8px in only the crowded case, and icons below the 42px tap target
+     every other button at this breakpoint holds to. A SEVENTH control has no
+     width left to take and would have to collapse something into a menu. */
+
+  /* Pays for the call button — see the arithmetic above. The assignee name
+     truncates instead of the conversation name. */
+  .assign .select {
+    min-width: 74px;
+  }
+
+  /* Caret is desktop affordance; at 390px every pixel it costs comes off the
+     conversation name, and the menu still announces itself via aria-haspopup
+     and by opening on tap. */
+  .call-btn-group {
+    min-width: 42px;
+    padding: 0;
+  }
+  .call-caret {
+    display: none;
+  }
 
   /* 390px cannot hold a name, an assign control and a find bar at once, so
      the bar REPLACES the header rather than stacking under it. The header

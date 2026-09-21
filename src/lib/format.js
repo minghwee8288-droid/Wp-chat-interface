@@ -1,4 +1,9 @@
-const digitsOnly = (value) => String(value ?? '').replace(/\D/g, '')
+/**
+ * Strips everything but digits. Exported because the call control needs the
+ * bare E.164 digits for `tel:` — a formatted number with spaces and brackets
+ * is not a dialable href, and the click-to-call extension reads the href.
+ */
+export const digitsOnly = (value) => String(value ?? '').replace(/\D/g, '')
 
 /** 919669229223 -> +91 96692 29223 (best effort; falls back to +digits). */
 export function formatNumber(number) {

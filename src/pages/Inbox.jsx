@@ -16,6 +16,7 @@ import NewMessageModal from '../components/NewMessageModal.jsx'
 import ContactAvatar from '../components/ContactAvatar.jsx'
 import ContactPanel from '../components/ContactPanel.jsx'
 import ThreadSearch from '../components/ThreadSearch.jsx'
+import CallControl from '../components/CallControl.jsx'
 import MessageContextMenu from '../components/MessageContextMenu.jsx'
 import SelectionBar from '../components/SelectionBar.jsx'
 import ConversationPicker from '../components/ConversationPicker.jsx'
@@ -852,6 +853,11 @@ export default function Inbox() {
                   </div>
                 )}
               </button>
+
+              {/* Click-to-call. Renders the number as a tel: anchor for the
+                  dialer extension to pick up; groups become a member picker
+                  because the extension dials one person at a time. */}
+              <CallControl conversation={conversation} />
 
               <button
                 type="button"
