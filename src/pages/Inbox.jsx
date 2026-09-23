@@ -816,7 +816,16 @@ export default function Inbox() {
                 <ArrowLeft size={18} />
               </button>
 
-              <ContactAvatar conversation={conversation} size={36} className="thread-avatar" />
+              {/* The avatar opens the info panel too — on mobile the name is
+                  squeezed out of view, leaving the avatar as the only target. */}
+              <button
+                type="button"
+                className="thread-avatar-btn"
+                onClick={() => setShowInfo(true)}
+                aria-label="Conversation info"
+              >
+                <ContactAvatar conversation={conversation} size={36} className="thread-avatar" />
+              </button>
 
               {/* Tapping the name — group OR 1:1 — opens the info panel. */}
               <button

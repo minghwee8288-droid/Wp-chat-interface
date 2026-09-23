@@ -3637,6 +3637,21 @@ button {
   flex-shrink: 0;
 }
 
+.thread-avatar-btn {
+  flex-shrink: 0;
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.thread-avatar-btn:focus-visible {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 2px;
+}
+
 /* Channel-down banner. Warm amber from the existing palette — it belongs to
    the theme rather than looking bolted on. */
 .channel-banner {
