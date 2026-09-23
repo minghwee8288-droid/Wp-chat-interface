@@ -462,8 +462,8 @@ const PORTAL_MAX_DIGEST_CHARS = 42000
 /** Per-conversation slice of the digest, so one huge summary cannot crowd out the rest. */
 const PORTAL_PER_ENTRY_CHARS = 1200
 
-/** Room for a full daily report with several sections. */
-const PORTAL_MAX_OUTPUT_TOKENS = 1600
+/** Room for a full daily report with several sections of structured cases. */
+const PORTAL_MAX_OUTPUT_TOKENS = 3000
 
 /** Turns of prior portal Q&A carried back, so follow-ups resolve. */
 export const PORTAL_HISTORY_TURNS = 6
@@ -558,15 +558,29 @@ const PORTAL_SYSTEM_PROMPT = [
   '',
   'Return ONLY a JSON object — no prose, no markdown fences — with these keys:',
   '  "answer": your reply, in plain text. Use "• " for bullets and "\\n" for line breaks. Use a line ending in ":" as a section heading when the reply has sections.',
-  '  "report": when the user asked for a REPORT, DIGEST or SUMMARY of activity (a daily report, "what happened today", "what needs attention", an end-of-day rundown, a per-department or per-person breakdown), put the full structured report here as plain text and keep "answer" to one short lead-in line. Otherwise this MUST be null.',
+  '  "report": when the user asked for a REPORT, DIGEST or SUMMARY of activity (a daily report, "what happened today", "what needs attention", an end-of-day rundown, a per-department or per-person breakdown), put the report here as a JSON OBJECT in the shape below, and keep "answer" to one short lead-in line with the headline counts. Otherwise this MUST be null.',
   '  "chats": an array of the chat numbers (the N in each heading\'s [chat:N] tag) of EVERY conversation you name in "answer" or "report", in the order you first mention them. Use [] when you name none. The user clicks these to open the chats, so never leave out a chat you talked about and never include one you did not.',
   '',
-  'When you write a report, structure it with these sections, and OMIT any section that would be empty:',
-  '  Needs attention: the flagged conversations, most serious first (management, then team, then general). Name the contact or group and say in one line what is wrong.',
-  '  Waiting on us: chats where the last message came from the customer and nobody has replied, oldest first.',
-  '  Active today: what actually moved, grouped sensibly.',
-  '  Unassigned: chats with nobody handling them.',
-  '  Action needed: the concrete follow-ups, as a short list.',
+  'The report object:',
+  '  {"sections": [{"title": "Needs attention", "items": [{',
+  '    "chat": 12,                      the N of the chat this case lives in',
+  '    "case": "Helper transfer for Diana — visa pending",   a short title for THE CASE ITSELF (the job, order, request or problem), not just the chat name',
+  '    "people": ["Diana (employer)", "Siti (helper)"],       the key people in this case, each as "Name (role)", only names that appear in the digest; [] if none',
+  '    "status": "Where the case stands now, in one or two sentences.",',
+  '    "action": "The next step and who should take it, or \\"\\" when nothing is needed.",',
+  '    "level": "management" | "team" | "general" | null,    the flag level, only for flagged chats',
+  '    "related": [7]                   other chats discussing this SAME case, or []',
+  '  }]}]}',
+  '',
+  'Report sections, in this order, OMITTING any that would be empty:',
+  '  Needs attention: flagged cases, most serious first (management, then team, then general).',
+  '  Waiting on us: the last message came from the customer and nobody has replied, oldest first.',
+  '  Active today: other cases that actually moved.',
+  '',
+  'Report rules:',
+  '  - ONE item is ONE case. If one chat holds two separate cases, write two items with the same "chat". If two chats are about the same case, write ONE item with the main chat in "chat" and the others in "related".',
+  '  - Each case appears ONCE in the whole report, in the first section above that fits it. Never repeat a case in a second section.',
+  '  - Keep "status" and "action" short and concrete: names, dates, amounts, what is outstanding.',
   '',
   'Rules:',
   '  - Ground EVERY claim in the digest. Never invent a conversation, a name, a number or an event that is not there.',
@@ -651,6 +665,54 @@ function cleanIds(list) {
   return out
 }
 
+const REPORT_LEVELS = new Set(['management', 'team', 'general'])
+
+/** A short single-line string field from the model, tags removed. */
+function reportText(v, max = 600) {
+  return typeof v === 'string' ? stripTags(v).replace(/\s+/g, ' ').trim().slice(0, max) : ''
+}
+
+/**
+ * Sanitise the model's report. A structured report becomes
+ * { sections: [{ title, items: [{ chat, case, people, status, action, level, related }] }] }
+ * with empty sections dropped; a model that still wrote prose gets its string
+ * kept. Chat ids here are raw — the caller checks them against its own scan.
+ */
+function normalizeReport(raw) {
+  if (typeof raw === 'string') return stripTags(raw).trim() || null
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.sections)) return null
+
+  const sections = []
+  for (const sec of raw.sections) {
+    if (!sec || typeof sec !== 'object' || !Array.isArray(sec.items)) continue
+    const items = []
+    for (const it of sec.items) {
+      if (!it || typeof it !== 'object') continue
+      const item = {
+        chat: cleanIds([it.chat])[0] ?? null,
+        case: reportText(it.case, 160),
+        people: (Array.isArray(it.people) ? it.people : [])
+          .map((p) => reportText(p, 80))
+          .filter(Boolean)
+          .slice(0, 8),
+        status: reportText(it.status),
+        action: reportText(it.action),
+        level: REPORT_LEVELS.has(it.level) ? it.level : null,
+        related: cleanIds(Array.isArray(it.related) ? it.related : []),
+      }
+      if (item.case || item.status) items.push(item)
+    }
+    if (items.length) sections.push({ title: reportText(sec.title, 60) || 'Report', items })
+  }
+  return sections.length ? { sections } : null
+}
+
+/** Every chat id a structured report points at, in reading order. */
+function reportIds(report) {
+  if (!report || typeof report !== 'object') return []
+  return report.sections.flatMap((s) => s.items.flatMap((it) => [it.chat, ...it.related]))
+}
+
 /**
  * Defensive parse of a portal reply. Falls back to raw text over failing.
  * `chatIds` are the conversations the reply talks about — the model's own list
@@ -671,8 +733,10 @@ export function parsePortalResponse(text) {
         const rawAnswer = typeof obj.answer === 'string' ? obj.answer : ''
         const rawReport = typeof obj.report === 'string' ? obj.report : ''
         const answer = stripTags(rawAnswer).trim()
-        const report = stripTags(rawReport).trim() || null
+        const report = normalizeReport(obj.report)
+        // Report order first: it is the reading order the user sees.
         const chatIds = cleanIds([
+          ...reportIds(report),
           ...(Array.isArray(obj.chats) ? obj.chats : []),
           ...tagIds(rawAnswer),
           ...tagIds(rawReport),

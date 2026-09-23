@@ -163,21 +163,41 @@ export async function onRequestPost({ request, env }) {
     // were in THIS scan survive, so a hallucinated or out-of-scope id can never
     // become a link — the account boundary above still holds.
     const byId = new Map(conversations.map((c) => [Number(c.id), c]))
-    const chats = (result.chatIds || [])
-      .map((id) => byId.get(id))
-      .filter(Boolean)
-      .map((c) => ({
+    const toChat = (id) => {
+      const c = byId.get(id)
+      if (!c) return null
+      return {
         id: Number(c.id),
         account_id: c.account_id,
         account_name: c.account_name || null,
         name: c.customer_name || c.customer_number || (c.is_group ? 'Group' : 'Unknown contact'),
         is_group: !!c.is_group,
-      }))
+        assigned_to: c.assigned_to || null,
+      }
+    }
+    const chats = (result.chatIds || []).map(toChat).filter(Boolean)
+
+    // A structured report carries each case's chat as a full link object, the
+    // same way. A case whose chat id was not in this scan keeps its text but
+    // loses its link rather than pointing somewhere it should not.
+    let report = result.report
+    if (report && typeof report === 'object') {
+      report = {
+        sections: report.sections.map((s) => ({
+          title: s.title,
+          items: s.items.map((it) => ({
+            ...it,
+            chat: it.chat != null ? toChat(it.chat) : null,
+            related: it.related.map(toChat).filter((c) => c && c.id !== it.chat),
+          })),
+        })),
+      }
+    }
 
     return json({
       ok: true,
       answer: result.answer,
-      report: result.report,
+      report,
       chats,
       conversations_read: result.conversations_read,
       omitted: result.omitted,

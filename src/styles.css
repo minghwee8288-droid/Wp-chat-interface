@@ -6612,6 +6612,116 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.portal-ai-chat--small {
+  padding: 3px 8px;
+  font-size: 11.5px;
+}
+
+/* Structured report: sections of case cards, one card per case. */
+.portal-ai-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px;
+  white-space: normal;
+}
+.portal-ai-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.portal-ai-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.portal-ai-section-count {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.portal-ai-case {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.portal-ai-case-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.portal-ai-case-num {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--accent-tint);
+  color: var(--accent-deep);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.portal-ai-case-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  word-break: break-word;
+}
+.portal-ai-level {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.portal-ai-level--management {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.portal-ai-case-row {
+  display: flex;
+  gap: 8px;
+  word-break: break-word;
+}
+.portal-ai-case-key {
+  flex: none;
+  width: 46px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding-top: 1px;
+}
+.portal-ai-case-row--action {
+  font-weight: 500;
+}
+.portal-ai-case-chat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.portal-ai-case-owner {
+  font-size: 11px;
+  color: var(--text-3);
+}
 
 /* How many chats the last answer was drawn from. A footnote, never a heading. */
 .portal-ai-foot {

@@ -46,6 +46,104 @@ function saveThread(accountId, turns, readCount) {
   }
 }
 
+const LEVEL_LABEL = { management: 'Management', team: 'Team', general: 'Attention' }
+
+/**
+ * A report is either the structured { sections: [{ title, items }] } the server
+ * now returns, or a plain string (older threads kept in sessionStorage, or a
+ * model that ignored the format). This is the text form of either — what Copy
+ * puts on the clipboard and what goes back to the model as history.
+ */
+function reportToText(report) {
+  if (!report) return ''
+  if (typeof report === 'string') return report
+  return report.sections
+    .map((s) => {
+      const items = s.items.map((it, n) => {
+        const lines = [`${n + 1}. ${it.case || it.status}`]
+        if (it.chat) lines.push(`   Chat: ${it.chat.name}${it.related?.length ? ` (also: ${it.related.map((c) => c.name).join(', ')})` : ''}`)
+        if (it.people?.length) lines.push(`   People: ${it.people.join(', ')}`)
+        if (it.case && it.status) lines.push(`   Status: ${it.status}`)
+        if (it.action) lines.push(`   Next: ${it.action}`)
+        return lines.join('\n')
+      })
+      return `${s.title}:\n${items.join('\n\n')}`
+    })
+    .join('\n\n')
+}
+
+function ChatLink({ chat, onOpenChat, small }) {
+  return (
+    <button
+      type="button"
+      className={`portal-ai-chat${small ? ' portal-ai-chat--small' : ''}`}
+      onClick={() => onOpenChat?.(chat.id)}
+      title={chat.account_name ? `Open ${chat.name} — ${chat.account_name}` : `Open ${chat.name}`}
+    >
+      {chat.is_group ? <Users size={12} /> : <User size={12} />}
+      <span className="portal-ai-chat-name">{chat.name}</span>
+    </button>
+  )
+}
+
+/** One card per case, grouped under its section, each linked to its chat. */
+function StructuredReport({ report, onOpenChat }) {
+  return (
+    <div className="portal-ai-sections">
+      {report.sections.map((s, si) => (
+        <section key={si} className="portal-ai-section">
+          <h4 className="portal-ai-section-title">
+            {s.title}
+            <span className="portal-ai-section-count">{s.items.length}</span>
+          </h4>
+          {s.items.map((it, ii) => (
+            <article key={ii} className="portal-ai-case">
+              <div className="portal-ai-case-head">
+                <span className="portal-ai-case-num">{ii + 1}</span>
+                <span className="portal-ai-case-title">{it.case || it.status}</span>
+                {it.level ? (
+                  <span className={`portal-ai-level portal-ai-level--${it.level}`}>
+                    {LEVEL_LABEL[it.level]}
+                  </span>
+                ) : null}
+              </div>
+              {it.people?.length ? (
+                <div className="portal-ai-case-row">
+                  <span className="portal-ai-case-key">People</span>
+                  <span>{it.people.join(' · ')}</span>
+                </div>
+              ) : null}
+              {it.case && it.status ? (
+                <div className="portal-ai-case-row">
+                  <span className="portal-ai-case-key">Status</span>
+                  <span>{it.status}</span>
+                </div>
+              ) : null}
+              {it.action ? (
+                <div className="portal-ai-case-row portal-ai-case-row--action">
+                  <span className="portal-ai-case-key">Next</span>
+                  <span>{it.action}</span>
+                </div>
+              ) : null}
+              {it.chat ? (
+                <div className="portal-ai-case-chat">
+                  <ChatLink chat={it.chat} onOpenChat={onOpenChat} small />
+                  {it.related?.map((c) => (
+                    <ChatLink key={c.id} chat={c} onOpenChat={onOpenChat} small />
+                  ))}
+                  <span className="portal-ai-case-owner">
+                    {it.chat.assigned_to ? `Handled by ${it.chat.assigned_to}` : 'Unassigned'}
+                  </span>
+                </div>
+              ) : null}
+            </article>
+          ))}
+        </section>
+      ))}
+    </div>
+  )
+}
+
 // Starter prompts. These are the questions the panel exists to answer, so they
 // are offered rather than left for the user to guess at.
 const SUGGESTIONS = [
@@ -161,7 +259,7 @@ export default function PortalAssistant({ onClose, onOpenChat }) {
     // client-side convenience and the model already has it in `content`.
     const history = turns.map((t) => ({
       role: t.role,
-      content: t.report ? `${t.content}\n${t.report}` : t.content,
+      content: t.report ? `${t.content}\n${reportToText(t.report)}` : t.content,
     }))
 
     setTurns((prev) => [...prev, { role: 'user', content: trimmed }])
@@ -315,14 +413,18 @@ export default function PortalAssistant({ onClose, onOpenChat }) {
                       <button
                         type="button"
                         className="portal-ai-action"
-                        onClick={() => handleCopy(turn.report, i)}
+                        onClick={() => handleCopy(reportToText(turn.report), i)}
                         title="Copy this report"
                       >
                         {copiedAt === i ? <Check size={12} /> : <Copy size={12} />}
                         {copiedAt === i ? 'Copied' : 'Copy'}
                       </button>
                     </div>
-                    <p className="portal-ai-report-text">{turn.report}</p>
+                    {typeof turn.report === 'string' ? (
+                      <p className="portal-ai-report-text">{turn.report}</p>
+                    ) : (
+                      <StructuredReport report={turn.report} onOpenChat={onOpenChat} />
+                    )}
                   </div>
                 ) : turn.content ? (
                   <div className="portal-ai-turn-actions">
@@ -338,20 +440,12 @@ export default function PortalAssistant({ onClose, onOpenChat }) {
                   </div>
                 ) : null}
 
-                {turn.chats?.length ? (
+                {/* A structured report links each case to its chat already. */}
+                {turn.chats?.length && (!turn.report || typeof turn.report === 'string') ? (
                   <div className="portal-ai-chats">
                     <span className="portal-ai-chats-label">Open chat</span>
                     {turn.chats.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className="portal-ai-chat"
-                        onClick={() => onOpenChat?.(c.id)}
-                        title={c.account_name ? `${c.name} — ${c.account_name}` : c.name}
-                      >
-                        {c.is_group ? <Users size={12} /> : <User size={12} />}
-                        <span className="portal-ai-chat-name">{c.name}</span>
-                      </button>
+                      <ChatLink key={c.id} chat={c} onOpenChat={onOpenChat} />
                     ))}
                   </div>
                 ) : null}
