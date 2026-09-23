@@ -6568,6 +6568,51 @@ button {
   color: var(--text);
 }
 
+/* The chats an answer names, as links. Opening one closes the panel and jumps
+   to the thread; the answer is kept, so the next one is a reopen away. */
+.portal-ai-chats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  white-space: normal;
+}
+.portal-ai-chats-label {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.portal-ai-chat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.portal-ai-chat:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+.portal-ai-chat-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* How many chats the last answer was drawn from. A footnote, never a heading. */
 .portal-ai-foot {
   align-self: flex-start;

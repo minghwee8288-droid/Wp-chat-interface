@@ -488,7 +488,9 @@ export function formatPortalEntry(c, s, now = Date.now()) {
     ? `${c.customer_name || 'Group'} (GROUP${c.member_count ? `, ${c.member_count} members` : ''})`
     : c.customer_name || c.customer_number || 'Unknown contact'
 
-  const bits = [`### ${who}`]
+  // The [chat:N] tag is how the model tells us WHICH chats it talked about, so
+  // the panel can link straight to them. It is stripped from the visible text.
+  const bits = [`### ${who} [chat:${c.id}]`]
   if (c.account_name) bits.push(`Account: ${c.account_name}`)
   bits.push(c.assigned_to ? `Assigned to: ${c.assigned_to}` : 'Assigned to: nobody')
 
@@ -557,6 +559,7 @@ const PORTAL_SYSTEM_PROMPT = [
   'Return ONLY a JSON object — no prose, no markdown fences — with these keys:',
   '  "answer": your reply, in plain text. Use "• " for bullets and "\\n" for line breaks. Use a line ending in ":" as a section heading when the reply has sections.',
   '  "report": when the user asked for a REPORT, DIGEST or SUMMARY of activity (a daily report, "what happened today", "what needs attention", an end-of-day rundown, a per-department or per-person breakdown), put the full structured report here as plain text and keep "answer" to one short lead-in line. Otherwise this MUST be null.',
+  '  "chats": an array of the chat numbers (the N in each heading\'s [chat:N] tag) of EVERY conversation you name in "answer" or "report", in the order you first mention them. Use [] when you name none. The user clicks these to open the chats, so never leave out a chat you talked about and never include one you did not.',
   '',
   'When you write a report, structure it with these sections, and OMIT any section that would be empty:',
   '  Needs attention: the flagged conversations, most serious first (management, then team, then general). Name the contact or group and say in one line what is wrong.',
@@ -567,7 +570,8 @@ const PORTAL_SYSTEM_PROMPT = [
   '',
   'Rules:',
   '  - Ground EVERY claim in the digest. Never invent a conversation, a name, a number or an event that is not there.',
-  '  - Always name the contact or group you are talking about, so the user can find the chat.',
+  '  - Always name the contact or group you are talking about EXACTLY as written in its heading (without the [chat:N] tag), so the user can find the chat. If you mention a person from inside a summary (an employer, a candidate, a client), also give the chat heading name they appear in — the inbox search only finds chats by their heading name or number.',
+  '  - Never write the [chat:N] tags in "answer" or "report"; they belong only in "chats".',
   '  - When the digest has nothing matching the question, say so plainly rather than padding the answer.',
   '  - A conversation whose summary says "none generated yet" has not been summarised — do not treat that as "nothing happened"; you may still use its metadata.',
   '  - Be concise and factual. This is an operational tool, not a sales document. No preamble, no sign-off.',
@@ -621,7 +625,38 @@ export function buildPortalAskRequest({
   }
 }
 
-/** Defensive parse of a portal reply. Falls back to raw text over failing. */
+const CHAT_TAG = /\s*\[chat:\s*(\d+)\]/gi
+
+/** Every [chat:N] id in a piece of text, in order of first appearance. */
+function tagIds(text) {
+  return [...String(text || '').matchAll(CHAT_TAG)].map((m) => Number(m[1]))
+}
+
+/** The same text with any [chat:N] tags the model leaked into it removed. */
+function stripTags(text) {
+  return String(text || '').replace(CHAT_TAG, '')
+}
+
+/** De-duplicated positive integer ids, order kept. */
+function cleanIds(list) {
+  const seen = new Set()
+  const out = []
+  for (const raw of list) {
+    const id = Number(String(raw).replace(/^\s*(?:chat:)?\s*/i, ''))
+    if (Number.isInteger(id) && id > 0 && !seen.has(id)) {
+      seen.add(id)
+      out.push(id)
+    }
+  }
+  return out
+}
+
+/**
+ * Defensive parse of a portal reply. Falls back to raw text over failing.
+ * `chatIds` are the conversations the reply talks about — the model's own list
+ * first, plus any tags it wrote into the text anyway. The caller still checks
+ * them against what was actually in the digest.
+ */
 export function parsePortalResponse(text) {
   if (!text || typeof text !== 'string') throw new AiError('empty model response')
 
@@ -633,9 +668,16 @@ export function parsePortalResponse(text) {
     try {
       const obj = JSON.parse(s.slice(start, end + 1))
       if (obj && typeof obj === 'object') {
-        const answer = typeof obj.answer === 'string' ? obj.answer.trim() : ''
-        const report = typeof obj.report === 'string' && obj.report.trim() ? obj.report.trim() : null
-        if (answer || report) return { answer: answer || 'Here is the report:', report }
+        const rawAnswer = typeof obj.answer === 'string' ? obj.answer : ''
+        const rawReport = typeof obj.report === 'string' ? obj.report : ''
+        const answer = stripTags(rawAnswer).trim()
+        const report = stripTags(rawReport).trim() || null
+        const chatIds = cleanIds([
+          ...(Array.isArray(obj.chats) ? obj.chats : []),
+          ...tagIds(rawAnswer),
+          ...tagIds(rawReport),
+        ])
+        if (answer || report) return { answer: answer || 'Here is the report:', report, chatIds }
       }
     } catch {
       /* fall through to the plain-text salvage below */
@@ -644,7 +686,8 @@ export function parsePortalResponse(text) {
 
   // The model answered in prose instead of JSON. That is still a usable answer,
   // so show it rather than turning a good response into an error.
-  if (s) return { answer: s, report: null }
+  const prose = stripTags(s).trim()
+  if (prose) return { answer: prose, report: null, chatIds: cleanIds(tagIds(s)) }
   throw new AiError('model returned no usable answer')
 }
 

@@ -36,7 +36,7 @@ import LeadsBell from '../features/leads/LeadsBell.jsx'
 export default function Shell() {
   const { user, isAdmin, logout } = useAuth()
   const { isDark, toggleTheme, soundOn, toggleSound } = useTheme()
-  const { totalUnread, mobileView } = useInbox()
+  const { totalUnread, mobileView, openConversation } = useInbox()
   const channel = useChannel()
   const location = useLocation()
   const navigate = useNavigate()
@@ -394,7 +394,17 @@ export default function Shell() {
 
       {reconnecting ? <ReconnectModal onClose={() => setReconnecting(false)} /> : null}
 
-      {askingAi ? <PortalAssistant onClose={() => setAskingAi(false)} /> : null}
+      {askingAi ? (
+        <PortalAssistant
+          onClose={() => setAskingAi(false)}
+          onOpenChat={(id) => {
+            setAskingAi(false)
+            // On the Inbox page, open it in place; anywhere else, route there
+            // and let the ?chat= restore open it.
+            if (!openConversation(id)) navigate(`/inbox?chat=${id}`)
+          }}
+        />
+      ) : null}
 
       {showDiagnostics ? (
         <PushDiagnostics onClose={() => setShowDiagnostics(false)} />

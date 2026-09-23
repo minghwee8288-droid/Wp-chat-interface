@@ -159,10 +159,26 @@ export async function onRequestPost({ request, env }) {
       scopeNote,
     })
 
+    // Turn the model's chat ids into links the panel can open. Only ids that
+    // were in THIS scan survive, so a hallucinated or out-of-scope id can never
+    // become a link — the account boundary above still holds.
+    const byId = new Map(conversations.map((c) => [Number(c.id), c]))
+    const chats = (result.chatIds || [])
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+      .map((c) => ({
+        id: Number(c.id),
+        account_id: c.account_id,
+        account_name: c.account_name || null,
+        name: c.customer_name || c.customer_number || (c.is_group ? 'Group' : 'Unknown contact'),
+        is_group: !!c.is_group,
+      }))
+
     return json({
       ok: true,
       answer: result.answer,
       report: result.report,
+      chats,
       conversations_read: result.conversations_read,
       omitted: result.omitted,
       model: result.model,

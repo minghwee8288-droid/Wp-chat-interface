@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, X, Send, Copy, Check, FileText } from 'lucide-react'
+import { Sparkles, X, Send, Copy, Check, FileText, Users, User, RotateCcw } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { useAccounts } from '../context/AccountContext.jsx'
 
@@ -11,10 +11,40 @@ import { useAccounts } from '../context/AccountContext.jsx'
  * EVERY conversation the user can reach — group chats and personal chats alike.
  * It answers questions across the whole portal and writes daily reports.
  *
- * Session-only, exactly like the popover's chat: the turns live here and vanish
- * on close. Nothing is stored server-side, so a question can never disturb a
- * conversation's summary.
+ * Nothing is stored server-side, so a question can never disturb a
+ * conversation's summary. The turns ARE kept for the browser tab (see
+ * loadThread): an answer lists chats to open, and opening one closes the panel
+ * — the list has to still be there when the user comes back for the next one.
  */
+
+// Per tab, per account scope: "All accounts" and one account are different
+// questions over different chats, so their threads must not mix.
+const STORE_KEY = 'portal-ai-thread'
+const MAX_KEPT_TURNS = 20
+
+function storeKey(accountId) {
+  return `${STORE_KEY}:${accountId ?? 'all'}`
+}
+
+function loadThread(accountId) {
+  try {
+    const raw = sessionStorage.getItem(storeKey(accountId))
+    const parsed = raw ? JSON.parse(raw) : null
+    return Array.isArray(parsed?.turns) ? parsed : { turns: [], readCount: null }
+  } catch {
+    return { turns: [], readCount: null }
+  }
+}
+
+function saveThread(accountId, turns, readCount) {
+  try {
+    const key = storeKey(accountId)
+    if (!turns.length) sessionStorage.removeItem(key)
+    else sessionStorage.setItem(key, JSON.stringify({ turns: turns.slice(-MAX_KEPT_TURNS), readCount }))
+  } catch {
+    /* storage full or blocked — the panel still works, it just forgets on close */
+  }
+}
 
 // Starter prompts. These are the questions the panel exists to answer, so they
 // are offered rather than left for the user to guess at.
@@ -25,20 +55,25 @@ const SUGGESTIONS = [
   { label: 'Group chats', question: 'Summarise what is happening in the group chats.' },
 ]
 
-export default function PortalAssistant({ onClose }) {
+export default function PortalAssistant({ onClose, onOpenChat }) {
   const { accountId, account, hasMultiple } = useAccounts()
 
-  // Each turn is { role, content, report? }. `report` is the long structured
-  // rundown the model produces for a report request; it renders in its own
-  // block with a copy button, so it can be pasted into email or a group chat.
-  const [turns, setTurns] = useState([])
+  // Each turn is { role, content, report?, chats? }. `report` is the long
+  // structured rundown the model produces for a report request; it renders in
+  // its own block with a copy button, so it can be pasted into email or a group
+  // chat. `chats` are the conversations the answer names, shown as links.
+  const [turns, setTurns] = useState(() => loadThread(accountId).turns)
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState(null)
   const [copiedAt, setCopiedAt] = useState(null)
   // How many conversations the last answer was drawn from — shown once, as a
   // footnote, so the answer's scope is never a mystery.
-  const [readCount, setReadCount] = useState(null)
+  const [readCount, setReadCount] = useState(() => loadThread(accountId).readCount)
+
+  useEffect(() => {
+    saveThread(accountId, turns, readCount)
+  }, [accountId, turns, readCount])
 
   const askAbort = useRef(null)
   const endRef = useRef(null)
@@ -147,7 +182,12 @@ export default function PortalAssistant({ onClose }) {
       if (controller.signal.aborted) return
       setTurns((prev) => [
         ...prev,
-        { role: 'assistant', content: res.answer || '', report: res.report || null },
+        {
+          role: 'assistant',
+          content: res.answer || (res.report ? '' : 'No answer came back. Please try again.'),
+          report: res.report || null,
+          chats: Array.isArray(res.chats) ? res.chats : [],
+        },
       ])
       setReadCount(typeof res.conversations_read === 'number' ? res.conversations_read : null)
     } catch (err) {
@@ -156,6 +196,15 @@ export default function PortalAssistant({ onClose }) {
     } finally {
       if (!controller.signal.aborted) setAsking(false)
     }
+  }
+
+  const startOver = () => {
+    askAbort.current?.abort()
+    setAsking(false)
+    setTurns([])
+    setReadCount(null)
+    setError(null)
+    inputRef.current?.focus()
   }
 
   const handleSubmit = (e) => {
@@ -211,6 +260,17 @@ export default function PortalAssistant({ onClose }) {
             Ask AI
             <span className="portal-ai-scope">{scopeLabel}</span>
           </span>
+          {turns.length ? (
+            <button
+              type="button"
+              className="portal-ai-close"
+              aria-label="Start a new question"
+              title="Start over"
+              onClick={startOver}
+            >
+              <RotateCcw size={14} />
+            </button>
+          ) : null}
           <button type="button" className="portal-ai-close" aria-label="Close" onClick={onClose}>
             <X size={16} />
           </button>
@@ -275,6 +335,24 @@ export default function PortalAssistant({ onClose }) {
                       {copiedAt === i ? <Check size={12} /> : <Copy size={12} />}
                       {copiedAt === i ? 'Copied' : 'Copy'}
                     </button>
+                  </div>
+                ) : null}
+
+                {turn.chats?.length ? (
+                  <div className="portal-ai-chats">
+                    <span className="portal-ai-chats-label">Open chat</span>
+                    {turn.chats.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="portal-ai-chat"
+                        onClick={() => onOpenChat?.(c.id)}
+                        title={c.account_name ? `${c.name} — ${c.account_name}` : c.name}
+                      >
+                        {c.is_group ? <Users size={12} /> : <User size={12} />}
+                        <span className="portal-ai-chat-name">{c.name}</span>
+                      </button>
+                    ))}
                   </div>
                 ) : null}
               </div>

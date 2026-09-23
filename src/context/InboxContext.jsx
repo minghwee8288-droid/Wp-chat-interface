@@ -216,6 +216,14 @@ export function InboxProvider({ children }) {
     onOpenRef.current = fn
   }, [])
 
+  // Open a conversation in the mounted Inbox page. Returns false when the Inbox
+  // is not on screen, so the caller can route to /inbox?chat= instead.
+  const openConversation = useCallback((id) => {
+    if (!onOpenRef.current) return false
+    onOpenRef.current(id)
+    return true
+  }, [])
+
   const value = useMemo(
     () => ({
       conversations,
@@ -230,6 +238,7 @@ export function InboxProvider({ children }) {
       applyOutbound,
       patchConversation,
       registerOpenHandler,
+      openConversation,
       refresh: () => refresh(),
     }),
     [
@@ -243,6 +252,7 @@ export function InboxProvider({ children }) {
       applyOutbound,
       patchConversation,
       registerOpenHandler,
+      openConversation,
       refresh,
     ]
   )

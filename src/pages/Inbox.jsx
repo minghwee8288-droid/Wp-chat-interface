@@ -252,9 +252,12 @@ export default function Inbox() {
     setThreadSearchQuery('')
   }, [])
 
-  // Lets a toast click jump straight into the conversation.
+  // Lets a toast click (or an Ask AI result) jump straight into the
+  // conversation. Unregistered on unmount so callers on other pages know to
+  // route to /inbox instead of calling a handler that is no longer on screen.
   useEffect(() => {
     registerOpenHandler(open)
+    return () => registerOpenHandler(null)
   }, [registerOpenHandler, open])
 
   // Background summary preload.
