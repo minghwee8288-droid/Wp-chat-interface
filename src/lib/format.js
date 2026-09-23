@@ -1,4 +1,73 @@
-const digitsOnly = (value) => String(value ?? '').replace(/\D/g, '')
+/**
+ * Strips everything but digits. Exported because the call control needs the
+ * bare E.164 digits for `tel:` — a formatted number with spaces and brackets
+ * is not a dialable href, and the click-to-call extension reads the href.
+ */
+export const digitsOnly = (value) => String(value ?? '').replace(/\D/g, '')
+
+/**
+ * Country codes we know the SUBSCRIBER length for, so a local number can be
+ * recovered from a stored E.164 one.
+ *
+ * `total` is the full digit count INCLUDING the country code — it is the
+ * check that stops a wrong strip. Without it, '1' matches any number starting
+ * with a 1 (every +1... and, say, a +12 country) and would eat a real digit.
+ * Longest prefix wins, so 971 is tested before 97 and 1 before nothing.
+ *
+ * Add a row here when a new country appears in the data; an unlisted country
+ * is deliberately left whole rather than guessed at, because a number short
+ * by one digit is not a number that rings.
+ */
+const COUNTRY_CODES = [
+  { cc: '91', total: 12 },  // India        +91 94253 44605
+  { cc: '65', total: 10 },  // Singapore    +65 8753 3650
+  { cc: '1', total: 11 },   // US / Canada  +1 202 555 0143
+  { cc: '44', total: 12 },  // UK           +44 7700 900123
+  { cc: '61', total: 11 },  // Australia    +61 412 345 678
+  { cc: '971', total: 12 }, // UAE          +971 50 123 4567
+  { cc: '60', total: 11 },  // Malaysia     +60 12 345 6789
+  { cc: '62', total: 12 },  // Indonesia    +62 812 3456 7890
+]
+
+/**
+ * Drops the country code, leaving the local subscriber number.
+ *
+ * The dialer platform rejects numbers that carry a country code, so this is
+ * what gets dialed and what gets shown. Only strips when BOTH the prefix and
+ * the total length match a known country — anything else is returned as bare
+ * digits, unchanged, because trimming a guessed number of digits produces a
+ * number that silently fails to connect.
+ *
+ * 919425344605 -> 9425344605
+ * 6587533650   -> 87533650
+ * 255712345678 -> 255712345678  (unlisted country, left whole)
+ */
+export function localNumber(number) {
+  const d = digitsOnly(number)
+  if (!d) return ''
+  // Longest prefix first, so '971' is not shadowed by '97'/'9'.
+  const match = [...COUNTRY_CODES]
+    .sort((a, b) => b.cc.length - a.cc.length)
+    .find((c) => d.startsWith(c.cc) && d.length === c.total)
+  return match ? d.slice(match.cc.length) : d
+}
+
+/**
+ * The local number, spaced for reading. Grouping is chosen by length alone —
+ * the country code is already gone by this point, so there is nothing left to
+ * key a per-country rule off.
+ *
+ * 9425344605 -> 94253 44605
+ * 87533650   -> 8753 3650
+ */
+export function formatLocalNumber(number) {
+  const n = localNumber(number)
+  if (!n) return ''
+  if (n.length === 10) return `${n.slice(0, 5)} ${n.slice(5)}`
+  if (n.length === 8) return `${n.slice(0, 4)} ${n.slice(4)}`
+  if (n.length === 9) return `${n.slice(0, 3)} ${n.slice(3, 6)} ${n.slice(6)}`
+  return n
+}
 
 /** 919669229223 -> +91 96692 29223 (best effort; falls back to +digits). */
 export function formatNumber(number) {

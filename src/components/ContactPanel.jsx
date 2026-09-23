@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, ArrowLeft, Image as ImageIcon, FileText, LinkIcon,
-  Users, Shield, RefreshCw, Download, Film, ExternalLink,
+  Users, Shield, RefreshCw, Download, Film, ExternalLink, User,
 } from 'lucide-react'
 import { api } from '../lib/api.js'
 import {
@@ -208,15 +208,26 @@ function MembersSection({ conversation }) {
         <>
           <div className="member-list">
             {(expanded ? members : members.slice(0, MEMBER_PREVIEW_COUNT)).map((m) => {
-              const name = m.member_name || formatNumber(m.member_number)
+              const pretty = formatNumber(m.member_number)
+              // Most members carry no name from WhatsApp. Falling back to the
+              // number for the name printed it twice per row and made the
+              // avatar a bare '+', so an unnamed member shows the number once,
+              // as its own identity. Matches the call menu.
+              const name = m.member_name?.trim() || null
               return (
                 <div className="member-row" key={m.id}>
                   <span className="conv-avatar member-avatar" data-color={avatarIndex(m.member_number)}>
-                    {initials(name)}
+                    {name ? initials(name) : <User size={13} />}
                   </span>
                   <span className="member-id">
-                    <span className="member-name">{name}</span>
-                    <span className="member-number">{formatNumber(m.member_number)}</span>
+                    {name ? (
+                      <>
+                        <span className="member-name">{name}</span>
+                        <span className="member-number">{pretty}</span>
+                      </>
+                    ) : (
+                      <span className="member-name member-name-number">{pretty}</span>
+                    )}
                   </span>
                   {m.is_admin ? (
                     <span className="member-admin" title="Group admin">
