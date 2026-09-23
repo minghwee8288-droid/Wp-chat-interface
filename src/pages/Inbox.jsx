@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ArrowLeft, MessagesSquare, Plus, Search, Users, Building2, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, MessagesSquare, Plus, Search, Users, Building2, ShieldCheck, Sparkles } from 'lucide-react'
 import { api } from '../lib/api.js'
 import { displayName, formatNumber, mediaLabel } from '../lib/format.js'
 import { useInbox } from '../context/InboxContext.jsx'
@@ -22,6 +22,7 @@ import SelectionBar from '../components/SelectionBar.jsx'
 import ConversationPicker from '../components/ConversationPicker.jsx'
 import DismissReasonModal from '../components/DismissReasonModal.jsx'
 import AttentionHistoryModal from '../components/AttentionHistoryModal.jsx'
+import SummaryPopover from '../components/SummaryPopover.jsx'
 import { useSwipeBack } from '../lib/useSwipeBack.js'
 import { mergeMessages } from '../lib/thread.js'
 
@@ -110,6 +111,9 @@ export default function Inbox() {
   const [showInfo, setShowInfo] = useState(false)
   // The admin-only attention-history panel for the open conversation.
   const [historyOpen, setHistoryOpen] = useState(false)
+  // The AI summary popover opened from the thread header — the same panel as
+  // the list rows' ✦ Summary button. Holds the anchor rect it opens beside.
+  const [summaryRect, setSummaryRect] = useState(null)
 
   // Short-summary cache shared with ConversationList's popovers. Owned here so
   // the background preload below can fill it before any row is tapped; the
@@ -205,6 +209,7 @@ export default function Inbox() {
       // Same reasoning: the audit panel is scoped to one conversation, so it
       // must not survive into the next one.
       setHistoryOpen(false)
+      setSummaryRect(null)
       // Selection holds message ids from the thread being left. Carrying them
       // into a different one would show a stale count and forward messages the
       // user can no longer see, so every mode-piece resets with the thread.
@@ -879,6 +884,16 @@ export default function Inbox() {
                 <Search size={18} />
               </button>
 
+              <button
+                type="button"
+                className="icon-btn thread-summary-btn"
+                aria-label="AI summary"
+                title="AI summary"
+                onClick={(e) => setSummaryRect(e.currentTarget.getBoundingClientRect())}
+              >
+                <Sparkles size={18} />
+              </button>
+
               {/* Admin-only: this chat's closure history. Hidden from agents
                   because the audit trail is for the manager — an agent who can
                   see which closures get reviewed learns which ones do not.
@@ -1057,6 +1072,19 @@ export default function Inbox() {
         <AttentionHistoryModal
           conversation={conversation}
           onClose={() => setHistoryOpen(false)}
+        />
+      ) : null}
+
+      {/* Same popover, cache and actions as the list rows' ✦ Summary. */}
+      {summaryRect && conversation ? (
+        <SummaryPopover
+          key={conversation.id}
+          conversation={conversation}
+          anchorRect={summaryRect}
+          cache={summaryCache.current}
+          onDismiss={openDismissSheet}
+          onSend={sendDraft}
+          onClose={() => setSummaryRect(null)}
         />
       ) : null}
 
