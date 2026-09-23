@@ -1515,32 +1515,41 @@ button {
    the bar so the two read as one control. It overlaps the avatar edge
    deliberately — a transient overlay, not part of the row's layout, so it costs
    nothing when hidden. */
+/* The button is a full-height strip over the bar and the ✕, so a click anywhere
+   on the red edge dismisses instead of falling through to the row and opening
+   the chat. The visible circle is the inner span. */
 .conv-attn-dismiss {
   position: absolute;
-  top: 50%;
-  left: 6px;
-  transform: translateY(-50%);
+  top: 0;
+  bottom: 0;
+  left: 0;
   z-index: 3;
+  display: flex;
+  align-items: center;
+  width: 38px;
+  padding: 0 0 0 6px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.conv-attn-dismiss-dot {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
-  padding: 0;
-  border: none;
   border-radius: var(--r-full);
   background: var(--attn-team-bar);
-  color: #fff;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
   box-shadow: var(--shadow-menu);
-  transition: opacity 0.12s ease;
 }
-.conv-attn-dismiss--team {
+.conv-attn-dismiss--team .conv-attn-dismiss-dot {
   background: var(--attn-team-bar);
 }
-.conv-attn-dismiss--management {
+.conv-attn-dismiss--management .conv-attn-dismiss-dot {
   background: var(--attn-management-bar);
 }
 /* Hover reveal only where hover is real — desktop only. Touch has no hover and
@@ -1575,13 +1584,17 @@ button {
 .conv-swipe-action--management {
   background: var(--attn-management-bar);
 }
+/* Spans the WHOLE action panel, not just the 72px ✕ slot: a drag can pull the
+   row past the resting offset, and any red that shows must dismiss rather than
+   swallow the tap. The part under the row is covered by the slider anyway. The
+   ✕ stays centred in the first 72px via the padding ((72 - 18) / 2). */
 .conv-swipe-x {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 72px;
+  justify-content: flex-start;
+  width: 100%;
   height: 100%;
-  padding: 0;
+  padding: 0 0 0 27px;
   border: none;
   background: transparent;
   color: #fff;

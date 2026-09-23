@@ -354,7 +354,9 @@ export default function ConversationList({
                       onDismissAttention(conversation.id, attention)
                     }}
                   >
-                    <X size={13} />
+                    <span className="conv-attn-dismiss-dot">
+                      <X size={13} />
+                    </span>
                   </button>
                 ) : null}
               </div>
