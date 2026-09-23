@@ -3,11 +3,12 @@
 //
 // This whole feature is deliberately isolated so it can be deleted in one go.
 // To remove it entirely, delete exactly these four things:
-//   1. functions/api/leads/mine.js          (this file)
+//   1. functions/api/leads/                 (this file + outcome.js)
 //   2. src/features/leads/                  (the client feature folder)
 //   3. the <NewLeadBanner /> line + its import in src/pages/Inbox.jsx
 //   4. the leads-feature.css import in src/main.jsx
 // Nothing else in the codebase references it, and no migration was applied.
+// (Optionally also drop the LEADS_TENANT_ID env var it reads.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getDb, unwrap } from '../../_lib/db.js'
@@ -41,16 +42,35 @@ const LEAD_COLUMNS = [
   'summary',
   'status',
   'owner_profile_id',
+  // When the enquiry itself came in — shown in the panel as "Received".
+  'received_at',
   'created_at',
+  'assigned_at',
+  // The assigned salesperson, embedded over the owner_profile_id FK so the
+  // panel can name them without a second round trip.
+  'owner:profiles!owner_profile_id(display_name, email)',
 ].join(', ')
 
 /** Newest first, and never flood the header with an unbounded list. */
 const MAX_LEADS = 20
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The one OS tenant whose leads this inbox shows — the LEADS_TENANT_ID env var.
+ * The leads tables are shared by every tenant in the OS, so without it an admin
+ * would see (and could act on) other tenants' leads.
+ *
+ * Fails closed: unset or malformed → null, and callers treat that as "no
+ * leads", never as "every tenant".
+ */
+export function leadsTenantId(env) {
+  const value = String(env?.LEADS_TENANT_ID || '').trim()
+  return UUID_RE.test(value) ? value : null
+}
+
 /**
  * GET /api/leads/mine
- *
- * The leads this caller should be alerted about.
  *
  * Identity bridge: the inbox authenticates against `wp_chat_users`, while
  * `leads.owner_profile_id` points into `profiles` — two separate tables with no
@@ -58,8 +78,11 @@ const MAX_LEADS = 20
  * wp_chat_users.email is matched (case-insensitively) against profiles.email to
  * find the profile id that leads are actually owned by.
  *
- * Visibility:
- *   admin → every lead with status 'new'
+ * The caller's most recent leads, whatever their status — the client shows
+ * 'new' ones as unread and keeps worked ones in the list as read.
+ *
+ * Visibility (always within the LEADS_TENANT_ID tenant):
+ *   admin → every lead
  *   agent → only leads whose owner_profile_id is their matched profile id
  *
  * An agent with no matching profile row sees nothing. That is the correct
@@ -74,23 +97,28 @@ export async function onRequestGet({ request, env }) {
   const { user } = auth
 
   try {
+    const tenantId = leadsTenantId(env)
+    if (!tenantId) return json({ ok: true, leads: [], profile_id: null })
+
     const db = getDb(env)
     const isAdmin = user.role === 'admin'
 
     let profileId = null
 
     if (!isAdmin) {
-      profileId = await findProfileIdByEmail(db, user.email)
+      profileId = await findProfileIdByEmail(db, user.email, tenantId)
       // No profile → no lead can be owned by this user. Answer an empty list
       // rather than falling through to an unfiltered query, which would leak
       // every lead to an agent whose email simply has not been mirrored yet.
       if (!profileId) return json({ ok: true, leads: [], profile_id: null })
     }
 
+    // Every status, not just 'new': a lead stays in the list after it is
+    // worked, and the client decides read/unread from its status.
     let query = db
       .from('leads')
       .select(LEAD_COLUMNS)
-      .eq('status', 'new')
+      .eq('tenant_id', tenantId)
       // Archived leads are done with, whoever owns them.
       .is('archived_at', null)
       .order('created_at', { ascending: false })
@@ -107,7 +135,8 @@ export async function onRequestGet({ request, env }) {
 }
 
 /**
- * profiles.id for this email, or null.
+ * profiles.id for this email within the tenant, or null. Profiles are
+ * per-tenant, so the same address in another tenant must not match.
  *
  * Mirrors the escaping/re-check discipline of findUserByEmail in _lib/db.js:
  * PostgREST cannot express `lower(col) = lower($1)`, and `ilike` would treat a
@@ -115,14 +144,19 @@ export async function onRequestGet({ request, env }) {
  * the JS equality check below is the authoritative comparison. Any row that
  * slipped through the pattern cannot produce a false match here.
  */
-async function findProfileIdByEmail(db, email) {
+export async function findProfileIdByEmail(db, email, tenantId) {
   const normalized = String(email || '').trim().toLowerCase()
   if (!normalized) return null
 
-  const pattern = normalized.replace(/([\%_])/g, '\$1')
+  const pattern = normalized.replace(/([\\%_])/g, '\\$1')
 
   const rows = unwrap(
-    await db.from('profiles').select('id, email').ilike('email', pattern).limit(10)
+    await db
+      .from('profiles')
+      .select('id, email')
+      .eq('tenant_id', tenantId)
+      .ilike('email', pattern)
+      .limit(10)
   )
 
   const match = rows?.find((row) => String(row.email || '').toLowerCase() === normalized)

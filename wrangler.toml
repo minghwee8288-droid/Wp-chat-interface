@@ -15,6 +15,7 @@ compatibility_date = "2024-11-06"
 #   WHAPI_API_URL
 #   WHAPI_WEBHOOK_SECRET
 #   BUSINESS_NUMBER
+#   LEADS_TENANT_ID   (leads bell: the OS tenant uuid whose leads are shown)
 
 # NOTE: no [triggers] block here — Cloudflare Pages rejects it outright
 # ("Configuration file for Pages projects does not support triggers"). Cron is

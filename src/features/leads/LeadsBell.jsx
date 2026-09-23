@@ -2,15 +2,16 @@
 // for the full removal checklist.
 //
 // Mounted once, in the Shell topbar. Renders nothing at all when the caller has
-// no new leads, so a user who never owns leads sees no change to the UI.
+// no leads, so a user who never owns leads sees no change to the UI. The red
+// badge counts UNREAD leads only; read ones stay in the list.
 
 import { useEffect, useRef, useState } from 'react'
-import { Bell, Mail, Phone, X } from 'lucide-react'
-import { useMyLeads } from './useMyLeads.js'
-import { leadChips, isBlank } from './leadFields.js'
+import { Bell, Check, Mail, Phone } from 'lucide-react'
+import { useMyLeads, isUnread } from './useMyLeads.js'
+import { leadChips, isBlank, formatLeadTime, fullLeadTime, CONTACT_OUTCOMES, statusLabel } from './leadFields.js'
 
 export default function LeadsBell() {
-  const { leads, count, loading, dismiss, dismissAll } = useMyLeads()
+  const { leads, readSet, unreadCount, loading, markRead, markAllRead, logOutcome } = useMyLeads()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
 
@@ -31,11 +32,11 @@ export default function LeadsBell() {
     }
   }, [open])
 
-  // Dismissing the last lead leaves an empty panel anchored to a bell that is
-  // about to unmount — close it rather than let it hang.
+  // If the list empties (e.g. the last lead is archived in the OS), the bell
+  // is about to unmount — close the panel rather than let it hang.
   useEffect(() => {
-    if (open && count === 0) setOpen(false)
-  }, [open, count])
+    if (open && leads.length === 0) setOpen(false)
+  }, [open, leads.length])
 
   // The panel is anchored to the bell, but the bell is not the rightmost
   // control in the topbar, so on a phone a right-aligned panel runs off the
@@ -60,9 +61,13 @@ export default function LeadsBell() {
     }
   }, [open])
 
-  // Nothing to say, so nothing is drawn. Not even a zero-state bell: this is an
-  // alert, and an alert with nothing to alert about is noise.
-  if (loading || count === 0) return null
+  // No leads at all → nothing is drawn. With leads but none unread, the bell
+  // stays (the list is still worth opening) but carries no badge.
+  if (loading || leads.length === 0) return null
+
+  const bellLabel = unreadCount
+    ? `${unreadCount} unread lead${unreadCount === 1 ? '' : 's'}`
+    : 'Leads'
 
   return (
     <div className="leads-bell" ref={wrapRef}>
@@ -71,34 +76,46 @@ export default function LeadsBell() {
         className="leads-bell-btn"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${count} new lead${count === 1 ? '' : 's'}`}
-        title={`${count} new lead${count === 1 ? '' : 's'}`}
+        aria-label={bellLabel}
+        title={bellLabel}
         onClick={() => setOpen((v) => !v)}
       >
         <Bell size={16} />
-        <span className="leads-bell-badge">{count > 9 ? '9+' : count}</span>
+        {unreadCount ? (
+          <span className="leads-bell-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+        ) : null}
       </button>
 
       {open ? (
         <div className="leads-pop" role="menu">
           <div className="leads-pop-head">
-            <span className="leads-pop-title">
-              New lead{count === 1 ? '' : 's'} arrived
-            </span>
-            <span className="leads-pop-count">{count}</span>
-            <button
-              type="button"
-              className="leads-pop-clear"
-              onClick={dismissAll}
-              title="Dismiss all"
-            >
-              Clear all
-            </button>
+            <span className="leads-pop-title">Leads</span>
+            {unreadCount ? (
+              <span className="leads-pop-count" title={bellLabel}>
+                {unreadCount}
+              </span>
+            ) : null}
+            {unreadCount ? (
+              <button
+                type="button"
+                className="leads-pop-clear"
+                onClick={markAllRead}
+                title="Mark every lead as read"
+              >
+                Mark all read
+              </button>
+            ) : null}
           </div>
 
           <ul className="leads-pop-list">
             {leads.map((lead) => (
-              <LeadRow key={lead.id} lead={lead} onDismiss={() => dismiss(lead.id)} />
+              <LeadRow
+                key={lead.id}
+                lead={lead}
+                unread={isUnread(lead, readSet)}
+                onMarkRead={() => markRead(lead.id)}
+                onOutcome={(outcome) => logOutcome(lead.id, outcome)}
+              />
             ))}
           </ul>
         </div>
@@ -107,7 +124,7 @@ export default function LeadsBell() {
   )
 }
 
-function LeadRow({ lead, onDismiss }) {
+function LeadRow({ lead, unread, onMarkRead, onOutcome }) {
   // Summaries run to several sentences. Clamped to two lines so one verbose
   // lead cannot push the rest of the list out of view, with the full text one
   // click away rather than hidden behind a tooltip nobody hovers.
@@ -117,18 +134,23 @@ function LeadRow({ lead, onDismiss }) {
   const hasSummary = !isBlank(lead.summary)
 
   return (
-    <li className="leads-item">
+    <li className={`leads-item${unread ? ' is-unread' : ''}`}>
       <div className="leads-item-top">
+        {unread ? <span className="leads-item-dot" aria-label="Unread" /> : null}
         <span className="leads-item-name">{lead.full_name || 'Unnamed lead'}</span>
         {lead.lead_number ? <span className="leads-item-no">{lead.lead_number}</span> : null}
-        <button
-          type="button"
-          className="leads-item-x"
-          aria-label={`Dismiss ${lead.full_name || 'lead'}`}
-          onClick={onDismiss}
-        >
-          <X size={13} />
-        </button>
+        {/* Marks read; never removes. Read leads stay in the list. */}
+        {unread ? (
+          <button
+            type="button"
+            className="leads-item-x"
+            aria-label={`Mark ${lead.full_name || 'lead'} as read`}
+            title="Mark as read"
+            onClick={onMarkRead}
+          >
+            <Check size={13} />
+          </button>
+        ) : null}
       </div>
 
       {/* Phone is present on every lead in practice and is the one field an
@@ -165,6 +187,10 @@ function LeadRow({ lead, onDismiss }) {
         </div>
       ) : null}
 
+      <LeadMeta lead={lead} />
+
+      <LeadOutcome status={lead.status} onLog={onOutcome} />
+
       {hasSummary ? (
         <button
           type="button"
@@ -176,5 +202,99 @@ function LeadRow({ lead, onDismiss }) {
         </button>
       ) : null}
     </li>
+  )
+}
+
+/**
+ * Provenance and ownership: when the enquiry came in and which salesperson
+ * holds it. A label/value grid rather than chips — these are facts to look up,
+ * not attributes to scan.
+ */
+function LeadMeta({ lead }) {
+  const owner = lead.owner || null
+  const ownerName = owner?.display_name || owner?.email || null
+  const assignedAt = formatLeadTime(lead.assigned_at)
+
+  const rows = [
+    { key: 'received', label: 'Received', value: formatLeadTime(lead.received_at), title: fullLeadTime(lead.received_at) },
+    {
+      key: 'owner',
+      label: 'Assigned to',
+      value: lead.owner_profile_id ? (
+        <>
+          <span className="leads-meta-strong">{ownerName || 'Unknown profile'}</span>
+          {assignedAt ? <span className="leads-meta-sub"> · {assignedAt}</span> : null}
+        </>
+      ) : (
+        <span className="leads-meta-muted">Unassigned</span>
+      ),
+      title: assignedAt ? `Assigned ${fullLeadTime(lead.assigned_at)}` : '',
+    },
+  ].filter((row) => row.value)
+
+  return (
+    <dl className="leads-meta">
+      {rows.map((row) => (
+        <div key={row.key} className="leads-meta-row" title={row.title || undefined}>
+          <dt>{row.label}</dt>
+          <dd>{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/**
+ * "Log what happened…" — the same control as the OS lead drawer. Each pick is
+ * logged as an activity; on a 'new' lead it also moves the status on, and the
+ * resulting status is shown alongside. The select is locked while a save is in
+ * flight so a second pick cannot race the first, and a failure shows inline.
+ */
+function LeadOutcome({ status, onLog }) {
+  const [outcome, setOutcome] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleChange = async (e) => {
+    const next = e.target.value
+    if (!next) return
+    setSaving(true)
+    setError('')
+    try {
+      await onLog(next)
+      setOutcome(next)
+    } catch (err) {
+      setError(err?.message || 'Could not log outcome')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="leads-status">
+      <div className="leads-status-line">
+        <span className="leads-status-label">Status</span>
+        <span className={`leads-status-pill leads-status-${status || 'new'}`}>
+          {statusLabel(status || 'new')}
+        </span>
+      </div>
+      <select
+        className={`leads-status-select${outcome ? ' is-set' : ''}`}
+        value={outcome}
+        onChange={handleChange}
+        disabled={saving}
+        aria-label="Log what happened"
+      >
+        <option value="" disabled>
+          {saving ? 'Saving…' : 'Log what happened…'}
+        </option>
+        {CONTACT_OUTCOMES.map((value) => (
+          <option key={value} value={value}>
+            {value}
+          </option>
+        ))}
+      </select>
+      {error ? <span className="leads-status-error">{error}</span> : null}
+    </div>
   )
 }

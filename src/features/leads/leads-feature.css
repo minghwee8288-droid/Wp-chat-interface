@@ -143,6 +143,22 @@
   border-bottom: 0;
 }
 
+/* Unread: still 'new' and not marked read. A faint wash plus a dot, so read
+   leads recede without disappearing. */
+.leads-item.is-unread {
+  /* Half-strength tint, so the accent-tinted lead-number pill and chips on an
+     unread row still stand off the row itself. */
+  background: color-mix(in srgb, var(--accent-tint) 50%, var(--surface));
+}
+
+.leads-item-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--badge);
+}
+
 .leads-item-top {
   display: flex;
   align-items: center;
@@ -301,6 +317,118 @@
 /* temperature is a warm/cold scale, so it reads as a state, not a value. */
 .leads-chip-temp .leads-chip-value {
   color: var(--text-2);
+}
+
+/* --- provenance / ownership ----------------------------------------- */
+
+.leads-meta {
+  margin: 7px 0 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.leads-meta-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.leads-meta-row + .leads-meta-row {
+  margin-top: 2px;
+}
+
+.leads-meta dt {
+  color: var(--text-3);
+}
+
+.leads-meta dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text-2);
+}
+
+.leads-meta-strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.leads-meta-sub,
+.leads-meta-muted {
+  color: var(--text-3);
+}
+
+/* --- status / outcome ---------------------------------------------- */
+
+.leads-status {
+  margin-top: 7px;
+}
+
+.leads-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  font-size: 11.5px;
+}
+
+.leads-status-label {
+  color: var(--text-3);
+}
+
+.leads-status-pill {
+  padding: 1px 7px;
+  border-radius: var(--r-full, 999px);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+/* Moved out of 'new' — the lead has been worked. */
+.leads-status-pill:not(.leads-status-new) {
+  border-color: transparent;
+  background: var(--accent-tint);
+  color: var(--accent-deep);
+}
+
+.leads-status-select {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Once an outcome is logged it reads as the answer, not a prompt. */
+.leads-status-select.is-set {
+  border-color: transparent;
+  background: var(--accent-tint);
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+.leads-status-select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.leads-status-select:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.leads-status-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--danger);
+  font-size: 11.5px;
 }
 
 /* --- summary -------------------------------------------------------- */

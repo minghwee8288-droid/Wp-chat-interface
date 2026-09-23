@@ -76,6 +76,7 @@ These are **system-wide** — shared by every account:
 | `JWT_SECRET` | A long random string used to sign auth tokens |
 | `ENCRYPTION_KEY` | Encrypts per-account Whapi credentials at rest (see below) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web Push identity for this deployment |
+| `LEADS_TENANT_ID` | The OS tenant (uuid) whose leads the bell shows. Unset → the bell shows no leads |
 
 These are the **fallback** for the default account. With multi-account enabled they are
 optional: an account with its own credentials stored in the database ignores them, and an

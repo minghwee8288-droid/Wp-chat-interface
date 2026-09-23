@@ -100,3 +100,50 @@ export function leadChips(lead) {
     return true
   })
 }
+
+/**
+ * A lead timestamp as the agent reads it: '23 Sep, 11:41 AM' in their own
+ * timezone, with the year added only when it is not the current one. Returns
+ * null for a missing or unparseable value so the caller can drop the row.
+ */
+export function formatLeadTime(value) {
+  if (isBlank(value)) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+
+  const opts = { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }
+  if (date.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric'
+  return date.toLocaleString(undefined, opts)
+}
+
+/** Full, unambiguous form for the hover title. */
+export const fullLeadTime = (value) => {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
+}
+
+/**
+ * The OS's contact outcomes — what a salesperson logs after reaching out. Not
+ * statuses: the server logs each as an activity and moves a 'new' lead on to
+ * 'contacted' / 'follow_up_required'. Mirrors CONTACT_OUTCOMES in
+ * functions/api/leads/outcome.js — keep the two in step.
+ */
+export const CONTACT_OUTCOMES = [
+  'Contacted',
+  'Call not picked',
+  'No answer',
+  'Wrong number',
+  'Requested callback',
+]
+
+/** The OS's own wording for leads.status (os-minghwee leadLabels.ts). */
+const STATUS_LABELS = {
+  new: 'New',
+  contacted: 'Contacted',
+  follow_up_required: 'Follow-up required',
+  qualified: 'Qualified',
+  converted: 'Converted',
+  lost: 'Lost',
+}
+
+export const statusLabel = (status) => STATUS_LABELS[status] || humanize(status)
