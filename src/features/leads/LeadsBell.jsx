@@ -6,14 +6,24 @@
 // badge counts UNREAD leads only; read ones stay in the list.
 
 import { useEffect, useRef, useState } from 'react'
-import { Bell, Check, Mail, Phone } from 'lucide-react'
+import { BadgeCheck, Ban, Bell, CalendarClock, Check, CircleCheck, Mail, Phone, Timer, TriangleAlert } from 'lucide-react'
 import { useMyLeads, isUnread } from './useMyLeads.js'
-import { leadChips, isBlank, formatLeadTime, fullLeadTime, CONTACT_OUTCOMES, statusLabel } from './leadFields.js'
+import { leadChips, isBlank, formatLeadTime, fullLeadTime, CONTACT_OUTCOMES, statusLabel, leadSlaPill } from './leadFields.js'
 
 export default function LeadsBell() {
   const { leads, readSet, unreadCount, loading, markRead, markAllRead, logOutcome } = useMyLeads()
   const [open, setOpen] = useState(false)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const wrapRef = useRef(null)
+
+  // Live SLA countdown while the panel is open — re-renders the pills every
+  // 30s from the client clock; it never refetches (same as the OS inbox).
+  useEffect(() => {
+    if (!open) return undefined
+    setNowMs(Date.now())
+    const iv = window.setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(iv)
+  }, [open])
 
   // Close on outside click / Escape — same contract as the user menu next door.
   useEffect(() => {
@@ -113,6 +123,7 @@ export default function LeadsBell() {
                 key={lead.id}
                 lead={lead}
                 unread={isUnread(lead, readSet)}
+                nowMs={nowMs}
                 onMarkRead={() => markRead(lead.id)}
                 onOutcome={(outcome) => logOutcome(lead.id, outcome)}
               />
@@ -124,17 +135,20 @@ export default function LeadsBell() {
   )
 }
 
-function LeadRow({ lead, unread, onMarkRead, onOutcome }) {
+function LeadRow({ lead, unread, nowMs, onMarkRead, onOutcome }) {
   // Summaries run to several sentences. Clamped to two lines so one verbose
   // lead cannot push the rest of the list out of view, with the full text one
   // click away rather than hidden behind a tooltip nobody hovers.
   const [expanded, setExpanded] = useState(false)
 
-  const chips = leadChips(lead)
+  const facts = leadChips(lead)
   const hasSummary = !isBlank(lead.summary)
+  const hasPhone = !isBlank(lead.phone)
+  const hasEmail = !isBlank(lead.email)
 
   return (
     <li className={`leads-item${unread ? ' is-unread' : ''}`}>
+      {/* Header: who, and where the lead stands — the two things read first. */}
       <div className="leads-item-top">
         {unread ? <span className="leads-item-dot" aria-label="Unread" /> : null}
         <span className="leads-item-name">{lead.full_name || 'Unnamed lead'}</span>
@@ -148,48 +162,49 @@ function LeadRow({ lead, unread, onMarkRead, onOutcome }) {
             title="Mark as read"
             onClick={onMarkRead}
           >
-            <Check size={13} />
+            <Check size={14} />
           </button>
         ) : null}
       </div>
 
-      {/* Phone is present on every lead in practice and is the one field an
-          agent acts on, so it leads and stays a tap-to-call link. */}
-      {!isBlank(lead.phone) ? (
-        <div className="leads-item-row">
-          <Phone size={12} />
-          <a className="leads-item-link" href={`tel:${lead.phone}`}>
-            {lead.phone}
-          </a>
+      <div className="leads-item-state">
+        <LeadSla lead={lead} nowMs={nowMs} />
+        <span className={`leads-status-pill leads-status-${lead.status || 'new'}`}>
+          {statusLabel(lead.status || 'new')}
+        </span>
+      </div>
+
+      {/* Phone first: it is on every lead and is the one field an agent acts
+          on, so it stays a tap-to-call link. */}
+      {hasPhone || hasEmail ? (
+        <div className="leads-contact">
+          {hasPhone ? (
+            <a className="leads-contact-link" href={`tel:${lead.phone}`} title={`Call ${lead.phone}`}>
+              <Phone size={13} />
+              <span>{lead.phone}</span>
+            </a>
+          ) : null}
+          {hasEmail ? (
+            <a className="leads-contact-link" href={`mailto:${lead.email}`} title={lead.email}>
+              <Mail size={13} />
+              <span>{lead.email}</span>
+            </a>
+          ) : null}
         </div>
       ) : null}
 
-      {!isBlank(lead.email) ? (
-        <div className="leads-item-row">
-          <Mail size={12} />
-          <a className="leads-item-link" href={`mailto:${lead.email}`}>
-            {lead.email}
-          </a>
-        </div>
-      ) : null}
-
-      {/* Everything else as labelled chips. Absent fields are omitted, not
-          dashed — most leads fill only four or five of these, and a column of
-          dashes would bury the ones that carry an answer. */}
-      {chips.length ? (
-        <div className="leads-chips">
-          {chips.map((chip) => (
-            <span key={chip.key} className={`leads-chip leads-chip-${chip.tone}`}>
-              <span className="leads-chip-label">{chip.label}</span>
-              <span className="leads-chip-value">{chip.text}</span>
-            </span>
+      {/* The enquiry as a label-over-value grid. Absent fields are omitted, not
+          dashed — most leads fill only four or five of these. */}
+      {facts.length ? (
+        <dl className="leads-facts">
+          {facts.map((fact) => (
+            <div key={fact.key} className={`leads-fact leads-fact-${fact.tone}`}>
+              <dt>{fact.label}</dt>
+              <dd title={fact.text}>{fact.text}</dd>
+            </div>
           ))}
-        </div>
+        </dl>
       ) : null}
-
-      <LeadMeta lead={lead} />
-
-      <LeadOutcome status={lead.status} onLog={onOutcome} />
 
       {hasSummary ? (
         <button
@@ -201,56 +216,75 @@ function LeadRow({ lead, unread, onMarkRead, onOutcome }) {
           {lead.summary}
         </button>
       ) : null}
+
+      <div className="leads-item-foot">
+        <LeadMeta lead={lead} />
+        <LeadOutcome onLog={onOutcome} />
+      </div>
     </li>
+  )
+}
+
+const SLA_ICONS = {
+  ontrack: CircleCheck,
+  timer: Timer,
+  warning: TriangleAlert,
+  verified: BadgeCheck,
+  closed: Ban,
+  callback: CalendarClock,
+}
+
+/** Contact SLA pill, as the OS lead inbox shows it. Display only. */
+function LeadSla({ lead, nowMs }) {
+  const pill = leadSlaPill(lead, nowMs)
+  const Icon = SLA_ICONS[pill.icon] || CircleCheck
+  const due = fullLeadTime(lead.sla_due_at)
+  return (
+    <span
+      className={`leads-sla-pill leads-sla-${pill.tone}`}
+      title={due ? `Contact SLA · due ${due}` : 'Contact SLA'}
+    >
+      <Icon size={12} />
+      {pill.label}
+    </span>
   )
 }
 
 /**
  * Provenance and ownership: when the enquiry came in and which salesperson
- * holds it. A label/value grid rather than chips — these are facts to look up,
- * not attributes to scan.
+ * holds it. Two quiet lines in the footer — facts to look up, not to scan.
  */
 function LeadMeta({ lead }) {
   const owner = lead.owner || null
   const ownerName = owner?.display_name || owner?.email || null
-  const assignedAt = formatLeadTime(lead.assigned_at)
-
-  const rows = [
-    { key: 'received', label: 'Received', value: formatLeadTime(lead.received_at), title: fullLeadTime(lead.received_at) },
-    {
-      key: 'owner',
-      label: 'Assigned to',
-      value: lead.owner_profile_id ? (
-        <>
-          <span className="leads-meta-strong">{ownerName || 'Unknown profile'}</span>
-          {assignedAt ? <span className="leads-meta-sub"> · {assignedAt}</span> : null}
-        </>
-      ) : (
-        <span className="leads-meta-muted">Unassigned</span>
-      ),
-      title: assignedAt ? `Assigned ${fullLeadTime(lead.assigned_at)}` : '',
-    },
-  ].filter((row) => row.value)
+  const received = formatLeadTime(lead.received_at)
 
   return (
-    <dl className="leads-meta">
-      {rows.map((row) => (
-        <div key={row.key} className="leads-meta-row" title={row.title || undefined}>
-          <dt>{row.label}</dt>
-          <dd>{row.value}</dd>
+    <div className="leads-meta">
+      <div className="leads-meta-row" title={lead.assigned_at ? `Assigned ${fullLeadTime(lead.assigned_at)}` : undefined}>
+        {lead.owner_profile_id ? (
+          <span className="leads-meta-strong">{ownerName || 'Unknown profile'}</span>
+        ) : (
+          <span className="leads-meta-muted">Unassigned</span>
+        )}
+      </div>
+      {received ? (
+        <div className="leads-meta-row leads-meta-muted" title={fullLeadTime(lead.received_at)}>
+          Received {received}
         </div>
-      ))}
-    </dl>
+      ) : null}
+    </div>
   )
 }
 
 /**
  * "Log what happened…" — the same control as the OS lead drawer. Each pick is
  * logged as an activity; on a 'new' lead it also moves the status on, and the
- * resulting status is shown alongside. The select is locked while a save is in
- * flight so a second pick cannot race the first, and a failure shows inline.
+ * resulting status shows in the card header. The select is locked while a save
+ * is in flight so a second pick cannot race the first, and a failure shows
+ * inline.
  */
-function LeadOutcome({ status, onLog }) {
+function LeadOutcome({ onLog }) {
   const [outcome, setOutcome] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -272,12 +306,6 @@ function LeadOutcome({ status, onLog }) {
 
   return (
     <div className="leads-status">
-      <div className="leads-status-line">
-        <span className="leads-status-label">Status</span>
-        <span className={`leads-status-pill leads-status-${status || 'new'}`}>
-          {statusLabel(status || 'new')}
-        </span>
-      </div>
       <select
         className={`leads-status-select${outcome ? ' is-set' : ''}`}
         value={outcome}

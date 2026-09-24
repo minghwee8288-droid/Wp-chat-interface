@@ -147,3 +147,58 @@ const STATUS_LABELS = {
 }
 
 export const statusLabel = (status) => STATUS_LABELS[status] || humanize(status)
+
+/** Minutes → '2h 0m', or '48m' under an hour (os-minghwee fmtHM). */
+export function fmtHM(totalMinutes) {
+  const m = Math.max(0, Math.round(totalMinutes))
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  return h > 0 ? `${h}h ${mm}m` : `${mm}m`
+}
+
+// SLA rule as the OS states it: first contact within 2h of receipt, and an
+// uncontacted lead is rotated to another salesperson 3h after assignment.
+const SLA_HOURS = 2
+const REASSIGN_HOURS = 3
+
+/**
+ * The OS's Contact SLA pill (os-minghwee leadLabels.ts leadSlaPill), ported
+ * for display only. Nothing here decides anything — the API's `sla_due_at` /
+ * `sla_overdue` are authoritative; the client clock only keeps the countdown
+ * text live between refetches. Returns { tone, icon, label }; `tone` picks the
+ * colour in leads-feature.css.
+ */
+export function leadSlaPill(lead, nowMs) {
+  const status = lead.status || 'new'
+  if (status === 'converted') return { tone: 'done', icon: 'verified', label: 'Complete · converted' }
+  if (status === 'lost') return { tone: 'closed', icon: 'closed', label: 'Closed' }
+  if (status === 'follow_up_required') return { tone: 'callback', icon: 'callback', label: 'Callback set' }
+  if (status !== 'new') return { tone: 'done', icon: 'verified', label: 'Complete · contact made' }
+
+  // Deadline from sla_due_at when the payload carries it. /api/leads/mine reads
+  // the table directly and does not, so fall back to received_at + 2h — the
+  // same value the OS API computes (leads_service._sla_block).
+  let dueMs = isBlank(lead.sla_due_at) ? NaN : new Date(lead.sla_due_at).getTime()
+  if (Number.isNaN(dueMs)) {
+    const receivedMs = new Date(lead.received_at).getTime()
+    dueMs = Number.isNaN(receivedMs) ? nowMs : receivedMs + SLA_HOURS * 3600_000
+  }
+  const left = (dueMs - nowMs) / 60_000
+
+  if (left > 0 && lead.sla_overdue !== true) {
+    return { tone: 'ontrack', icon: 'ontrack', label: `On track · ${fmtHM(left)} to contact` }
+  }
+
+  // Past the SLA: while the current owner still holds it, warn when it leaves them.
+  if (!isBlank(lead.assigned_at)) {
+    const assignedMs = new Date(lead.assigned_at).getTime()
+    if (!Number.isNaN(assignedMs)) {
+      const toReassign = REASSIGN_HOURS * 60 - (nowMs - assignedMs) / 60_000
+      if (toReassign > 0) {
+        return { tone: 'overdue', icon: 'timer', label: `Overdue · reassigns in ${fmtHM(toReassign)}` }
+      }
+    }
+  }
+
+  return { tone: 'overdue', icon: 'warning', label: `Overdue · ${fmtHM(-left)} overdue` }
+}

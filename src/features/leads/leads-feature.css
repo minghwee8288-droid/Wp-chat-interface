@@ -5,7 +5,8 @@
  * functions/api/leads/mine.js for the full removal checklist.
  *
  * Every colour here is an existing token, so dark mode needs no override
- * block: the tokens are already redefined under the app's dark theme.
+ * block: the tokens are already redefined under the app's dark theme. The
+ * one exception is the SLA pill, which uses the OS's fixed pill colours.
  * ------------------------------------------------------------------ */
 
 .leads-bell {
@@ -60,12 +61,12 @@
   top: calc(100% + 8px);
   right: 0;
   z-index: 60;
-  width: 320px;
+  width: 400px;
   max-width: calc(100vw - 24px);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
   overflow: hidden;
 }
 
@@ -73,14 +74,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--surface);
 }
 
 .leads-pop-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--text);
   /* A flex item will not shrink below its content width without this, which
      is what pushed "Clear all" past the panel edge on a narrow screen. */
@@ -115,7 +116,8 @@
   background: none;
   padding: 0;
   color: var(--accent);
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
 }
@@ -124,37 +126,41 @@
   text-decoration: underline;
 }
 
-/* Caps at roughly four rows, then scrolls — the panel must not grow taller
-   than the viewport on a phone. */
+/* Cards on a recessed backdrop, so each lead reads as one unit and the eye
+   can find where the next begins. Capped, then scrolls — the panel must not
+   grow taller than the viewport. */
 .leads-pop-list {
   list-style: none;
   margin: 0;
-  padding: 0;
-  max-height: min(60vh, 460px);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(72vh, 600px);
   overflow-y: auto;
+  background: var(--surface-2);
 }
 
 .leads-item {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  position: relative;
+  flex: 0 0 auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
 }
 
-.leads-item:last-child {
-  border-bottom: 0;
-}
-
-/* Unread: still 'new' and not marked read. A faint wash plus a dot, so read
+/* Unread: still 'new' and not marked read. An accent edge plus a dot, so read
    leads recede without disappearing. */
 .leads-item.is-unread {
-  /* Half-strength tint, so the accent-tinted lead-number pill and chips on an
-     unread row still stand off the row itself. */
-  background: color-mix(in srgb, var(--accent-tint) 50%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .leads-item-dot {
   flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--badge);
 }
@@ -162,16 +168,15 @@
 .leads-item-top {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 8px;
 }
 
 .leads-item-name {
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--text);
-  /* Same reason as .leads-pop-title: without it the name refuses to shrink and
-     shoves the lead number and dismiss button off the row. */
+  /* Without it the name refuses to shrink and shoves the lead number and
+     mark-read button off the row. */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -180,12 +185,13 @@
 
 .leads-item-no {
   flex: 0 0 auto;
-  padding: 1px 6px;
-  border-radius: var(--r-full, 999px);
+  padding: 1px 7px;
+  border-radius: 6px;
   background: var(--accent-tint);
   color: var(--accent-deep);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .leads-item-x {
@@ -193,87 +199,96 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
   flex: 0 0 auto;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: 50%;
-  background: none;
+  background: var(--surface);
   color: var(--text-3);
   cursor: pointer;
 }
 
 .leads-item-x:hover {
-  background: var(--surface-3);
-  color: var(--text);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
-.leads-item-row {
+/* SLA + status, directly under the name. */
+.leads-item-state {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
-  min-width: 0;
-  margin-top: 3px;
-  color: var(--text-2);
-  font-size: 12.5px;
+  gap: 6px;
+  margin-top: 8px;
 }
 
-.leads-item-row > svg {
+/* --- contact -------------------------------------------------------- */
+
+.leads-contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 10px;
+}
+
+.leads-contact-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.leads-contact-link > svg {
   flex: 0 0 auto;
   color: var(--text-3);
 }
 
-.leads-item-link {
-  color: var(--text-2);
-  text-decoration: none;
+.leads-contact-link > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.leads-item-link:hover {
+.leads-contact-link:hover,
+.leads-contact-link:hover > svg {
   color: var(--accent);
-  text-decoration: underline;
 }
 
-.leads-item-muted {
-  color: var(--text-3);
-}
+/* --- enquiry facts --------------------------------------------------- */
 
-/* --- detail chips -------------------------------------------------- */
-
-/* Wrapping row rather than a grid: chip widths vary a lot ('Warm' vs
-   'as soon as possible'), so letting them flow packs far more into the
-   panel's 320px than fixed columns would. */
-.leads-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 7px;
-}
-
-.leads-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  max-width: 100%;
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-full, 999px);
+/* Label over value in two columns: a label per field is scaffolding read
+   once, the value is the content, so the value gets the weight. */
+.leads-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
   background: var(--surface-2);
-  font-size: 11px;
-  line-height: 1.5;
 }
 
-/* The label is deliberately quieter than the value: with seven chips the
-   labels are scaffolding you read once, and the values are the content. */
-.leads-chip-label {
+.leads-fact {
+  min-width: 0;
+}
+
+.leads-fact dt {
   color: var(--text-3);
-  font-weight: 500;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.leads-chip-value {
+.leads-fact dd {
+  margin: 1px 0 0;
   color: var(--text);
+  font-size: 12.5px;
   font-weight: 600;
   text-transform: capitalize;
   overflow: hidden;
@@ -281,73 +296,38 @@
   white-space: nowrap;
 }
 
-/* The base chip already carries the neutral look. Declared explicitly so the
-   tone set is complete in one place and a reader is not left wondering whether
-   a rule went missing. */
-.leads-chip-neutral {
-  /* intentionally the base appearance */
-}
-
 /* What the lead actually wants — the field an agent scans for first. */
-.leads-chip-primary {
-  border-color: transparent;
-  background: var(--accent-tint);
-}
-.leads-chip-primary .leads-chip-label {
-  color: var(--accent-deep);
-  opacity: 0.7;
-}
-.leads-chip-primary .leads-chip-value {
+.leads-fact-primary dd {
   color: var(--accent-deep);
 }
 
 /* Urgency is the one field that should pull the eye out of order. */
-.leads-chip-urgent {
-  border-color: transparent;
-  background: var(--danger-soft);
-}
-.leads-chip-urgent .leads-chip-label {
-  color: var(--danger);
-  opacity: 0.75;
-}
-.leads-chip-urgent .leads-chip-value {
+.leads-fact-urgent dd {
   color: var(--danger);
 }
 
-/* temperature is a warm/cold scale, so it reads as a state, not a value. */
-.leads-chip-temp .leads-chip-value {
-  color: var(--text-2);
-}
+/* --- footer: owner + outcome ------------------------------------------ */
 
-/* --- provenance / ownership ----------------------------------------- */
+.leads-item-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
 
 .leads-meta {
-  margin: 7px 0 0;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  font-size: 11.5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
   line-height: 1.4;
 }
 
 .leads-meta-row {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.leads-meta-row + .leads-meta-row {
-  margin-top: 2px;
-}
-
-.leads-meta dt {
-  color: var(--text-3);
-}
-
-.leads-meta dd {
-  margin: 0;
-  min-width: 0;
-  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .leads-meta-strong {
@@ -355,35 +335,40 @@
   font-weight: 600;
 }
 
-.leads-meta-sub,
 .leads-meta-muted {
   color: var(--text-3);
-}
-
-/* --- status / outcome ---------------------------------------------- */
-
-.leads-status {
-  margin-top: 7px;
-}
-
-.leads-status-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
   font-size: 11.5px;
 }
 
-.leads-status-label {
-  color: var(--text-3);
+/* --- contact SLA (colours mirror the OS lead inbox pill) ------------ */
+
+.leads-sla-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--r-full, 999px);
+  border: 1px solid transparent;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
+.leads-sla-ontrack { background: #71beed; color: #003e60; }
+.leads-sla-overdue { background: #df0000; color: #fff; }
+.leads-sla-done { background: #003e60; color: #fff; }
+.leads-sla-callback { background: #fcf1da; color: #8a5a00; border-color: #ebd08a; }
+.leads-sla-closed { background: #eef2f6; color: #5b6b7b; }
+
+/* --- status / outcome ---------------------------------------------- */
+
 .leads-status-pill {
-  padding: 1px 7px;
+  padding: 3px 9px;
   border-radius: var(--r-full, 999px);
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-2);
+  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -394,16 +379,21 @@
   color: var(--accent-deep);
 }
 
+.leads-status {
+  flex: 0 0 auto;
+  width: 168px;
+}
+
 .leads-status-select {
   width: 100%;
-  height: 28px;
+  height: 32px;
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
-  color: var(--text-3);
+  color: var(--text-2);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
 }
 
@@ -436,16 +426,15 @@
 /* A button, not a <p>: it toggles, so it must be keyboard reachable and
    announced as interactive. The button chrome is stripped back to text. */
 .leads-item-summary {
-  display: block;
   width: 100%;
-  margin-top: 7px;
+  margin-top: 10px;
   padding: 0;
   border: 0;
   background: none;
   color: var(--text-2);
   font-family: inherit;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.5;
   text-align: left;
   cursor: pointer;
 
@@ -469,8 +458,8 @@
 @media (max-width: 720px) {
   /* The bell is not the last control in the topbar — "Ask AI" and the account
      menu sit to its right — so anchoring the panel to the bell with `right: 0`
-     pushed a 320px panel off the LEFT edge of a phone. Capping the width did
-     not help: the overflow came from the offset, not the size.
+     pushed the panel off the LEFT edge of a phone. Capping the width did not
+     help: the overflow came from the offset, not the size.
 
      So on a phone the panel spans the viewport gutter-to-gutter instead. It
      stays `absolute` (still vertically anchored to the bell, which matters
@@ -484,9 +473,21 @@
     max-width: calc(100vw - 24px);
   }
 
-  /* Taller panels are fine now that it is full-bleed, but it still must not
-     run past the bottom of the screen. */
+  /* Still must not run past the bottom of the screen. */
   .leads-pop-list {
-    max-height: min(60vh, 460px);
+    max-height: min(70vh, 560px);
+  }
+}
+
+/* Narrow phones: the owner line and the outcome picker stack rather than
+   squeeze each other. */
+@media (max-width: 420px) {
+  .leads-item-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .leads-status {
+    width: auto;
   }
 }
