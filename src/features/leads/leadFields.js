@@ -161,12 +161,67 @@ export function fmtHM(totalMinutes) {
 const SLA_HOURS = 2
 const REASSIGN_HOURS = 3
 
+// ---------------------------------------------------------------------------
+// Working hours (OS migration 0093) — mirror of os-minghwee leadLabels.ts /
+// apps/api/app/core/working_hours.py. Both clocks count only time inside the
+// tenant's daily window, in Asia/Singapore (fixed UTC+8, no DST — the same
+// constant the OS uses). No window => wall clock, the pre-0093 behaviour.
+// ---------------------------------------------------------------------------
+
+const SGT_OFFSET_MS = 8 * 3_600_000
+const DAY_MS = 86_400_000
+
+function hhmmToMin(value) {
+  const m = value ? /^(\d{2}):(\d{2})/.exec(String(value)) : null
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null
+}
+
+/** { start, end } in minutes after local midnight, or null = 24-hour clock. */
+export function workingHoursFrom(start, end) {
+  const s = hhmmToMin(start)
+  const e = hhmmToMin(end)
+  return s === null || e === null || s === e ? null : { start: s, end: e }
+}
+
+/** [opens, closes) in epoch ms for the window that opens on SGT day `day`. */
+function windowOn(day, wh) {
+  const base = day * DAY_MS - SGT_OFFSET_MS
+  const opens = base + wh.start * 60_000
+  const closes = (wh.start < wh.end ? base : base + DAY_MS) + wh.end * 60_000
+  return [opens, closes]
+}
+
+const sgtDay = (ms) => Math.floor((ms + SGT_OFFSET_MS) / DAY_MS)
+
+/** Working milliseconds from `a` to `b` (wall clock with no window). */
+function workingMsBetween(a, b, wh) {
+  if (!wh) return b - a
+  if (b < a) return -workingMsBetween(b, a, wh)
+  let total = 0
+  const last = sgtDay(b)
+  for (let day = sgtDay(a) - 1; day <= last; day += 1) {
+    const [opens, closes] = windowOn(day, wh)
+    const lo = Math.max(opens, a)
+    const hi = Math.min(closes, b)
+    if (hi > lo) total += hi - lo
+  }
+  return total
+}
+
+function isOpenAt(ms, wh) {
+  if (!wh) return true
+  const day = sgtDay(ms)
+  return [day - 1, day].some((d) => {
+    const [opens, closes] = windowOn(d, wh)
+    return opens <= ms && ms < closes
+  })
+}
+
 /**
  * The OS's Contact SLA pill (os-minghwee leadLabels.ts leadSlaPill), ported
- * for display only. Nothing here decides anything — the API's `sla_due_at` /
- * `sla_overdue` are authoritative; the client clock only keeps the countdown
- * text live between refetches. Returns { tone, icon, label }; `tone` picks the
- * colour in leads-feature.css.
+ * for display only — the server alone decides overdue and reassignment; the
+ * client clock only keeps the countdown text live between refetches. Returns
+ * { tone, icon, label }; `tone` picks the colour in leads-feature.css.
  */
 export function leadSlaPill(lead, nowMs) {
   const status = lead.status || 'new'
@@ -175,30 +230,38 @@ export function leadSlaPill(lead, nowMs) {
   if (status === 'follow_up_required') return { tone: 'callback', icon: 'callback', label: 'Callback set' }
   if (status !== 'new') return { tone: 'done', icon: 'verified', label: 'Complete · contact made' }
 
-  // Deadline from sla_due_at when the payload carries it. /api/leads/mine reads
-  // the table directly and does not, so fall back to received_at + 2h — the
-  // same value the OS API computes (leads_service._sla_block).
-  let dueMs = isBlank(lead.sla_due_at) ? NaN : new Date(lead.sla_due_at).getTime()
-  if (Number.isNaN(dueMs)) {
-    const receivedMs = new Date(lead.received_at).getTime()
-    dueMs = Number.isNaN(receivedMs) ? nowMs : receivedMs + SLA_HOURS * 3600_000
-  }
-  const left = (dueMs - nowMs) / 60_000
+  const wh = workingHoursFrom(lead.work_hours_start, lead.work_hours_end)
+  const receivedMs = new Date(lead.received_at).getTime()
+  const elapsedMin = Number.isNaN(receivedMs) ? 0 : workingMsBetween(receivedMs, nowMs, wh) / 60_000
+  const left = SLA_HOURS * 60 - elapsedMin
+  // Outside working hours the countdown is frozen — say so, rather than leave
+  // the agent wondering why the number is not moving.
+  const paused = !isOpenAt(nowMs, wh)
 
-  if (left > 0 && lead.sla_overdue !== true) {
-    return { tone: 'ontrack', icon: 'ontrack', label: `On track · ${fmtHM(left)} to contact` }
+  if (left > 0) {
+    return paused
+      ? { tone: 'paused', icon: 'paused', label: `Paused · ${fmtHM(left)} to contact` }
+      : { tone: 'ontrack', icon: 'ontrack', label: `On track · ${fmtHM(left)} to contact` }
   }
 
   // Past the SLA: while the current owner still holds it, warn when it leaves them.
   if (!isBlank(lead.assigned_at)) {
     const assignedMs = new Date(lead.assigned_at).getTime()
     if (!Number.isNaN(assignedMs)) {
-      const toReassign = REASSIGN_HOURS * 60 - (nowMs - assignedMs) / 60_000
+      const toReassign = REASSIGN_HOURS * 60 - workingMsBetween(assignedMs, nowMs, wh) / 60_000
       if (toReassign > 0) {
-        return { tone: 'overdue', icon: 'timer', label: `Overdue · reassigns in ${fmtHM(toReassign)}` }
+        return paused
+          ? { tone: 'overdue', icon: 'paused', label: `Overdue · paused · reassigns in ${fmtHM(toReassign)}` }
+          : { tone: 'overdue', icon: 'timer', label: `Overdue · reassigns in ${fmtHM(toReassign)}` }
       }
     }
   }
 
   return { tone: 'overdue', icon: 'warning', label: `Overdue · ${fmtHM(-left)} overdue` }
+}
+
+/** 'Working hours 09:00–18:00 SGT', or '' when the tenant has none set. */
+export function workingHoursLabel(lead) {
+  if (!workingHoursFrom(lead.work_hours_start, lead.work_hours_end)) return ''
+  return `Working hours ${lead.work_hours_start}–${lead.work_hours_end} SGT`
 }

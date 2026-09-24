@@ -6,9 +6,9 @@
 // badge counts UNREAD leads only; read ones stay in the list.
 
 import { useEffect, useRef, useState } from 'react'
-import { BadgeCheck, Ban, Bell, CalendarClock, Check, CircleCheck, Mail, Phone, Timer, TriangleAlert } from 'lucide-react'
+import { BadgeCheck, Ban, Bell, CalendarClock, Check, CircleCheck, CirclePause, Mail, Phone, Timer, TriangleAlert } from 'lucide-react'
 import { useMyLeads, isUnread } from './useMyLeads.js'
-import { leadChips, isBlank, formatLeadTime, fullLeadTime, CONTACT_OUTCOMES, statusLabel, leadSlaPill } from './leadFields.js'
+import { leadChips, isBlank, formatLeadTime, fullLeadTime, CONTACT_OUTCOMES, statusLabel, leadSlaPill, workingHoursLabel } from './leadFields.js'
 
 export default function LeadsBell() {
   const { leads, readSet, unreadCount, loading, markRead, markAllRead, logOutcome } = useMyLeads()
@@ -232,18 +232,18 @@ const SLA_ICONS = {
   verified: BadgeCheck,
   closed: Ban,
   callback: CalendarClock,
+  paused: CirclePause,
 }
 
 /** Contact SLA pill, as the OS lead inbox shows it. Display only. */
 function LeadSla({ lead, nowMs }) {
   const pill = leadSlaPill(lead, nowMs)
   const Icon = SLA_ICONS[pill.icon] || CircleCheck
-  const due = fullLeadTime(lead.sla_due_at)
+  // The hover explains a paused or slow-moving clock: it only counts inside
+  // the tenant's working hours.
+  const title = ['Contact SLA', workingHoursLabel(lead)].filter(Boolean).join(' · ')
   return (
-    <span
-      className={`leads-sla-pill leads-sla-${pill.tone}`}
-      title={due ? `Contact SLA · due ${due}` : 'Contact SLA'}
-    >
+    <span className={`leads-sla-pill leads-sla-${pill.tone}`} title={title}>
       <Icon size={12} />
       {pill.label}
     </span>

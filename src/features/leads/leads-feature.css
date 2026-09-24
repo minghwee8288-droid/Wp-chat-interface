@@ -355,6 +355,7 @@
 }
 
 .leads-sla-ontrack { background: #71beed; color: #003e60; }
+.leads-sla-paused { background: #eef2f6; color: #003e60; border-color: #c9d6e2; }
 .leads-sla-overdue { background: #df0000; color: #fff; }
 .leads-sla-done { background: #003e60; color: #fff; }
 .leads-sla-callback { background: #fcf1da; color: #8a5a00; border-color: #ebd08a; }

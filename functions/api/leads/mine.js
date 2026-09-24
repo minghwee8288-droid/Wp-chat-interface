@@ -126,11 +126,38 @@ export async function onRequestGet({ request, env }) {
 
     if (!isAdmin) query = query.eq('owner_profile_id', profileId)
 
-    const leads = unwrap(await query) || []
+    const rows = unwrap(await query) || []
+
+    // The tenant's working hours ride along on every lead, the same shape the
+    // OS API returns, so the SLA pill can pause outside the window.
+    const hours = await findWorkingHours(db, tenantId)
+    const leads = rows.map((lead) => ({ ...lead, ...hours }))
 
     return json({ ok: true, leads, profile_id: profileId })
   } catch (err) {
     return serverError(err.message || 'Failed to load leads')
+  }
+}
+
+/**
+ * The tenant's daily working window from tenant_settings (OS migration 0093),
+ * as 'HH:MM' strings. Read-only. Both null = no window = 24-hour clock, which
+ * is also the answer on any read failure: a missing window only makes the
+ * pill count wall-clock time, so it must never fail the lead list.
+ */
+async function findWorkingHours(db, tenantId) {
+  const none = { work_hours_start: null, work_hours_end: null }
+  try {
+    const { data, error } = await db
+      .from('tenant_settings')
+      .select('work_hours_start, work_hours_end')
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+    if (error || !data) return none
+    const hhmm = (value) => (value ? String(value).slice(0, 5) : null)
+    return { work_hours_start: hhmm(data.work_hours_start), work_hours_end: hhmm(data.work_hours_end) }
+  } catch {
+    return none
   }
 }
 
