@@ -5,6 +5,7 @@ import { json, serverError } from '../_lib/respond.js'
 
 const COLUMNS = `
   id, account_id, customer_number, business_number, customer_name,
+  contact_type, country_of_origin,
   last_message_body, last_message_at, last_direction,
   unread_count, status, assigned_user_id, assigned_to,
   avatar_path, avatar_error,

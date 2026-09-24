@@ -8,6 +8,7 @@ import {
   displayName, formatNumber, avatarIndex, initials, formatBytes,
 } from '../lib/format.js'
 import { useSignedUrl } from '../lib/mediaUrl.js'
+import { contactTypeLabel, countryLabel } from '../../functions/_lib/contactMeta.js'
 import ContactAvatar from './ContactAvatar.jsx'
 import Lightbox from './Lightbox.jsx'
 
@@ -85,6 +86,16 @@ export default function ContactPanel({ conversation, onClose, onJumpToMessage })
           ) : conversation.customer_number ? (
             <div className="contact-hero-sub contact-hero-number">
               {formatNumber(conversation.customer_number)}
+            </div>
+          ) : null}
+          {!isGroup && (conversation.contact_type || conversation.country_of_origin) ? (
+            <div className="contact-hero-tags">
+              {conversation.contact_type ? (
+                <span className="contact-tag">{contactTypeLabel(conversation.contact_type)}</span>
+              ) : null}
+              {conversation.country_of_origin ? (
+                <span className="contact-tag">{countryLabel(conversation.country_of_origin)}</span>
+              ) : null}
             </div>
           ) : null}
         </div>

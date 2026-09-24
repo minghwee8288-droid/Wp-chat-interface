@@ -3728,6 +3728,18 @@ button {
   color: var(--text-3);
 }
 
+/* Two short fields side by side; stacks on narrow screens. */
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 480px) {
+  .field-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
 .field-optional {
   font-weight: 400;
   color: var(--text-3);
@@ -4538,6 +4550,22 @@ button {
   font-size: 14px;
   color: var(--text-2);
 }
+.contact-hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.contact-tag {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent-deep);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .contact-hero-number {
   font-variant-numeric: tabular-nums;
 }
@@ -5873,6 +5901,23 @@ button {
    Per-row account badge. Sits in the existing .conv-meta line, so it costs no
    extra vertical space in the list.
    -------------------------------------------------------------------------- */
+/* "Caregiver · PH" on a 1:1 row — same footprint as the account badge. */
+.conv-contact-tag {
+  flex-shrink: 0;
+  max-width: 130px;
+  padding: 0 5px;
+  height: 15px;
+  line-height: 15px;
+  border-radius: var(--r-sm);
+  background: var(--accent-tint);
+  color: var(--accent-deep);
+  font-size: 10px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .conv-account {
   display: inline-flex;
   align-items: center;

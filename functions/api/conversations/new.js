@@ -5,10 +5,11 @@ import { MESSAGE_COLUMNS } from '../../_lib/storage.js'
 import { ingestAvatar } from '../../_lib/avatar.js'
 import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
 import { resolveAccountAccess, envForAccount } from '../../_lib/accounts.js'
+import { isContactType, isCountry } from '../../_lib/contactMeta.js'
 
 /**
  * POST /api/conversations/new
- * Body: { phone, name?, message, account_id? }
+ * Body: { phone, name, contact_type, country_of_origin, message, account_id? }
  *
  * Starts a conversation with a number that has not written in yet.
  *
@@ -22,12 +23,16 @@ import { resolveAccountAccess, envForAccount } from '../../_lib/accounts.js'
  * Omitted, it falls back to their first accessible account, so a single-account
  * user's request is unchanged.
  */
+const CONVERSATION_COLUMNS =
+  'id, account_id, customer_number, business_number, customer_name, contact_type, country_of_origin, assigned_user_id'
+
 export async function onRequestPost(context) {
   const { request, env } = context
   const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
-  const { phone, name, message, account_id } = await readJson(request)
+  const { phone, name, contact_type, country_of_origin, message, account_id } =
+    await readJson(request)
 
   const customerNumber = toDigits(phone)
   // E.164 allows 8–15 digits; anything outside that is a typo, not a number.
@@ -38,8 +43,12 @@ export async function onRequestPost(context) {
     return badRequest('A message is required')
   }
 
-  const text = message.trim()
   const customerName = typeof name === 'string' && name.trim() ? name.trim() : null
+  if (!customerName) return badRequest('A contact name is required')
+  if (!isContactType(contact_type)) return badRequest('Choose who this contact is')
+  if (!isCountry(country_of_origin)) return badRequest('Choose a country of origin')
+
+  const text = message.trim()
 
   try {
     const db = getDb(env)
@@ -58,7 +67,7 @@ export async function onRequestPost(context) {
     let conversation = unwrap(
       await db
         .from('wp_chat_conversations')
-        .select('id, account_id, customer_number, business_number, customer_name, assigned_user_id')
+        .select(CONVERSATION_COLUMNS)
         .eq('customer_number', customerNumber)
         .eq('account_id', accountId)
         .maybeSingle()
@@ -74,12 +83,14 @@ export async function onRequestPost(context) {
           customer_number: customerNumber,
           business_number: businessNumber,
           customer_name: customerName,
+          contact_type,
+          country_of_origin,
           unread_count: 0,
           status: 'open',
           created_at: now,
           updated_at: now,
         })
-        .select('id, account_id, customer_number, business_number, customer_name, assigned_user_id')
+        .select(CONVERSATION_COLUMNS)
         .single()
 
       if (created.error) {
@@ -88,7 +99,7 @@ export async function onRequestPost(context) {
           conversation = unwrap(
             await db
               .from('wp_chat_conversations')
-              .select('id, account_id, customer_number, business_number, customer_name, assigned_user_id')
+              .select(CONVERSATION_COLUMNS)
               .eq('customer_number', customerNumber)
               .eq('account_id', accountId)
               .maybeSingle()
@@ -99,15 +110,21 @@ export async function onRequestPost(context) {
         conversation = created.data
         createdConversation = true
       }
-    } else if (customerName && !String(conversation.customer_name || '').trim()) {
-      // Fill a blank name, never overwrite one a human may have corrected.
-      unwrap(
-        await db
-          .from('wp_chat_conversations')
-          .update({ customer_name: customerName })
-          .eq('id', conversation.id)
-      )
-      conversation.customer_name = customerName
+    } else {
+      // Fill blanks only, never overwrite details a human may have corrected.
+      const patch = {}
+      if (!String(conversation.customer_name || '').trim()) patch.customer_name = customerName
+      if (!conversation.contact_type) patch.contact_type = contact_type
+      if (!conversation.country_of_origin) patch.country_of_origin = country_of_origin
+      if (Object.keys(patch).length) {
+        unwrap(
+          await db
+            .from('wp_chat_conversations')
+            .update(patch)
+            .eq('id', conversation.id)
+        )
+        Object.assign(conversation, patch)
+      }
     }
 
     // --- send BEFORE persisting the message row ---

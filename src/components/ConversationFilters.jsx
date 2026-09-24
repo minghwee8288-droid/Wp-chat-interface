@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Check, X } from 'lucide-react'
+import {
+  CONTACT_TYPES, COUNTRIES, contactTypeLabel, countryLabel,
+} from '../../functions/_lib/contactMeta.js'
 
 /**
  * A "+ Label" chip that opens a portalled multi-select dropdown — the exact
@@ -122,15 +125,79 @@ function FilterPicker({ summary, hasSelection, onClear, clearLabel, children }) 
 }
 
 /**
- * Filter row: two multi-select status chips plus an Agent picker and an
- * Attention picker (both the same "+ Label" dropdown pattern).
+ * Options for a contact-field picker: the known list, then any other value
+ * actually present in the data (contact_type can be filled from outside this
+ * app), each with a live count. Groups are skipped — the fields are 1:1 only.
+ */
+function fieldOptions(conversations, field, known, labelOf) {
+  const counts = new Map()
+  for (const c of conversations) {
+    if (c.is_group || !c[field]) continue
+    counts.set(c[field], (counts.get(c[field]) || 0) + 1)
+  }
+  const extra = [...counts.keys()].filter((v) => !known.some((k) => k.value === v))
+  return [...known.map((k) => k.value), ...extra.sort()].map((value) => ({
+    value,
+    label: labelOf(value),
+    count: counts.get(value) || 0,
+  }))
+}
+
+/** Multi-select checklist body for a FilterPicker. */
+function CheckList({ options, selected, onToggle }) {
+  return options.map((o) => {
+    const checked = selected.includes(o.value)
+    return (
+      <button
+        type="button"
+        key={o.value}
+        className="filter-menu-item"
+        role="menuitemcheckbox"
+        aria-checked={checked}
+        onClick={() => onToggle(o.value)}
+      >
+        <span className={`filter-check${checked ? ' is-on' : ''}`}>
+          {checked ? <Check size={11} /> : null}
+        </span>
+        <span className="filter-menu-name">
+          {o.label} ({o.count})
+        </span>
+      </button>
+    )
+  })
+}
+
+const toggleIn = (list, value) =>
+  list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
+
+/** "+ Label" when empty, the one label when single, "N labels" otherwise. */
+function pickerSummary(selected, labelOf, noun, plural) {
+  if (!selected.length) {
+    return (
+      <>
+        <Plus size={13} />
+        {noun}
+      </>
+    )
+  }
+  return selected.length === 1 ? labelOf(selected[0]) : `${selected.length} ${plural}`
+}
+
+/**
+ * Filter row: two multi-select status chips plus Agent, Attention, Type and
+ * Country pickers (all the same "+ Label" dropdown pattern).
  *
  * Status chips are deliberately NOT radio buttons — both off and both on mean
  * the same thing (show everything), which keeps "clear the filter" reachable
  * from either direction.
  */
 export default function ConversationFilters({ users, conversations = [], filters, onChange }) {
-  const { assigned, unassigned, agentIds, attentionTeam, attentionManagement } = filters
+  const {
+    assigned, unassigned, agentIds, attentionTeam, attentionManagement, contactTypes, countries,
+  } = filters
+
+  const typeOptions = fieldOptions(conversations, 'contact_type', CONTACT_TYPES, contactTypeLabel)
+  const countryOptions = fieldOptions(conversations, 'country_of_origin', COUNTRIES, countryLabel)
 
   const activeAgents = users.filter((u) => u.is_active)
   const agentCount = agentIds.length
@@ -260,6 +327,32 @@ export default function ConversationFilters({ users, conversations = [], filters
           <span className="filter-menu-name">Management ({managementCount})</span>
         </button>
       </FilterPicker>
+
+      <FilterPicker
+        hasSelection={contactTypes.length > 0}
+        clearLabel="Clear contact type filter"
+        onClear={() => onChange({ ...filters, contactTypes: [] })}
+        summary={pickerSummary(contactTypes, contactTypeLabel, 'Type', 'types')}
+      >
+        <CheckList
+          options={typeOptions}
+          selected={contactTypes}
+          onToggle={(v) => onChange({ ...filters, contactTypes: toggleIn(contactTypes, v) })}
+        />
+      </FilterPicker>
+
+      <FilterPicker
+        hasSelection={countries.length > 0}
+        clearLabel="Clear country filter"
+        onClear={() => onChange({ ...filters, countries: [] })}
+        summary={pickerSummary(countries, countryLabel, 'Country', 'countries')}
+      >
+        <CheckList
+          options={countryOptions}
+          selected={countries}
+          onToggle={(v) => onChange({ ...filters, countries: toggleIn(countries, v) })}
+        />
+      </FilterPicker>
     </div>
   )
 }
@@ -270,11 +363,19 @@ export const EMPTY_FILTERS = {
   agentIds: [],
   attentionTeam: false,
   attentionManagement: false,
+  contactTypes: [],
+  countries: [],
 }
 
 export const hasActiveFilters = (f) =>
   Boolean(
-    f.assigned || f.unassigned || f.agentIds.length || f.attentionTeam || f.attentionManagement
+    f.assigned ||
+      f.unassigned ||
+      f.agentIds.length ||
+      f.attentionTeam ||
+      f.attentionManagement ||
+      f.contactTypes.length ||
+      f.countries.length
   )
 
 /**
@@ -310,6 +411,15 @@ export function matchesFilters(conversation, filters) {
       (filters.attentionTeam && level === 'team') ||
       (filters.attentionManagement && level === 'management')
     if (!matches) return false
+  }
+
+  // Contact type / country: OR within a picker, AND with everything else. A
+  // conversation with the field unset never matches an active picker.
+  if (filters.contactTypes.length && !filters.contactTypes.includes(conversation.contact_type)) {
+    return false
+  }
+  if (filters.countries.length && !filters.countries.includes(conversation.country_of_origin)) {
+    return false
   }
 
   return true

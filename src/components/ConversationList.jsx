@@ -19,6 +19,7 @@ import ConversationFilters, {
 import SearchResults from './SearchResults.jsx'
 import { useMessageSearch } from '../lib/useMessageSearch.js'
 import { useAccounts } from '../context/AccountContext.jsx'
+import { contactTypeLabel } from '../../functions/_lib/contactMeta.js'
 
 // Attention levels that get a coloured bar down the row's left edge. The
 // colours and the bar itself live in the stylesheet
@@ -298,6 +299,15 @@ export default function ConversationList({
                     {isAll && hasMultiple && conversation.account_name ? (
                       <span className="conv-account" title={conversation.account_name}>
                         {conversation.account_name}
+                      </span>
+                    ) : null}
+                    {/* Who they are and where from, e.g. "Caregiver · PH". The
+                        country stays a code here to keep the line short. */}
+                    {!isGroup && (conversation.contact_type || conversation.country_of_origin) ? (
+                      <span className="conv-contact-tag">
+                        {[contactTypeLabel(conversation.contact_type), conversation.country_of_origin]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </span>
                     ) : null}
                     <span className="conv-number">

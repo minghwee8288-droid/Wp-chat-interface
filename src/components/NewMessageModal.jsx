@@ -3,6 +3,7 @@ import { Send } from 'lucide-react'
 import Modal from './Modal.jsx'
 import { api } from '../lib/api.js'
 import { useAccounts } from '../context/AccountContext.jsx'
+import { CONTACT_TYPES, COUNTRIES } from '../../functions/_lib/contactMeta.js'
 
 /**
  * Start a conversation with a number that has not messaged in yet.
@@ -14,6 +15,8 @@ export default function NewMessageModal({ onClose, onCreated }) {
 
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
+  const [contactType, setContactType] = useState('')
+  const [country, setCountry] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState(null)
   const [sending, setSending] = useState(false)
@@ -36,6 +39,18 @@ export default function NewMessageModal({ onClose, onCreated }) {
       setError('Enter a valid number in international format, e.g. +91 98765 43210')
       return
     }
+    if (!name.trim()) {
+      setError('Enter a contact name')
+      return
+    }
+    if (!contactType) {
+      setError('Choose who this contact is')
+      return
+    }
+    if (!country) {
+      setError('Choose a country of origin')
+      return
+    }
     if (!message.trim()) {
       setError('Enter a message to send')
       return
@@ -45,7 +60,9 @@ export default function NewMessageModal({ onClose, onCreated }) {
     try {
       const data = await api.newConversation({
         phone,
-        name: name.trim() || null,
+        name: name.trim(),
+        contact_type: contactType,
+        country_of_origin: country,
         message: message.trim(),
         ...(accountId ? { account_id: accountId } : {}),
       })
@@ -110,7 +127,7 @@ export default function NewMessageModal({ onClose, onCreated }) {
 
         <div className="field">
           <label className="label" htmlFor="nm-name">
-            Contact name <span className="field-optional">optional</span>
+            Contact name
           </label>
           <input
             id="nm-name"
@@ -119,7 +136,54 @@ export default function NewMessageModal({ onClose, onCreated }) {
             placeholder="Anita Rao"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            required
           />
+        </div>
+
+        <div className="field-pair">
+          <div className="field">
+            <label className="label" htmlFor="nm-type">
+              Contact type
+            </label>
+            <select
+              id="nm-type"
+              className="select"
+              value={contactType}
+              onChange={(e) => setContactType(e.target.value)}
+              required
+            >
+              <option value="" disabled>
+                Select…
+              </option>
+              {CONTACT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label className="label" htmlFor="nm-country">
+              Country of origin
+            </label>
+            <select
+              id="nm-country"
+              className="select"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              required
+            >
+              <option value="" disabled>
+                Select…
+              </option>
+              {COUNTRIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="field">
