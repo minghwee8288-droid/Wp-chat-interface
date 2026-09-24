@@ -14,7 +14,8 @@ export default function NewMessageModal({ onClose, onCreated }) {
   const { accounts, hasMultiple, accountId: selectedAccountId } = useAccounts()
 
   const [phone, setPhone] = useState('')
-  const [name, setName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [contactType, setContactType] = useState('')
   const [country, setCountry] = useState('')
   const [message, setMessage] = useState('')
@@ -39,8 +40,12 @@ export default function NewMessageModal({ onClose, onCreated }) {
       setError('Enter a valid number in international format, e.g. +91 98765 43210')
       return
     }
-    if (!name.trim()) {
-      setError('Enter a contact name')
+    if (!firstName.trim()) {
+      setError('Enter a first name')
+      return
+    }
+    if (!lastName.trim()) {
+      setError('Enter a last name')
       return
     }
     if (!contactType) {
@@ -60,7 +65,8 @@ export default function NewMessageModal({ onClose, onCreated }) {
     try {
       const data = await api.newConversation({
         phone,
-        name: name.trim(),
+        // Stored as the one display name the rest of the app already uses.
+        name: `${firstName.trim()} ${lastName.trim()}`,
         contact_type: contactType,
         country_of_origin: country,
         message: message.trim(),
@@ -125,19 +131,36 @@ export default function NewMessageModal({ onClose, onCreated }) {
           </span>
         </div>
 
-        <div className="field">
-          <label className="label" htmlFor="nm-name">
-            Contact name
-          </label>
-          <input
-            id="nm-name"
-            className="input"
-            autoComplete="off"
-            placeholder="Anita Rao"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
+        <div className="field-pair">
+          <div className="field">
+            <label className="label" htmlFor="nm-first-name">
+              First name
+            </label>
+            <input
+              id="nm-first-name"
+              className="input"
+              autoComplete="off"
+              placeholder="Anita"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label className="label" htmlFor="nm-last-name">
+              Last name
+            </label>
+            <input
+              id="nm-last-name"
+              className="input"
+              autoComplete="off"
+              placeholder="Rao"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              required
+            />
+          </div>
         </div>
 
         <div className="field-pair">
