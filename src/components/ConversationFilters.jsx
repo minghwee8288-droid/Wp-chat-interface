@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import { Plus, Check, X } from 'lucide-react'
 import {
-  CONTACT_TYPES, COUNTRIES, contactTypeLabel, countryLabel,
+  CONTACT_TYPES, COUNTRIES, contactTypeLabel, countryLabel, isOtherOption,
 } from '../../functions/_lib/contactMeta.js'
 
 /**
@@ -126,8 +126,9 @@ function FilterPicker({ summary, hasSelection, onClear, clearLabel, children }) 
 
 /**
  * Options for a contact-field picker: the known list, then any other value
- * actually present in the data (contact_type can be filled from outside this
+ * actually present in the data (typed via "Other", or filled from outside this
  * app), each with a live count. Groups are skipped — the fields are 1:1 only.
+ * The "Other" placeholder itself is only listed if some row still holds it.
  */
 function fieldOptions(conversations, field, known, labelOf) {
   const counts = new Map()
@@ -135,8 +136,13 @@ function fieldOptions(conversations, field, known, labelOf) {
     if (c.is_group || !c[field]) continue
     counts.set(c[field], (counts.get(c[field]) || 0) + 1)
   }
-  const extra = [...counts.keys()].filter((v) => !known.some((k) => k.value === v))
-  return [...known.map((k) => k.value), ...extra.sort()].map((value) => ({
+  const listed = known
+    .map((k) => k.value)
+    .filter((v) => !isOtherOption(v) || counts.has(v))
+  const extra = [...counts.keys()]
+    .filter((v) => !known.some((k) => k.value === v))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  return [...listed, ...extra].map((value) => ({
     value,
     label: labelOf(value),
     count: counts.get(value) || 0,

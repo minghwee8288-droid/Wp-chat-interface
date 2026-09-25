@@ -3,7 +3,7 @@ import { Send } from 'lucide-react'
 import Modal from './Modal.jsx'
 import { api } from '../lib/api.js'
 import { useAccounts } from '../context/AccountContext.jsx'
-import { CONTACT_TYPES, COUNTRIES } from '../../functions/_lib/contactMeta.js'
+import { CONTACT_TYPES, COUNTRIES, isOtherOption } from '../../functions/_lib/contactMeta.js'
 
 /**
  * Start a conversation with a number that has not messaged in yet.
@@ -18,6 +18,12 @@ export default function NewMessageModal({ onClose, onCreated }) {
   const [lastName, setLastName] = useState('')
   const [contactType, setContactType] = useState('')
   const [country, setCountry] = useState('')
+  // Free text typed after choosing "Other" in either dropdown.
+  const [otherType, setOtherType] = useState('')
+  const [otherCountry, setOtherCountry] = useState('')
+
+  const typeIsOther = isOtherOption(contactType)
+  const countryIsOther = isOtherOption(country)
   const [message, setMessage] = useState('')
   const [error, setError] = useState(null)
   const [sending, setSending] = useState(false)
@@ -52,8 +58,16 @@ export default function NewMessageModal({ onClose, onCreated }) {
       setError('Choose who this contact is')
       return
     }
+    if (typeIsOther && !otherType.trim()) {
+      setError('Type the contact type')
+      return
+    }
     if (!country) {
       setError('Choose a country of origin')
+      return
+    }
+    if (countryIsOther && !otherCountry.trim()) {
+      setError('Type the country of origin')
       return
     }
     if (!message.trim()) {
@@ -67,8 +81,9 @@ export default function NewMessageModal({ onClose, onCreated }) {
         phone,
         // Stored as the one display name the rest of the app already uses.
         name: `${firstName.trim()} ${lastName.trim()}`,
-        contact_type: contactType,
-        country_of_origin: country,
+        // "Other" sends the typed text; the server stores that text itself.
+        contact_type: typeIsOther ? otherType.trim() : contactType,
+        country_of_origin: countryIsOther ? otherCountry.trim() : country,
         message: message.trim(),
         ...(accountId ? { account_id: accountId } : {}),
       })
@@ -184,6 +199,20 @@ export default function NewMessageModal({ onClose, onCreated }) {
                 </option>
               ))}
             </select>
+            {typeIsOther ? (
+              <input
+                id="nm-type-other"
+                className="input"
+                autoComplete="off"
+                placeholder="e.g. Driver"
+                aria-label="Other contact type"
+                maxLength={60}
+                value={otherType}
+                onChange={(e) => setOtherType(e.target.value)}
+                required
+                autoFocus
+              />
+            ) : null}
           </div>
 
           <div className="field">
@@ -206,6 +235,20 @@ export default function NewMessageModal({ onClose, onCreated }) {
                 </option>
               ))}
             </select>
+            {countryIsOther ? (
+              <input
+                id="nm-country-other"
+                className="input"
+                autoComplete="off"
+                placeholder="e.g. Nepal"
+                aria-label="Other country of origin"
+                maxLength={60}
+                value={otherCountry}
+                onChange={(e) => setOtherCountry(e.target.value)}
+                required
+                autoFocus
+              />
+            ) : null}
           </div>
         </div>
 

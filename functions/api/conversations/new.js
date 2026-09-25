@@ -5,7 +5,7 @@ import { MESSAGE_COLUMNS } from '../../_lib/storage.js'
 import { ingestAvatar } from '../../_lib/avatar.js'
 import { json, badRequest, serverError, readJson } from '../../_lib/respond.js'
 import { resolveAccountAccess, envForAccount } from '../../_lib/accounts.js'
-import { isContactType, isCountry } from '../../_lib/contactMeta.js'
+import { normalizeContactType, normalizeCountry } from '../../_lib/contactMeta.js'
 
 /**
  * POST /api/conversations/new
@@ -31,8 +31,11 @@ export async function onRequestPost(context) {
   const auth = await requireAuth(request, env)
   if (auth.response) return auth.response
 
-  const { phone, name, contact_type, country_of_origin, message, account_id } =
-    await readJson(request)
+  const body = await readJson(request)
+  const { phone, name, message, account_id } = body
+  // A listed option, or the free text typed after choosing "Other".
+  const contact_type = normalizeContactType(body.contact_type)
+  const country_of_origin = normalizeCountry(body.country_of_origin)
 
   const customerNumber = toDigits(phone)
   // E.164 allows 8–15 digits; anything outside that is a typo, not a number.
@@ -45,8 +48,8 @@ export async function onRequestPost(context) {
 
   const customerName = typeof name === 'string' && name.trim() ? name.trim() : null
   if (!customerName) return badRequest('A contact name is required')
-  if (!isContactType(contact_type)) return badRequest('Choose who this contact is')
-  if (!isCountry(country_of_origin)) return badRequest('Choose a country of origin')
+  if (!contact_type) return badRequest('Choose who this contact is')
+  if (!country_of_origin) return badRequest('Choose a country of origin')
 
   const text = message.trim()
 
