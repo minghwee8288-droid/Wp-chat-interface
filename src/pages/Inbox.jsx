@@ -17,6 +17,7 @@ import ContactAvatar from '../components/ContactAvatar.jsx'
 import ContactPanel from '../components/ContactPanel.jsx'
 import ThreadSearch from '../components/ThreadSearch.jsx'
 import CallControl from '../components/CallControl.jsx'
+import VideoCallControl from '../components/VideoCallControl.jsx'
 import MessageContextMenu from '../components/MessageContextMenu.jsx'
 import SelectionBar from '../components/SelectionBar.jsx'
 import ConversationPicker from '../components/ConversationPicker.jsx'
@@ -875,6 +876,13 @@ export default function Inbox() {
                   dialer extension to pick up; groups become a member picker
                   because the extension dials one person at a time. */}
               <CallControl conversation={conversation} />
+
+              {/* Mints an instant Cal.com meeting and sends its link into the chat. */}
+              <VideoCallControl
+                conversation={conversation}
+                onSend={(body) => send(body)}
+                onError={(err) => toast.error('Could not start video call', err.message)}
+              />
 
               <button
                 type="button"

@@ -291,6 +291,10 @@ export const api = {
   summariesBatch: (conversationIds, signal) =>
     request(`/summaries/batch?ids=${conversationIds.join(',')}`, { signal }),
 
+  /** Mint an instant Cal.com meeting link for a conversation. Does not send it. */
+  createVideoCall: (conversationId) =>
+    request('/video-call', { method: 'POST', body: { conversation_id: conversationId } }),
+
   /** `replyTo` is the id of the message being quoted, or null for a normal send. */
   send: (conversationId, body, media = null, replyTo = null) =>
     request('/send', {

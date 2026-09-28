@@ -3313,8 +3313,12 @@ button {
   opacity: 0.55;
   cursor: progress;
 }
-.call-refresh .is-spinning {
+.call-refresh .is-spinning,
+.call-btn .is-spinning {
   animation: spin 0.8s linear infinite;
+}
+.call-btn:disabled {
+  cursor: progress;
 }
 
 .call-pop-note {
