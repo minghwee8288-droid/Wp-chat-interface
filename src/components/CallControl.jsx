@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Phone, ChevronDown, RefreshCw, User } from 'lucide-react'
 import { api } from '../lib/api.js'
+import { isMobileDialer, ringqHref } from '../lib/dialer.js'
 import { avatarIndex, digitsOnly, formatLocalNumber, initials, localNumber } from '../lib/format.js'
 
 /**
@@ -25,6 +26,10 @@ import { avatarIndex, digitsOnly, formatLocalNumber, initials, localNumber } fro
  * 1:1 chats get a single anchor. Groups get a menu, because the extension can
  * only dial one person at a time: there is no such thing as calling a group
  * through it, so the user picks the member to ring.
+ *
+ * Phones have no extension, and a bare tel: there rings from the SIM. So on
+ * mobile a tap opens DialChooser instead, which offers RingQ or the phone
+ * dialer — see lib/dialer.js.
  */
 export default function CallControl({ conversation }) {
   const isGroup = Boolean(conversation.is_group)
@@ -37,6 +42,20 @@ export default function CallControl({ conversation }) {
   const [error, setError] = useState(null)
   const wrapRef = useRef(null)
   const triggerRef = useRef(null)
+  // Mobile only: the number waiting on a RingQ-or-phone choice.
+  const [choosing, setChoosing] = useState(null)
+
+  // On mobile, intercept the anchor's tap and ask which app to call from. The
+  // href stays as the no-JS / desktop fallback.
+  const onDialClick = (digits) => (e) => {
+    if (!isMobileDialer) return
+    e.preventDefault()
+    setOpen(false)
+    setChoosing(digits)
+  }
+  const chooser = choosing ? (
+    <DialChooser digits={choosing} onClose={() => setChoosing(null)} />
+  ) : null
 
   // Same dismissal contract as the account switcher: pointer outside, or
   // Escape. Escape also returns focus to the trigger; the mouse path does not
@@ -88,6 +107,7 @@ export default function CallControl({ conversation }) {
     setOpen(false)
     setMembers([])
     setError(null)
+    setChoosing(null)
   }, [conversation.id])
 
   if (!isGroup) {
@@ -95,15 +115,19 @@ export default function CallControl({ conversation }) {
     const local = localNumber(number)
     const pretty = formatLocalNumber(number)
     return (
-      <a
-        className="icon-btn call-btn"
-        href={`tel:${local}`}
-        data-phone={local}
-        aria-label={`Call ${pretty}`}
-        title={`Call ${pretty}`}
-      >
-        <Phone size={18} />
-      </a>
+      <>
+        <a
+          className="icon-btn call-btn"
+          href={`tel:${local}`}
+          data-phone={local}
+          aria-label={`Call ${pretty}`}
+          title={`Call ${pretty}`}
+          onClick={onDialClick(local)}
+        >
+          <Phone size={18} />
+        </a>
+        {chooser}
+      </>
     )
   }
 
@@ -179,7 +203,7 @@ export default function CallControl({ conversation }) {
                     href={`tel:${digits}`}
                     data-phone={digits}
                     aria-label={`Call ${name || pretty}`}
-                    onClick={() => setOpen(false)}
+                    onClick={isMobileDialer ? onDialClick(digits) : () => setOpen(false)}
                   >
                     <span
                       className="conv-avatar call-item-avatar"
@@ -209,6 +233,76 @@ export default function CallControl({ conversation }) {
           {error && dialable.length ? <div className="call-pop-warn">{error}</div> : null}
         </div>
       ) : null}
+      {chooser}
+    </div>
+  )
+}
+
+/**
+ * Mobile action sheet: call through RingQ, or through the phone's own dialer.
+ *
+ * An app link that nothing handles fails silently on a phone — the page just
+ * stays put. So after the RingQ tap the sheet waits briefly: if the page was
+ * hidden, the app opened and the sheet closes; if not, it says so instead of
+ * leaving the user tapping a dead button.
+ */
+function DialChooser({ digits, onClose }) {
+  const [failed, setFailed] = useState(false)
+  const timer = useRef(null)
+  const pretty = formatLocalNumber(digits)
+
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      clearTimeout(timer.current)
+    }
+  }, [onClose])
+
+  const openRingq = () => {
+    setFailed(false)
+    let left = false
+    const onHide = () => {
+      if (document.hidden) left = true
+    }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', onHide)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', onHide)
+      if (left || document.hidden) onClose()
+      else setFailed(true)
+    }, 1800)
+    window.location.href = ringqHref(digits)
+  }
+
+  return (
+    <div className="dial-sheet-backdrop" onClick={onClose}>
+      <div
+        className="dial-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Call ${pretty}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="dial-sheet-title">Call {pretty} from</div>
+        <button type="button" className="dial-sheet-btn is-primary" onClick={openRingq}>
+          RingQ
+        </button>
+        <a className="dial-sheet-btn" href={`tel:${digits}`} onClick={onClose}>
+          Phone
+        </a>
+        {failed ? (
+          <p className="dial-sheet-error">
+            RingQ did not open. Check that the RingQ app is installed and signed in.
+          </p>
+        ) : null}
+        <button type="button" className="dial-sheet-btn" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }

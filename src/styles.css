@@ -3411,6 +3411,68 @@ button {
   color: var(--danger);
 }
 
+/* Mobile "call from" sheet: RingQ or the phone's own dialer. Fixed to the
+   viewport, so it escapes the header's overflow and sits above the composer. */
+.dial-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.4);
+}
+.dial-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 360px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-menu);
+}
+.dial-sheet-title {
+  padding-bottom: 4px;
+  font-size: 15px;
+  text-align: center;
+  color: var(--text);
+}
+.dial-sheet-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+}
+.dial-sheet-btn:hover {
+  text-decoration: none;
+}
+.dial-sheet-btn.is-primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.dial-sheet-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--danger);
+}
+
 /* ------------------------------------------------------------------ *
  * Assign control
  * ------------------------------------------------------------------ */
