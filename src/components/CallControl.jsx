@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Phone, ChevronDown, RefreshCw, User } from 'lucide-react'
 import { api } from '../lib/api.js'
+import { isMobileDialer, ringqHref } from '../lib/dialer.js'
 import { avatarIndex, digitsOnly, formatLocalNumber, initials, localNumber } from '../lib/format.js'
 
 /**
@@ -25,6 +26,10 @@ import { avatarIndex, digitsOnly, formatLocalNumber, initials, localNumber } fro
  * 1:1 chats get a single anchor. Groups get a menu, because the extension can
  * only dial one person at a time: there is no such thing as calling a group
  * through it, so the user picks the member to ring.
+ *
+ * Phones have no extension, and a bare tel: there rings from the SIM. So on
+ * mobile a tap opens DialChooser instead, which offers RingQ or the phone
+ * dialer — see lib/dialer.js.
  */
 export default function CallControl({ conversation }) {
   const isGroup = Boolean(conversation.is_group)
@@ -37,6 +42,20 @@ export default function CallControl({ conversation }) {
   const [error, setError] = useState(null)
   const wrapRef = useRef(null)
   const triggerRef = useRef(null)
+  // Mobile only: the number waiting on a RingQ-or-phone choice.
+  const [choosing, setChoosing] = useState(null)
+
+  // On mobile, intercept the anchor's tap and ask which app to call from. The
+  // href stays as the no-JS / desktop fallback.
+  const onDialClick = (digits) => (e) => {
+    if (!isMobileDialer) return
+    e.preventDefault()
+    setOpen(false)
+    setChoosing(digits)
+  }
+  const chooser = choosing ? (
+    <DialChooser digits={choosing} onClose={() => setChoosing(null)} />
+  ) : null
 
   // Same dismissal contract as the account switcher: pointer outside, or
   // Escape. Escape also returns focus to the trigger; the mouse path does not
@@ -88,6 +107,7 @@ export default function CallControl({ conversation }) {
     setOpen(false)
     setMembers([])
     setError(null)
+    setChoosing(null)
   }, [conversation.id])
 
   if (!isGroup) {
@@ -95,15 +115,19 @@ export default function CallControl({ conversation }) {
     const local = localNumber(number)
     const pretty = formatLocalNumber(number)
     return (
-      <a
-        className="icon-btn call-btn"
-        href={`tel:${local}`}
-        data-phone={local}
-        aria-label={`Call ${pretty}`}
-        title={`Call ${pretty}`}
-      >
-        <Phone size={18} />
-      </a>
+      <>
+        <a
+          className="icon-btn call-btn"
+          href={`tel:${local}`}
+          data-phone={local}
+          aria-label={`Call ${pretty}`}
+          title={`Call ${pretty}`}
+          onClick={onDialClick(local)}
+        >
+          <Phone size={18} />
+        </a>
+        {chooser}
+      </>
     )
   }
 
@@ -179,7 +203,7 @@ export default function CallControl({ conversation }) {
                     href={`tel:${digits}`}
                     data-phone={digits}
                     aria-label={`Call ${name || pretty}`}
-                    onClick={() => setOpen(false)}
+                    onClick={isMobileDialer ? onDialClick(digits) : () => setOpen(false)}
                   >
                     <span
                       className="conv-avatar call-item-avatar"
@@ -209,6 +233,111 @@ export default function CallControl({ conversation }) {
           {error && dialable.length ? <div className="call-pop-warn">{error}</div> : null}
         </div>
       ) : null}
+      {chooser}
     </div>
   )
+}
+
+/**
+ * Mobile action sheet: call through RingQ, or through the phone's own dialer.
+ *
+ * RingQ cannot be handed a number from a web page: on iOS it has no public
+ * URL scheme and is not offered as a default calling app, and on Android it
+ * opens from our intent but ignores the number. So the RingQ path is manual —
+ * copy the number here, then paste it into RingQ's keypad. Copy and open are
+ * separate taps on purpose: switching apps in the same tap as the copy
+ * cancels the copy.
+ */
+function DialChooser({ digits, onClose }) {
+  const [step, setStep] = useState('choose')
+  const [copied, setCopied] = useState(null)
+  const pretty = formatLocalNumber(digits)
+
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const copy = async () => setCopied(await copyText(digits))
+  const ringq = ringqHref(digits)
+
+  return (
+    <div className="dial-sheet-backdrop" onClick={onClose}>
+      <div
+        className="dial-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Call ${pretty}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {step === 'choose' ? (
+          <>
+            <div className="dial-sheet-title">Call {pretty} from</div>
+            <button
+              type="button"
+              className="dial-sheet-btn is-primary"
+              onClick={() => setStep('ringq')}
+            >
+              RingQ
+            </button>
+            <a className="dial-sheet-btn" href={`tel:${digits}`} onClick={onClose}>
+              Phone
+            </a>
+          </>
+        ) : (
+          <>
+            <div className="dial-sheet-title">Call with RingQ</div>
+            <div className="dial-sheet-number">{pretty}</div>
+            <button type="button" className="dial-sheet-btn is-primary" onClick={copy}>
+              {copied ? 'Copied ✓' : 'Copy number'}
+            </button>
+            {ringq ? (
+              <a className="dial-sheet-btn" href={ringq} onClick={onClose}>
+                Open RingQ
+              </a>
+            ) : null}
+            <p className={`dial-sheet-hint${copied === false ? ' is-error' : ''}`}>
+              {copied === false
+                ? 'Could not copy — press and hold the number above to copy it.'
+                : ringq
+                  ? 'Copy the number, open RingQ, then paste it into the keypad.'
+                  : 'Copy the number, switch to the RingQ app, then paste it into the keypad.'}
+            </p>
+          </>
+        )}
+        <button type="button" className="dial-sheet-btn" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Clipboard write with a fallback for browsers or contexts (plain http) where
+ * navigator.clipboard is missing or refuses. Resolves true on success.
+ */
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.setAttribute('readonly', '')
+    el.style.position = 'fixed'
+    el.style.opacity = '0'
+    document.body.appendChild(el)
+    el.select()
+    el.setSelectionRange(0, text.length)
+    let ok = false
+    try {
+      ok = document.execCommand('copy')
+    } catch {
+      ok = false
+    }
+    el.remove()
+    return ok
+  }
 }
