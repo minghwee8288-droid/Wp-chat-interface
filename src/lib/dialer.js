@@ -34,13 +34,15 @@ const RINGQ_IOS_URL = 'ringq://call?number={number}'
 /**
  * Link that opens RingQ ready to call `digits`.
  *
- * Android: an intent URL for the `tel:` action pinned to RingQ's package, so
- * Android skips the SIM dialer and routes the number to RingQ. If RingQ is not
- * installed, Chrome falls back to its Play Store page.
+ * Android: an intent URL for a `tel:` DIAL pinned to RingQ's package, so
+ * Android skips the SIM dialer and routes the number to RingQ. The action is
+ * DIAL, not the default VIEW: with VIEW, RingQ opened its keypad but ignored
+ * the number. If RingQ is not installed, Chrome falls back to its Play Store
+ * page.
  */
 export function ringqHref(digits) {
   if (isAndroid) {
-    return `intent:${digits}#Intent;scheme=tel;package=${RINGQ_ANDROID_PACKAGE};end`
+    return `intent:${digits}#Intent;scheme=tel;action=android.intent.action.DIAL;package=${RINGQ_ANDROID_PACKAGE};end`
   }
   return RINGQ_IOS_URL.replace('{number}', encodeURIComponent(digits))
 }

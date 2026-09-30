@@ -244,7 +244,8 @@ export default function CallControl({ conversation }) {
  * An app link that nothing handles fails silently on a phone — the page just
  * stays put. So after the RingQ tap the sheet waits briefly: if the page was
  * hidden, the app opened and the sheet closes; if not, it says so instead of
- * leaving the user tapping a dead button.
+ * leaving the user tapping a dead button. The number is also put on the
+ * clipboard, so it can be pasted into RingQ whichever way the app opens.
  */
 function DialChooser({ digits, onClose }) {
   const [failed, setFailed] = useState(false)
@@ -262,6 +263,9 @@ function DialChooser({ digits, onClose }) {
 
   const openRingq = () => {
     setFailed(false)
+    // Copied first, while still inside the tap (clipboard needs the gesture),
+    // so the number can be pasted into RingQ if the app opens without it.
+    navigator.clipboard?.writeText(digits).catch(() => {})
     let left = false
     const onHide = () => {
       if (document.hidden) left = true
@@ -296,7 +300,8 @@ function DialChooser({ digits, onClose }) {
         </a>
         {failed ? (
           <p className="dial-sheet-error">
-            RingQ did not open. Check that the RingQ app is installed and signed in.
+            RingQ did not open. The number {pretty} is copied — open RingQ and
+            paste it into the keypad.
           </p>
         ) : null}
         <button type="button" className="dial-sheet-btn" onClick={onClose}>
