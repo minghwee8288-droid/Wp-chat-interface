@@ -241,46 +241,26 @@ export default function CallControl({ conversation }) {
 /**
  * Mobile action sheet: call through RingQ, or through the phone's own dialer.
  *
- * An app link that nothing handles fails silently on a phone — the page just
- * stays put. So after the RingQ tap the sheet waits briefly: if the page was
- * hidden, the app opened and the sheet closes; if not, it says so instead of
- * leaving the user tapping a dead button. The number is also put on the
- * clipboard, so it can be pasted into RingQ whichever way the app opens.
+ * RingQ cannot be handed a number from a web page: on iOS it has no public
+ * URL scheme and is not offered as a default calling app, and on Android it
+ * opens from our intent but ignores the number. So the RingQ path is manual —
+ * copy the number here, then paste it into RingQ's keypad. Copy and open are
+ * separate taps on purpose: switching apps in the same tap as the copy
+ * cancels the copy.
  */
 function DialChooser({ digits, onClose }) {
-  const [failed, setFailed] = useState(false)
-  const timer = useRef(null)
+  const [step, setStep] = useState('choose')
+  const [copied, setCopied] = useState(null)
   const pretty = formatLocalNumber(digits)
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
     document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      clearTimeout(timer.current)
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const openRingq = () => {
-    setFailed(false)
-    // Copied first, while still inside the tap (clipboard needs the gesture),
-    // so the number can be pasted into RingQ if the app opens without it.
-    navigator.clipboard?.writeText(digits).catch(() => {})
-    let left = false
-    const onHide = () => {
-      if (document.hidden) left = true
-    }
-    document.addEventListener('visibilitychange', onHide)
-    window.addEventListener('pagehide', onHide)
-    clearTimeout(timer.current)
-    timer.current = setTimeout(() => {
-      document.removeEventListener('visibilitychange', onHide)
-      window.removeEventListener('pagehide', onHide)
-      if (left || document.hidden) onClose()
-      else setFailed(true)
-    }, 1800)
-    window.location.href = ringqHref(digits)
-  }
+  const copy = async () => setCopied(await copyText(digits))
+  const ringq = ringqHref(digits)
 
   return (
     <div className="dial-sheet-backdrop" onClick={onClose}>
@@ -291,23 +271,73 @@ function DialChooser({ digits, onClose }) {
         aria-label={`Call ${pretty}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="dial-sheet-title">Call {pretty} from</div>
-        <button type="button" className="dial-sheet-btn is-primary" onClick={openRingq}>
-          RingQ
-        </button>
-        <a className="dial-sheet-btn" href={`tel:${digits}`} onClick={onClose}>
-          Phone
-        </a>
-        {failed ? (
-          <p className="dial-sheet-error">
-            RingQ did not open. The number {pretty} is copied — open RingQ and
-            paste it into the keypad.
-          </p>
-        ) : null}
+        {step === 'choose' ? (
+          <>
+            <div className="dial-sheet-title">Call {pretty} from</div>
+            <button
+              type="button"
+              className="dial-sheet-btn is-primary"
+              onClick={() => setStep('ringq')}
+            >
+              RingQ
+            </button>
+            <a className="dial-sheet-btn" href={`tel:${digits}`} onClick={onClose}>
+              Phone
+            </a>
+          </>
+        ) : (
+          <>
+            <div className="dial-sheet-title">Call with RingQ</div>
+            <div className="dial-sheet-number">{pretty}</div>
+            <button type="button" className="dial-sheet-btn is-primary" onClick={copy}>
+              {copied ? 'Copied ✓' : 'Copy number'}
+            </button>
+            {ringq ? (
+              <a className="dial-sheet-btn" href={ringq} onClick={onClose}>
+                Open RingQ
+              </a>
+            ) : null}
+            <p className={`dial-sheet-hint${copied === false ? ' is-error' : ''}`}>
+              {copied === false
+                ? 'Could not copy — press and hold the number above to copy it.'
+                : ringq
+                  ? 'Copy the number, open RingQ, then paste it into the keypad.'
+                  : 'Copy the number, switch to the RingQ app, then paste it into the keypad.'}
+            </p>
+          </>
+        )}
         <button type="button" className="dial-sheet-btn" onClick={onClose}>
           Cancel
         </button>
       </div>
     </div>
   )
+}
+
+/**
+ * Clipboard write with a fallback for browsers or contexts (plain http) where
+ * navigator.clipboard is missing or refuses. Resolves true on success.
+ */
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.setAttribute('readonly', '')
+    el.style.position = 'fixed'
+    el.style.opacity = '0'
+    document.body.appendChild(el)
+    el.select()
+    el.setSelectionRange(0, text.length)
+    let ok = false
+    try {
+      ok = document.execCommand('copy')
+    } catch {
+      ok = false
+    }
+    el.remove()
+    return ok
+  }
 }

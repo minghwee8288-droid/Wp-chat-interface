@@ -22,27 +22,18 @@ export const isMobileDialer = isIOS || isAndroid
 const RINGQ_ANDROID_PACKAGE = 'com.ringq.app'
 
 /**
- * URL that opens the RingQ iOS app on a number. `{number}` is replaced with
- * the local digits.
+ * Link that opens the RingQ app, or null where there is none.
  *
- * RingQ does not publish its iOS URL scheme; this value is UNVERIFIED. If the
- * RingQ option on an iPhone does nothing, get the correct scheme from RingQ
- * support and change it here — it is the only place it lives.
- */
-const RINGQ_IOS_URL = 'ringq://call?number={number}'
-
-/**
- * Link that opens RingQ ready to call `digits`.
+ * Android: an intent URL pinned to RingQ's package. It opens RingQ (or its
+ * Play Store page if not installed), but RingQ ignores the number in it, so
+ * the chooser also offers the number to copy and paste.
  *
- * Android: an intent URL for a `tel:` DIAL pinned to RingQ's package, so
- * Android skips the SIM dialer and routes the number to RingQ. The action is
- * DIAL, not the default VIEW: with VIEW, RingQ opened its keypad but ignored
- * the number. If RingQ is not installed, Chrome falls back to its Play Store
- * page.
+ * iOS: RingQ publishes no URL scheme, so there is no way to open it from a web
+ * page. If RingQ support ever provides one, return it here for iOS.
  */
 export function ringqHref(digits) {
   if (isAndroid) {
     return `intent:${digits}#Intent;scheme=tel;action=android.intent.action.DIAL;package=${RINGQ_ANDROID_PACKAGE};end`
   }
-  return RINGQ_IOS_URL.replace('{number}', encodeURIComponent(digits))
+  return null
 }

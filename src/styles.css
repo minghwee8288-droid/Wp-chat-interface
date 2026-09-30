@@ -3463,13 +3463,27 @@ button {
   background: var(--accent);
   color: var(--accent-contrast);
 }
-.dial-sheet-error {
+.dial-sheet-number {
+  padding: 4px 0 6px;
+  font-size: 26px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  /* Long-press to copy is the fallback when the Copy button cannot write. */
+  user-select: all;
+  -webkit-user-select: all;
+}
+.dial-sheet-hint {
   margin: 0;
-  padding: 8px 10px;
-  border-radius: var(--r-sm);
-  background: var(--danger-soft);
+  padding: 0 4px;
   font-size: 13px;
   line-height: 1.4;
+  text-align: center;
+  color: var(--text-2);
+}
+.dial-sheet-hint.is-error {
   color: var(--danger);
 }
 
